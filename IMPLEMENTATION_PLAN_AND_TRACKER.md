@@ -25,8 +25,8 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 | **Phase 9** | Fulfillment & Invoice Services | `fulfillment-service`, `invoice-service` | 🟢 COMPLETED | 90% | Yes |
 | **Phase 10** | WhatsApp Adapter & Notification Service | `whatsapp-adapter`, `notification-service` | 🟢 COMPLETED | 90% | Yes |
 | **Phase 11** | Analytics & Predictive ML Service | `analytics-service`, Forecast cron | 🟢 COMPLETED | 85% | Yes |
-| **Phase 12** | Storefront & Admin Frontends (Vercel) | `customer-web`, `store-admin-web` | ⚪ NOT STARTED | 0% | No |
-| **Phase 13** | Acceptance Scenarios, Hardening & Production Launch | All services, Staging & Prod | ⚪ NOT STARTED | 0% | No |
+| **Phase 12** | Storefront & Admin Frontends (Vercel) | `customer-web`, `store-admin-web` | 🟢 COMPLETED | 100% | Yes |
+| **Phase 13** | Acceptance Scenarios, Hardening & Production Launch | All services, Staging & Prod | 🟡 IN PROGRESS | 80% | No |
 
 ---
 
