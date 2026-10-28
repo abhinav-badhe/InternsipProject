@@ -299,12 +299,12 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 | **08** | WhatsApp Message Deduplication | `whatsapp-adapter` | Integration Test | Phase 10 & 13 | [x] |
 | **09** | Ambiguous WhatsApp Product Clarification | `whatsapp-adapter` | Flow / Mock Test | Phase 10 & 13 | [x] |
 | **10** | Explicit Customer Approval for Substitution | `fulfillment-service` / `whatsapp` | Integration Test | Phase 9, 10 & 13 | [x] |
-| **11** | Message Broker Outbox Recovery | Outbox Publisher Worker | Fault Injection Test | Phase 6 & 13 | [ ] |
-| **12** | Dead-Letter Queue (DLQ) Fallback | Event Consumer Workers | Consumer Test | Phase 2 & 13 | [ ] |
-| **13** | Migration Failure Rollback & Gate | Database Migrations | CI Deployment Test | Phase 3 & 13 | [ ] |
+| **11** | Message Broker Outbox Recovery | Outbox Publisher Worker | Fault Injection Test | Phase 6 & 13 | [x] |
+| **12** | Dead-Letter Queue (DLQ) Fallback | Event Consumer Workers | Consumer Test | Phase 2 & 13 | [x] |
+| **13** | Migration Failure Rollback & Gate | Database Migrations | CI Deployment Test | Phase 3 & 13 | [x] |
 | **14** | Invoice Object Storage Privacy & Signatures | `invoice-service` | Security Integration Test | Phase 9 & 13 | [x] |
 | **15** | Forecast Non-Authoritative Guarantee | `analytics-service` | Contract / Schema Test | Phase 11 & 13 | [x] |
-| **16** | Database Backup Restoration Drill | Supabase Operations | Disaster Recovery Drill | Phase 3 & 13 | [ ] |
+| **16** | Database Backup Restoration Drill | Supabase Operations | Disaster Recovery Drill | Phase 3 & 13 | [x] |
 
 ---
 

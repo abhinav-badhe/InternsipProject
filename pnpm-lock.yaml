@@ -398,6 +398,25 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  workers/event-workers:
+    dependencies:
+      '@grocery/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@grocery/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
+      pg:
+        specifier: ^8.13.3
+        version: 8.23.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.11.11
+        version: 8.23.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
 packages:
 
   '@babel/code-frame@7.29.7':

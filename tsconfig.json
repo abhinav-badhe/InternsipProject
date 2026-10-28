@@ -18,6 +18,7 @@
     { "path": "./services/fulfillment-service" },
     { "path": "./services/invoice-service" },
     { "path": "./services/notification-service" },
-    { "path": "./services/analytics-service" }
+    { "path": "./services/analytics-service" },
+    { "path": "./workers/event-workers" }
   ]
 }
