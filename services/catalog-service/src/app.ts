@@ -119,6 +119,43 @@ export function createApp(): express.Application {
     }
   });
 
+  // Create Product & Variant (Conforms to 001_initial_catalog_schema)
+  app.post('/api/v1/catalog/products', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name, categoryId, variant } = req.body;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      if (!name || !categoryId || !variant || !variant.sku || !variant.variantName) {
+        return res
+          .status(400)
+          .json(
+            errorResponse(
+              'INVALID_PARAM',
+              'name, categoryId, and variant with sku and variantName are required',
+              correlationId
+            )
+          );
+      }
+
+      const result = await catalogRepo.createProductWithVariant(req.body);
+      res.status(201).json(okResponse(result, correlationId));
+    } catch (err: any) {
+      if (err.code === '23505') {
+        const correlationId = getRequestContext()?.correlationId || 'unknown';
+        return res
+          .status(409)
+          .json(
+            errorResponse(
+              'DUPLICATE_KEY',
+              `Product or variant with this SKU/slug already exists: ${err.detail || err.message}`,
+              correlationId
+            )
+          );
+      }
+      next(err);
+    }
+  });
+
   // Global Error Handler (Fails closed, never leaks stack traces)
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';

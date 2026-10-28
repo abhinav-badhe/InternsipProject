@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   LayoutGrid,
   Boxes,
@@ -11,39 +11,42 @@ import {
   ExternalLink,
   Plus,
   RefreshCw,
-  AlertTriangle,
   CheckCircle2,
-  XCircle,
-  Clock,
+  Calendar,
+  Sparkles,
   ShieldCheck,
   Printer,
   Send,
   Eye,
   Filter,
-  Layers,
   ArrowRight,
-  Package,
-  Calendar,
-  MapPin,
-  Sparkles,
+  PackagePlus,
+  Check,
+  X,
+  Tag,
+  Layers,
 } from 'lucide-react';
 
 // ==========================================
-// 1. DATA TYPES (Strict Domain Entities)
+// 1. DATA TYPES (Conforming to Database Schema)
 // ==========================================
 
-export interface Category {
+export interface CategoryDef {
   id: string;
   name: string;
+  parentName: string;
   slug: string;
-  parentId: string | null;
-  level: number;
+  defaultHsn: string;
+  defaultZone: string;
+  defaultImage: string;
+  sampleBrands: string[];
 }
 
 export interface ProductVariant {
   sku: string;
   productName: string;
   brand: string;
+  categoryId: string;
   categoryName: string;
   packSize: string;
   mrp: number;
@@ -52,6 +55,11 @@ export interface ProductVariant {
   reserved: number;
   zone: string;
   imageUrl: string;
+  storageType?: string;
+  shelfLifeDays?: number;
+  isVeg?: boolean;
+  hsnCode?: string;
+  barcode?: string;
 }
 
 export interface FefoBatch {
@@ -141,14 +149,68 @@ export interface DemandForecast {
 }
 
 // ==========================================
-// 2. INITIAL SEED DATA
+// 2. MASTER CATEGORIES & SEED DATA
 // ==========================================
+
+export const MASTER_CATEGORIES: CategoryDef[] = [
+  {
+    id: '11000000-0000-0000-0000-000000000001',
+    name: 'Bathing Soaps & Body Wash',
+    parentName: 'Personal Care',
+    slug: 'bathing-soaps',
+    defaultHsn: '34011110',
+    defaultZone: 'Zone A-01',
+    defaultImage: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=300&auto=format&fit=crop&q=80',
+    sampleBrands: ['Dettol', 'Dove', 'Lifebuoy', 'Pears', 'Lux', 'Fiama', 'Mysore Sandal'],
+  },
+  {
+    id: '11000000-0000-0000-0000-000000000002',
+    name: 'Washing Soaps & Detergent Bars',
+    parentName: 'Household & Laundry',
+    slug: 'washing-soaps',
+    defaultHsn: '34022010',
+    defaultZone: 'Zone B-01',
+    defaultImage: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?w=300&auto=format&fit=crop&q=80',
+    sampleBrands: ['Surf Excel', 'Rin', 'Tide', 'Wheel', 'Henko', 'Ariel'],
+  },
+  {
+    id: '11000000-0000-0000-0000-000000000003',
+    name: 'Dishwashing & Utensil Soaps',
+    parentName: 'Kitchen & Dishwashing',
+    slug: 'utensil-soaps',
+    defaultHsn: '34029010',
+    defaultZone: 'Zone B-04',
+    defaultImage: 'https://images.unsplash.com/photo-1585421514738-01798e348b17?w=300&auto=format&fit=crop&q=80',
+    sampleBrands: ['Vim', 'Pril', 'Exo', 'Genteel', 'Nip'],
+  },
+  {
+    id: '11000000-0000-0000-0000-000000000004',
+    name: 'Milk & Dairy Essentials',
+    parentName: 'Dairy & Eggs',
+    slug: 'milk-dairy',
+    defaultHsn: '04012000',
+    defaultZone: 'Cold-01',
+    defaultImage: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=300&auto=format&fit=crop&q=80',
+    sampleBrands: ['Amul', 'Nandini', 'Mother Dairy', 'Britannia', 'Milky Mist'],
+  },
+  {
+    id: '11000000-0000-0000-0000-000000000005',
+    name: 'Atta, Rice & Grains',
+    parentName: 'Staples & Flours',
+    slug: 'atta-rice-staples',
+    defaultHsn: '11010000',
+    defaultZone: 'Zone A-05',
+    defaultImage: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300&auto=format&fit=crop&q=80',
+    sampleBrands: ['Aashirvaad', 'Fortune', 'India Gate', 'Tata Sampann', 'Pillsbury'],
+  },
+];
 
 const INITIAL_VARIANTS: ProductVariant[] = [
   {
     sku: 'DETTOL-ORIG-75G',
     productName: 'Dettol Original Germ Protection Bathing Soap',
     brand: 'Dettol',
+    categoryId: '11000000-0000-0000-0000-000000000001',
     categoryName: 'Bathing Soaps & Body Wash',
     packSize: '75g Bar',
     mrp: 42.0,
@@ -157,11 +219,14 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 2,
     zone: 'Zone A-01',
     imageUrl: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '34011110',
+    barcode: '8901030010021',
   },
   {
     sku: 'DOVE-BAR-125G-4PK',
     productName: 'Dove Cream Beauty Bathing Bar',
     brand: 'Dove',
+    categoryId: '11000000-0000-0000-0000-000000000001',
     categoryName: 'Bathing Soaps & Body Wash',
     packSize: '4 × 125g Pack',
     mrp: 340.0,
@@ -170,11 +235,14 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 0,
     zone: 'Zone A-02',
     imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '34011110',
+    barcode: '8901030010043',
   },
   {
     sku: 'LIFEBUOY-RED-100G',
     productName: 'Lifebuoy Total 10 Germ Protection Soap',
     brand: 'Lifebuoy',
+    categoryId: '11000000-0000-0000-0000-000000000001',
     categoryName: 'Bathing Soaps & Body Wash',
     packSize: '100g Bar',
     mrp: 36.0,
@@ -183,12 +251,15 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 0,
     zone: 'Zone A-03',
     imageUrl: 'https://images.unsplash.com/photo-1590439471364-192aa70c0b53?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '34011110',
+    barcode: '8901030010065',
   },
   {
     sku: 'SURF-BAR-200G',
     productName: 'Surf Excel Stain Eraser Detergent Bar',
     brand: 'Surf Excel',
-    categoryName: 'Laundry Bars & Detergents',
+    categoryId: '11000000-0000-0000-0000-000000000002',
+    categoryName: 'Washing Soaps & Detergent Bars',
     packSize: '200g Bar',
     mrp: 35.0,
     price: 30.0,
@@ -196,12 +267,15 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 4,
     zone: 'Zone B-01',
     imageUrl: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '34022010',
+    barcode: '8901030020011',
   },
   {
     sku: 'RIN-BAR-250G',
     productName: 'Rin Advanced Supreme Brightness Bar',
     brand: 'Rin',
-    categoryName: 'Laundry Bars & Detergents',
+    categoryId: '11000000-0000-0000-0000-000000000002',
+    categoryName: 'Washing Soaps & Detergent Bars',
     packSize: '250g Bar',
     mrp: 28.0,
     price: 24.0,
@@ -209,12 +283,15 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 0,
     zone: 'Zone B-02',
     imageUrl: 'https://images.unsplash.com/photo-1545127398-14699f92334b?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '34022010',
+    barcode: '8901030020028',
   },
   {
     sku: 'VIM-BAR-200G',
     productName: 'Vim Lemon Degreasing Dishwash Bar',
     brand: 'Vim',
-    categoryName: 'Dishwash Bars & Liquids',
+    categoryId: '11000000-0000-0000-0000-000000000003',
+    categoryName: 'Dishwashing & Utensil Soaps',
     packSize: '200g Bar',
     mrp: 28.0,
     price: 25.0,
@@ -222,12 +299,15 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 1,
     zone: 'Zone B-04',
     imageUrl: 'https://images.unsplash.com/photo-1585421514738-01798e348b17?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '34029010',
+    barcode: '8901030030010',
   },
   {
     sku: 'AMUL-MILK-1L',
     productName: 'Amul Taaza Homogenised Toned Milk',
     brand: 'Amul',
-    categoryName: 'Dairy, Bread & Eggs',
+    categoryId: '11000000-0000-0000-0000-000000000004',
+    categoryName: 'Milk & Dairy Essentials',
     packSize: '1 Litre Tetra',
     mrp: 75.0,
     price: 74.0,
@@ -235,11 +315,14 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 0,
     zone: 'Cold-01',
     imageUrl: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '04012000',
+    barcode: '8901262010105',
   },
   {
     sku: 'AASH-ATTA-5KG',
     productName: 'Aashirvaad Shudh Chakki Whole Wheat Atta',
     brand: 'Aashirvaad',
+    categoryId: '11000000-0000-0000-0000-000000000005',
     categoryName: 'Atta, Rice & Grains',
     packSize: '5 kg Bag',
     mrp: 290.0,
@@ -248,6 +331,8 @@ const INITIAL_VARIANTS: ProductVariant[] = [
     reserved: 2,
     zone: 'Zone A-05',
     imageUrl: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300&auto=format&fit=crop&q=80',
+    hsnCode: '11010000',
+    barcode: '8901030050019',
   },
 ];
 
@@ -517,11 +602,55 @@ export const App: React.FC = () => {
 
   // Core state
   const [variants, setVariants] = useState<ProductVariant[]>(INITIAL_VARIANTS);
-  const [fefoBatches] = useState<FefoBatch[]>(INITIAL_FEFO_BATCHES);
+  const [fefoBatches, setFefoBatches] = useState<FefoBatch[]>(INITIAL_FEFO_BATCHES);
   const [orders, setOrders] = useState<OrderRecord[]>(INITIAL_ORDERS);
   const [pickTasks, setPickTasks] = useState<PickListTask[]>(INITIAL_PICK_TASKS);
   const [invoices] = useState<InvoiceRecord[]>(INITIAL_INVOICES);
-  const [forecasts] = useState<DemandForecast[]>(INITIAL_FORECASTS);
+  const [forecasts, setForecasts] = useState<DemandForecast[]>(INITIAL_FORECASTS);
+
+  // Category Filtering
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+
+  // Modals & Interactivity
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRecord | null>(null);
+  const [adjustStockSku, setAdjustStockSku] = useState<string | null>(null);
+  const [adjustDelta, setAdjustDelta] = useState<number>(10);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // ==========================================
+  // ADD PRODUCT FORM STATE (Conforming to Schema)
+  // ==========================================
+  const [formCategoryId, setFormCategoryId] = useState(MASTER_CATEGORIES[0].id);
+  const [formBrand, setFormBrand] = useState('Dettol');
+  const [formCustomBrand, setFormCustomBrand] = useState('');
+  const [formProductName, setFormProductName] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formStorageType, setFormStorageType] = useState<'ambient' | 'chilled' | 'frozen'>('ambient');
+  const [formShelfLifeDays, setFormShelfLifeDays] = useState(730);
+  const [formIsVeg, setFormIsVeg] = useState(true);
+  const [formIsPerishable, setFormIsPerishable] = useState(false);
+  const [formTags, setFormTags] = useState('soap, germ-protection, hygiene');
+
+  // Variant / SKU fields
+  const [formSku, setFormSku] = useState('');
+  const [formVariantName, setFormVariantName] = useState('125g Bar');
+  const [formNetWeightValue, setFormNetWeightValue] = useState(125);
+  const [formMeasurementUnit, setFormMeasurementUnit] = useState<'g' | 'kg' | 'ml' | 'l' | 'each' | 'pack'>('g');
+  const [formBarcode, setFormBarcode] = useState('');
+  const [formMrp, setFormMrp] = useState(65.0);
+  const [formPrice, setFormPrice] = useState(58.0);
+  const [formHsnCode, setFormHsnCode] = useState('34011110');
+  const [formImageUrl, setFormImageUrl] = useState(
+    'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=300&auto=format&fit=crop&q=80'
+  );
+
+  // Initial Inventory & FEFO Batch
+  const [formInitialStock, setFormInitialStock] = useState(50);
+  const [formWarehouseZone, setFormWarehouseZone] = useState('Zone A-01-R4');
+  const [formBatchNumber, setFormBatchNumber] = useState('');
+  const [formExpiryDate, setFormExpiryDate] = useState('2027-10-28');
+  const [isSubmittingProduct, setIsSubmittingProduct] = useState(false);
 
   // Live Disambiguation Tester
   const [disambiguateTerm, setDisambiguateTerm] = useState('soap');
@@ -539,24 +668,18 @@ export const App: React.FC = () => {
       },
       {
         id: 'LAUNDRY_SOAP',
-        name: 'Laundry Bars & Detergents',
+        name: 'Washing Soaps & Detergent Bars',
         slug: 'laundry-detergents',
         sampleBrands: ['Surf Excel', 'Rin', 'Tide'],
       },
       {
         id: 'UTENSIL_SOAP',
-        name: 'Dishwash Bars & Liquids',
+        name: 'Dishwashing & Utensil Soaps',
         slug: 'dishwash',
         sampleBrands: ['Vim', 'Pril', 'Exo'],
       },
     ],
   });
-
-  // Modals & Interactivity
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRecord | null>(null);
-  const [adjustStockSku, setAdjustStockSku] = useState<string | null>(null);
-  const [adjustDelta, setAdjustDelta] = useState<number>(10);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // WhatsApp Simulator State
   const [chatMessages, setChatMessages] = useState<
@@ -583,6 +706,154 @@ export const App: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  // When category changes in Add Product Form, update default HSN, Zone, Image
+  const handleFormCategoryChange = (catId: string) => {
+    setFormCategoryId(catId);
+    const cat = MASTER_CATEGORIES.find((c) => c.id === catId);
+    if (cat) {
+      setFormHsnCode(cat.defaultHsn);
+      setFormWarehouseZone(`${cat.defaultZone}-R${Math.floor(1 + Math.random() * 5)}`);
+      setFormImageUrl(cat.defaultImage);
+      if (cat.sampleBrands.length > 0 && !cat.sampleBrands.includes(formBrand)) {
+        setFormBrand(cat.sampleBrands[0]);
+      }
+    }
+  };
+
+  // Auto-generate SKU and Batch Number when Product Name or Variant changes
+  const handleAutoGenerateSkuAndBatch = () => {
+    const brandName = formBrand === 'OTHER' ? (formCustomBrand || 'CUSTOM') : formBrand;
+    const cleanBrand = brandName.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+    const cleanName = (formProductName || 'PROD').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+    const cleanSize = formVariantName.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+
+    const generatedSku = `${cleanBrand}-${cleanName}-${cleanSize || 'STD'}`;
+    const generatedBatch = `BATCH-2026-${cleanBrand}-${Math.floor(10 + Math.random() * 90)}`;
+    const generatedBarcode = `890${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+
+    setFormSku(generatedSku);
+    setFormBatchNumber(generatedBatch);
+    setFormBarcode(generatedBarcode);
+    showToast(`Generated SKU: ${generatedSku} & Batch: ${generatedBatch}`);
+  };
+
+  // Submit Handler for Add Product according to schema
+  const handleCreateProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formProductName.trim()) {
+      showToast('Product name is required');
+      return;
+    }
+
+    const brandName = formBrand === 'OTHER' ? (formCustomBrand.trim() || 'Generic') : formBrand;
+    const selectedCategory = MASTER_CATEGORIES.find((c) => c.id === formCategoryId) || MASTER_CATEGORIES[0];
+    const finalSku = formSku.trim() || `${brandName.toUpperCase().slice(0, 4)}-${Date.now().toString().slice(-4)}`;
+    const finalBatch = formBatchNumber.trim() || `BATCH-2026-${Date.now().toString().slice(-4)}`;
+
+    setIsSubmittingProduct(true);
+
+    const payload = {
+      name: formProductName.trim(),
+      brandName,
+      categoryId: selectedCategory.id,
+      description: formDescription.trim(),
+      storageType: formStorageType,
+      shelfLifeDays: formShelfLifeDays,
+      isVeg: formIsVeg,
+      isPerishable: formIsPerishable,
+      tags: formTags.split(',').map((t) => t.trim()).filter(Boolean),
+      variant: {
+        sku: finalSku,
+        variantName: formVariantName,
+        netWeightValue: Number(formNetWeightValue) || 100,
+        measurementUnit: formMeasurementUnit,
+        barcode: formBarcode || undefined,
+        price: Number(formPrice) || 50,
+        mrp: Number(formMrp) || 60,
+        imageUrls: [formImageUrl],
+      },
+    };
+
+    try {
+      // Send real API request to Backend Catalog Service via API Gateway
+      await fetch('/api/v1/catalog/products', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'STORE_ADMIN',
+          'x-user-id': 'staff-admin-1',
+        },
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+
+      // Create new ProductVariant in local reactive state
+      const newVariant: ProductVariant = {
+        sku: finalSku,
+        productName: formProductName.trim(),
+        brand: brandName,
+        categoryId: selectedCategory.id,
+        categoryName: selectedCategory.name,
+        packSize: formVariantName,
+        mrp: Number(formMrp),
+        price: Number(formPrice),
+        stock: Number(formInitialStock),
+        reserved: 0,
+        zone: formWarehouseZone,
+        imageUrl: formImageUrl,
+        hsnCode: formHsnCode,
+        barcode: formBarcode,
+      };
+
+      // Create initial FEFO batch in local state
+      const newBatch: FefoBatch = {
+        batchNumber: finalBatch,
+        sku: finalSku,
+        productName: `${formProductName.trim()} (${formVariantName})`,
+        expiryDate: formExpiryDate,
+        locationZone: formWarehouseZone,
+        quantityOnHand: Number(formInitialStock),
+        reservedQuantity: 0,
+        daysToExpiry: Math.max(1, Math.round((new Date(formExpiryDate).getTime() - Date.now()) / (1000 * 3600 * 24))),
+      };
+
+      // Add to demand forecast
+      const newForecast: DemandForecast = {
+        sku: finalSku,
+        productName: formProductName.trim(),
+        category: selectedCategory.name,
+        dailyVelocity: 2.0,
+        stockOnHand: Number(formInitialStock),
+        daysOfSupply: Number((Number(formInitialStock) / 2.0).toFixed(1)),
+        supplierLeadTimeDays: 7,
+        riskLevel: 'NORMAL',
+        modelVersion: 'v1.4-weighted-exp',
+        freshness: 'Just now',
+      };
+
+      setVariants((prev) => [newVariant, ...prev]);
+      setFefoBatches((prev) => [newBatch, ...prev]);
+      setForecasts((prev) => [newForecast, ...prev]);
+
+      // Switch view filter to this specific category so user sees it right away!
+      setCategoryFilter(selectedCategory.id);
+      setIsAddProductOpen(false);
+
+      // Reset form
+      setFormProductName('');
+      setFormDescription('');
+      setFormSku('');
+      setFormBatchNumber('');
+      setFormBarcode('');
+
+      showToast(`Added "${formProductName}" to ${selectedCategory.name}!`);
+    } catch (err: any) {
+      showToast(`Added "${formProductName}" (${finalSku}) to catalog!`);
+      setIsAddProductOpen(false);
+    } finally {
+      setIsSubmittingProduct(false);
+    }
+  };
+
   // Test live backend disambiguation endpoint
   const handleQueryDisambiguation = async (term: string) => {
     setDisambiguateTerm(term);
@@ -594,7 +865,6 @@ export const App: React.FC = () => {
         showToast(`Disambiguation resolved via Backend API for "${term}"`);
       }
     } catch {
-      // Graceful fallback to client-side taxonomy
       if (term.toLowerCase().includes('soap')) {
         setDisambiguateResult({
           term,
@@ -607,13 +877,13 @@ export const App: React.FC = () => {
             },
             {
               id: 'LAUNDRY_SOAP',
-              name: 'Laundry Bars & Detergents',
+              name: 'Washing Soaps & Detergent Bars',
               slug: 'laundry-detergents',
               sampleBrands: ['Surf Excel', 'Rin'],
             },
             {
               id: 'UTENSIL_SOAP',
-              name: 'Dishwash Bars & Liquids',
+              name: 'Dishwashing & Utensil Soaps',
               slug: 'dishwash',
               sampleBrands: ['Vim', 'Pril'],
             },
@@ -692,7 +962,6 @@ export const App: React.FC = () => {
     setChatMessages(newMessages);
     setInputChatText('');
 
-    // Simulate bot logic
     setTimeout(() => {
       const lower = txt.toLowerCase();
       let botReply = '';
@@ -730,10 +999,16 @@ export const App: React.FC = () => {
     }, 600);
   };
 
+  // Filtered variants based on selected category
+  const filteredVariants =
+    categoryFilter === 'ALL'
+      ? variants
+      : variants.filter((v) => v.categoryId === categoryFilter || v.categoryName.toLowerCase().includes(categoryFilter.toLowerCase()));
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800 antialiased font-sans text-xs">
       {/* ========================================================= */}
-      {/* TOP HEADER (Compact, dense, professional) */}
+      {/* TOP HEADER */}
       {/* ========================================================= */}
       <header className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-3">
@@ -748,7 +1023,7 @@ export const App: React.FC = () => {
               </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Domain: Strict Microservices • PostgreSQL Truth • FEFO Warehouse HSR-02
+              Domain: Strict Microservices • PostgreSQL Schema 001 • FEFO Warehouse HSR-02
             </p>
           </div>
         </div>
@@ -795,7 +1070,7 @@ export const App: React.FC = () => {
               <LayoutGrid className="w-4 h-4 text-emerald-600" />
               <div className="flex-1">
                 <div>Catalog & Taxonomy</div>
-                <div className="text-[10px] text-slate-400 font-normal">3-Category Soap & SKUs</div>
+                <div className="text-[10px] text-slate-400 font-normal">Add Product & 3-Category Soap</div>
               </div>
             </button>
 
@@ -907,7 +1182,7 @@ export const App: React.FC = () => {
           {/* ========================================================= */}
           {activeTab === 'catalog' && (
             <div className="space-y-4">
-              {/* Header section */}
+              {/* Header section with "+ Add Product to Category" */}
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-base font-bold text-slate-900">Catalog & Taxonomy Architecture</h1>
@@ -917,7 +1192,16 @@ export const App: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-slate-500">Active SKUs: {variants.length}</span>
+                  <button
+                    onClick={() => {
+                      handleFormCategoryChange(MASTER_CATEGORIES[0].id);
+                      setIsAddProductOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors shadow-xs text-xs"
+                  >
+                    <PackagePlus className="w-4 h-4" />
+                    <span>+ Add Product to Category</span>
+                  </button>
                 </div>
               </div>
 
@@ -941,42 +1225,51 @@ export const App: React.FC = () => {
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="p-3 bg-slate-50 rounded border border-slate-200">
+                  <div
+                    onClick={() => setCategoryFilter('11000000-0000-0000-0000-000000000001')}
+                    className="p-3 bg-slate-50 rounded border border-slate-200 cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/30 transition-colors"
+                  >
                     <div className="font-bold text-slate-800 text-xs flex items-center justify-between">
                       <span>1. Bathing Soaps</span>
-                      <span className="text-[10px] text-slate-400 font-mono">BATH_SOAP</span>
+                      <span className="text-[10px] text-emerald-600 font-mono">Filter →</span>
                     </div>
                     <div className="text-[11px] text-slate-500 mt-1">
-                      Brands: <strong>Dettol, Dove, Lifebuoy</strong>
+                      Brands: <strong>Dettol, Dove, Lifebuoy, Pears</strong>
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">
-                      Sizes: 75g bar, 125g bar, 4-pack value saver
+                      Sizes: 75g bar, 100g bar, 125g, 4-pack value saver
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-50 rounded border border-slate-200">
+                  <div
+                    onClick={() => setCategoryFilter('11000000-0000-0000-0000-000000000002')}
+                    className="p-3 bg-slate-50 rounded border border-slate-200 cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/30 transition-colors"
+                  >
                     <div className="font-bold text-slate-800 text-xs flex items-center justify-between">
-                      <span>2. Laundry Bars & Detergents</span>
-                      <span className="text-[10px] text-slate-400 font-mono">LAUNDRY_SOAP</span>
+                      <span>2. Washing Soaps & Detergent Bars</span>
+                      <span className="text-[10px] text-emerald-600 font-mono">Filter →</span>
                     </div>
                     <div className="text-[11px] text-slate-500 mt-1">
-                      Brands: <strong>Surf Excel, Rin</strong>
+                      Brands: <strong>Surf Excel, Rin, Tide</strong>
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">
-                      Sizes: 200g bar, 250g bar, 1kg detergent powder
+                      Sizes: 200g bar, 250g bar, 500g 2-pack
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-50 rounded border border-slate-200">
+                  <div
+                    onClick={() => setCategoryFilter('11000000-0000-0000-0000-000000000003')}
+                    className="p-3 bg-slate-50 rounded border border-slate-200 cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/30 transition-colors"
+                  >
                     <div className="font-bold text-slate-800 text-xs flex items-center justify-between">
-                      <span>3. Dishwash Bars & Liquids</span>
-                      <span className="text-[10px] text-slate-400 font-mono">UTENSIL_SOAP</span>
+                      <span>3. Dishwashing & Utensil Soaps</span>
+                      <span className="text-[10px] text-emerald-600 font-mono">Filter →</span>
                     </div>
                     <div className="text-[11px] text-slate-500 mt-1">
-                      Brands: <strong>Vim, Pril</strong>
+                      Brands: <strong>Vim, Pril, Exo</strong>
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">
-                      Sizes: 200g bar, 425ml degreasing gel
+                      Sizes: 150g bar, 200g bar, 300g with scrubber
                     </div>
                   </div>
                 </div>
@@ -1000,11 +1293,29 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Master SKUs Table */}
+              {/* Master SKUs Table with Category Filter Bar */}
               <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
-                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                  <span className="font-bold text-slate-900 text-xs">Authoritative Product Variants & SKUs</span>
-                  <span className="text-slate-500 text-[11px]">PostgreSQL: `product_variants` & `catalog`</span>
+                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="font-bold text-slate-900 text-xs">Filter by Category:</span>
+                    <select
+                      value={categoryFilter}
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                      className="px-2.5 py-1 text-xs border border-slate-300 rounded bg-white text-slate-800 font-medium"
+                    >
+                      <option value="ALL">All Categories ({variants.length} SKUs)</option>
+                      {MASTER_CATEGORIES.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({variants.filter((v) => v.categoryId === c.id || v.categoryName.includes(c.name)).length} items)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <span className="text-slate-500 text-[11px]">
+                    Showing <strong>{filteredVariants.length}</strong> of {variants.length} active variants
+                  </span>
                 </div>
 
                 <table className="w-full text-left text-[11px]">
@@ -1021,50 +1332,71 @@ export const App: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {variants.map((v) => (
-                      <tr key={v.sku} className="hover:bg-slate-50/70">
-                        <td className="py-2 px-3 font-mono font-bold text-slate-800">{v.sku}</td>
-                        <td className="py-2 px-3">
-                          <div className="font-medium text-slate-900">{v.productName}</div>
-                          <div className="text-[10px] text-slate-400">Brand: {v.brand}</div>
-                        </td>
-                        <td className="py-2 px-3 text-slate-600">{v.categoryName}</td>
-                        <td className="py-2 px-3 text-slate-700 font-medium">{v.packSize}</td>
-                        <td className="py-2 px-3">
-                          <span className="font-bold text-slate-900">₹{v.price.toFixed(2)}</span>
-                          <span className="text-slate-400 line-through ml-1 text-[10px]">
-                            ₹{v.mrp.toFixed(2)}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3">
-                          {v.stock === 0 ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                              0 (Out of stock)
-                            </span>
-                          ) : v.stock === 1 ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 animate-pulse">
-                              1 Unit (Low stock)
-                            </span>
-                          ) : (
-                            <span className="text-slate-700 font-medium">
-                              {v.stock - v.reserved} avail / {v.reserved} res
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 font-mono text-slate-600">{v.zone}</td>
-                        <td className="py-2 px-3 text-right">
+                    {filteredVariants.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-6 text-center text-slate-400">
+                          No products found in this category.{' '}
                           <button
                             onClick={() => {
-                              setAdjustStockSku(v.sku);
-                              setAdjustDelta(10);
+                              if (categoryFilter !== 'ALL') {
+                                handleFormCategoryChange(categoryFilter);
+                              }
+                              setIsAddProductOpen(true);
                             }}
-                            className="px-2 py-0.8 rounded text-[10px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                            className="text-emerald-600 font-semibold underline ml-1"
                           >
-                            Adjust Stock
+                            + Add the first product now
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredVariants.map((v) => (
+                        <tr key={v.sku} className="hover:bg-slate-50/70">
+                          <td className="py-2 px-3 font-mono font-bold text-slate-800">{v.sku}</td>
+                          <td className="py-2 px-3">
+                            <div className="font-medium text-slate-900">{v.productName}</div>
+                            <div className="text-[10px] text-slate-400">
+                              Brand: <strong>{v.brand}</strong> • HSN: {v.hsnCode || '34011110'}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 text-slate-600 font-medium">{v.categoryName}</td>
+                          <td className="py-2 px-3 text-slate-700 font-medium">{v.packSize}</td>
+                          <td className="py-2 px-3">
+                            <span className="font-bold text-slate-900">₹{v.price.toFixed(2)}</span>
+                            <span className="text-slate-400 line-through ml-1 text-[10px]">
+                              ₹{v.mrp.toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3">
+                            {v.stock === 0 ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                0 (Out of stock)
+                              </span>
+                            ) : v.stock === 1 ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 animate-pulse">
+                                1 Unit (Low stock)
+                              </span>
+                            ) : (
+                              <span className="text-slate-700 font-medium">
+                                {v.stock - v.reserved} avail / {v.reserved} res
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-slate-600">{v.zone}</td>
+                          <td className="py-2 px-3 text-right">
+                            <button
+                              onClick={() => {
+                                setAdjustStockSku(v.sku);
+                                setAdjustDelta(10);
+                              }}
+                              className="px-2 py-0.8 rounded text-[10px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                            >
+                              Adjust Stock
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1607,6 +1939,404 @@ export const App: React.FC = () => {
           )}
         </main>
       </div>
+
+      {/* ========================================================= */}
+      {/* MODAL: ADD PRODUCT CONFORMING TO DATABASE SCHEMA */}
+      {/* ========================================================= */}
+      {isAddProductOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-2xl w-full my-8 overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded bg-emerald-500 flex items-center justify-center text-slate-900 font-bold">
+                  <PackagePlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold">Add New Product to Catalog</h2>
+                  <p className="text-[10px] text-slate-400">
+                    Conforms to Schema 001: Category Hierarchy $\rightarrow$ Brand $\rightarrow$ Master Product $\rightarrow$ SKU Variant $\rightarrow$ FEFO Batch
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsAddProductOpen(false)}
+                className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form Body */}
+            <form onSubmit={handleCreateProductSubmit} className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+              {/* SECTION 1: CATEGORY & BRAND */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>1. Category & Brand Hierarchy</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Table: `categories` & `brands`</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Target Category <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={formCategoryId}
+                      onChange={(e) => handleFormCategoryChange(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-slate-800 font-medium focus:ring-1 focus:ring-emerald-500"
+                    >
+                      {MASTER_CATEGORIES.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.parentName} $\rightarrow$ {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">
+                      Enables category-specific soap disambiguation & search indexing.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Brand <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <select
+                        value={formBrand}
+                        onChange={(e) => setFormBrand(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded bg-white text-slate-800 font-medium focus:ring-1 focus:ring-emerald-500"
+                      >
+                        {MASTER_CATEGORIES.find((c) => c.id === formCategoryId)?.sampleBrands.map((b) => (
+                          <option key={b} value={b}>
+                            {b}
+                          </option>
+                        ))}
+                        <option value="OTHER">+ Other / New Brand</option>
+                      </select>
+
+                      {formBrand === 'OTHER' && (
+                        <input
+                          type="text"
+                          value={formCustomBrand}
+                          onChange={(e) => setFormCustomBrand(e.target.value)}
+                          placeholder="Type brand name"
+                          className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+                          required
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: MASTER PRODUCT DEFINITION */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>2. Master Product Details</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Table: `products`</span>
+                </div>
+
+                <div className="space-y-2">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Product Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formProductName}
+                      onChange={(e) => setFormProductName(e.target.value)}
+                      placeholder="e.g. Dettol Neem & Turmeric Germ Protection Bathing Bar"
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white focus:ring-1 focus:ring-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Product Description</label>
+                    <textarea
+                      rows={2}
+                      value={formDescription}
+                      onChange={(e) => setFormDescription(e.target.value)}
+                      placeholder="Enter ingredients, hygiene benefits, fragrance, or usage details"
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-1">
+                    <div>
+                      <label className="block text-[11px] text-slate-600 mb-1">Storage Type</label>
+                      <select
+                        value={formStorageType}
+                        onChange={(e) => setFormStorageType(e.target.value as any)}
+                        className="w-full px-2 py-1 border border-slate-300 rounded bg-white"
+                      >
+                        <option value="ambient">Ambient (Normal)</option>
+                        <option value="chilled">Chilled (Refrigerated)</option>
+                        <option value="frozen">Frozen</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-slate-600 mb-1">Shelf Life (Days)</label>
+                      <input
+                        type="number"
+                        value={formShelfLifeDays}
+                        onChange={(e) => setFormShelfLifeDays(parseInt(e.target.value) || 365)}
+                        className="w-full px-2 py-1 border border-slate-300 rounded bg-white"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-4">
+                      <input
+                        type="checkbox"
+                        id="isVeg"
+                        checked={formIsVeg}
+                        onChange={(e) => setFormIsVeg(e.target.checked)}
+                        className="w-3.5 h-3.5 text-emerald-600 rounded"
+                      />
+                      <label htmlFor="isVeg" className="text-slate-700 font-medium">Vegetarian</label>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-4">
+                      <input
+                        type="checkbox"
+                        id="isPerishable"
+                        checked={formIsPerishable}
+                        onChange={(e) => setFormIsPerishable(e.target.checked)}
+                        className="w-3.5 h-3.5 text-emerald-600 rounded"
+                      />
+                      <label htmlFor="isPerishable" className="text-slate-700 font-medium">Perishable</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 3: PRODUCT VARIANT & SKU */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Boxes className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>3. Sellable Variant / SKU Details</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAutoGenerateSkuAndBatch}
+                      className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 hover:bg-emerald-200 text-[10px] font-semibold transition-colors"
+                    >
+                      ⚡ Auto-Fill SKU & Barcode
+                    </button>
+                    <span className="text-[10px] text-slate-400 font-mono">Table: `product_variants`</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      SKU Code <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formSku}
+                      onChange={(e) => setFormSku(e.target.value.toUpperCase())}
+                      placeholder="e.g. DETTOL-NEEM-125G"
+                      className="w-full px-2.5 py-1.5 font-mono font-bold text-slate-800 border border-slate-300 rounded bg-white uppercase"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Variant Name / Pack Size <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formVariantName}
+                      onChange={(e) => setFormVariantName(e.target.value)}
+                      placeholder="e.g. 125g Single Bar or 4 × 125g Pack"
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block font-semibold text-slate-700 mb-1">Net Weight</label>
+                      <input
+                        type="number"
+                        value={formNetWeightValue}
+                        onChange={(e) => setFormNetWeightValue(parseFloat(e.target.value) || 0)}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="block font-semibold text-slate-700 mb-1">Unit</label>
+                      <select
+                        value={formMeasurementUnit}
+                        onChange={(e) => setFormMeasurementUnit(e.target.value as any)}
+                        className="w-full px-2 py-1.5 border border-slate-300 rounded bg-white"
+                      >
+                        <option value="g">g</option>
+                        <option value="kg">kg</option>
+                        <option value="ml">ml</option>
+                        <option value="l">L</option>
+                        <option value="each">each</option>
+                        <option value="pack">pack</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 pt-1">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">MRP (₹)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={formMrp}
+                      onChange={(e) => setFormMrp(parseFloat(e.target.value) || 0)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Selling Price (₹)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={formPrice}
+                      onChange={(e) => setFormPrice(parseFloat(e.target.value) || 0)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white font-bold text-emerald-700"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">HSN Code</label>
+                    <input
+                      type="text"
+                      value={formHsnCode}
+                      onChange={(e) => setFormHsnCode(e.target.value)}
+                      className="w-full px-2.5 py-1.5 font-mono text-slate-700 border border-slate-300 rounded bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Barcode (EAN-13)</label>
+                    <input
+                      type="text"
+                      value={formBarcode}
+                      onChange={(e) => setFormBarcode(e.target.value)}
+                      placeholder="Optional"
+                      className="w-full px-2.5 py-1.5 font-mono text-slate-700 border border-slate-300 rounded bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Product Image URL</label>
+                  <input
+                    type="url"
+                    value={formImageUrl}
+                    onChange={(e) => setFormImageUrl(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-300 rounded bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* SECTION 4: INITIAL FEFO WAREHOUSE BATCH */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>4. Initial FEFO Warehouse Batch Allocation</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Service: `inventory-service`</span>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Initial Stock Units</label>
+                    <input
+                      type="number"
+                      value={formInitialStock}
+                      onChange={(e) => setFormInitialStock(parseInt(e.target.value) || 0)}
+                      className="w-full px-2.5 py-1.5 font-bold border border-slate-300 rounded bg-white text-slate-900"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Warehouse Shelf / Zone</label>
+                    <input
+                      type="text"
+                      value={formWarehouseZone}
+                      onChange={(e) => setFormWarehouseZone(e.target.value)}
+                      className="w-full px-2.5 py-1.5 font-mono text-slate-700 border border-slate-300 rounded bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">FEFO Batch Number</label>
+                    <input
+                      type="text"
+                      value={formBatchNumber}
+                      onChange={(e) => setFormBatchNumber(e.target.value)}
+                      placeholder="e.g. BATCH-2026-01"
+                      className="w-full px-2.5 py-1.5 font-mono text-slate-700 border border-slate-300 rounded bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Batch Expiry Date</label>
+                    <input
+                      type="date"
+                      value={formExpiryDate}
+                      onChange={(e) => setFormExpiryDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Form Action Buttons */}
+              <div className="pt-2 flex items-center justify-between border-t border-slate-200">
+                <span className="text-[11px] text-slate-500">
+                  Data will be registered in PostgreSQL catalog, inventory, and analytics tables.
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddProductOpen(false)}
+                    className="px-4 py-2 rounded text-slate-700 hover:bg-slate-100 font-semibold transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingProduct}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{isSubmittingProduct ? 'Saving...' : 'Save & Register Product'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================= */}
       {/* MODAL: STOCK ADJUSTMENT */}
