@@ -1,0 +1,14 @@
+{
+  "name": "@grocery/observability",
+  "version": "0.1.0",
+  "description": "Standardized structured logger and correlation ID context tracking",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

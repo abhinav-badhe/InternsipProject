@@ -1,0 +1,14 @@
+{
+  "name": "@grocery/contracts",
+  "version": "0.1.0",
+  "description": "Shared canonical domain contracts, event envelopes, and DTOs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

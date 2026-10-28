@@ -1,0 +1,205 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { WhatsAppBot } from '../src/whatsapp.bot.js';
+import { SignatureVerifier } from '../src/signature.verifier.js';
+import { Database } from '../src/db.js';
+import crypto from 'node:crypto';
+
+describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () => {
+  it('Scenario 8: Deduplicates Repeated Provider Webhook Deliveries', async () => {
+    const processedMessages = new Set<string>();
+
+    const originalQuery = Database.query;
+    Database.query = async (sql: string, params?: any[]) => {
+      if (sql.includes('INSERT INTO whatsapp_processed_messages')) {
+        const msgId = params![0];
+        if (processedMessages.has(msgId)) {
+          const err: any = new Error('duplicate key value violates unique constraint');
+          err.code = '23505';
+          throw err;
+        }
+        processedMessages.add(msgId);
+        return { rows: [] } as any;
+      }
+      if (sql.includes('FROM whatsapp_sessions')) {
+        return { rows: [] } as any;
+      }
+      if (sql.includes('INSERT INTO whatsapp_sessions')) {
+        return { rows: [] } as any;
+      }
+      return { rows: [] } as any;
+    };
+
+    const mockCatalog = {
+      disambiguate: async () => ({ isAmbiguous: false, query: 'hi', matchingCategories: [] }),
+      searchProducts: async () => ({ items: [] }),
+      getSimilarAlternatives: async () => null,
+    };
+    const mockPricing = { calculateQuote: async () => ({} as any) };
+    const mockOrder = { checkout: async () => ({} as any) };
+
+    try {
+      const bot = new WhatsAppBot(mockCatalog, mockPricing, mockOrder);
+
+      // First delivery: processes successfully
+      const reply1 = await bot.handleInboundMessage({
+        messageId: 'wamid.HBgLMTAwMDAwMDAwMDU',
+        fromPhoneNumber: '+919876543210',
+        text: 'hello',
+        timestamp: '1700000000',
+      });
+      assert.ok(reply1);
+
+      // Second delivery with identical messageId: deduplicated, returns null!
+      const reply2 = await bot.handleInboundMessage({
+        messageId: 'wamid.HBgLMTAwMDAwMDAwMDU',
+        fromPhoneNumber: '+919876543210',
+        text: 'hello',
+        timestamp: '1700000000',
+      });
+      assert.equal(reply2, null);
+    } finally {
+      Database.query = originalQuery;
+    }
+  });
+
+  it('Scenario 9: Ambiguous Product Request asks for Category Clarification (e.g. "soap")', async () => {
+    const originalQuery = Database.query;
+    Database.query = async (sql: string) => {
+      if (sql.includes('INSERT INTO whatsapp_processed_messages')) return { rows: [] } as any;
+      if (sql.includes('FROM whatsapp_sessions')) return { rows: [] } as any;
+      if (sql.includes('INSERT INTO whatsapp_sessions')) return { rows: [] } as any;
+      if (sql.includes('UPDATE whatsapp_sessions')) return { rows: [] } as any;
+      return { rows: [] } as any;
+    };
+
+    const mockCatalog = {
+      disambiguate: async (term: string) => {
+        if (term.toLowerCase() === 'soap') {
+          return {
+            query: 'soap',
+            isAmbiguous: true,
+            matchingCategories: [
+              { id: 'cat-1', name: 'Bathing Soaps & Body Wash', slug: 'bathing', sampleBrands: ['Dove', 'Dettol'] },
+              { id: 'cat-2', name: 'Washing Soaps & Detergent Bars', slug: 'washing', sampleBrands: ['Rin', 'Surf Excel'] },
+              { id: 'cat-3', name: 'Dishwashing & Utensil Soaps', slug: 'utensils', sampleBrands: ['Vim', 'Exo'] },
+            ],
+          };
+        }
+        return { isAmbiguous: false, query: term, matchingCategories: [] };
+      },
+      searchProducts: async () => ({ items: [] }),
+      getSimilarAlternatives: async () => null,
+    };
+    const mockPricing = { calculateQuote: async () => ({} as any) };
+    const mockOrder = { checkout: async () => ({} as any) };
+
+    try {
+      const bot = new WhatsAppBot(mockCatalog, mockPricing, mockOrder);
+      const reply = await bot.handleInboundMessage({
+        messageId: 'wamid.unique.soap.001',
+        fromPhoneNumber: '+919876543210',
+        text: 'soap',
+        timestamp: '1700000001',
+      });
+
+      assert.ok(reply);
+      // Confirms clarification dialog presents all 3 categories with brands
+      assert.ok(reply?.bodyText.includes('Bathing Soaps'));
+      assert.ok(reply?.bodyText.includes('Washing Soaps'));
+      assert.ok(reply?.bodyText.includes('Dishwashing & Utensil Soaps'));
+      assert.ok(reply?.bodyText.includes('Dove, Dettol'));
+      assert.ok(reply?.bodyText.includes('Vim, Exo'));
+    } finally {
+      Database.query = originalQuery;
+    }
+  });
+
+  it('Scenario 10: Explicit Customer Confirmation Required for Substitutions', async () => {
+    let sessionStage = 'AWAITING_SUBSTITUTION_APPROVAL';
+    let pendingSub: any = {
+      orderId: 'ORD-8921',
+      originalSku: 'BRIT-BRD-400G',
+      originalProductName: 'Britannia 100% Whole Wheat Bread (400g)',
+      proposedSku: 'HEALTH-BRD-400G',
+      proposedProductName: 'The Health Factory Zero Maida Bread (400g)',
+      priceDifference: 10.0,
+    };
+
+    const originalQuery = Database.query;
+    Database.query = async (sql: string, params?: any[]) => {
+      if (sql.includes('INSERT INTO whatsapp_processed_messages')) return { rows: [] } as any;
+      if (sql.includes('FROM whatsapp_sessions')) {
+        return {
+          rows: [
+            {
+              session_id: 'sess-sub-01',
+              phone_number: '+919876543210',
+              stage: sessionStage,
+              cart_items: [],
+              pending_context: { pendingSubstitution: pendingSub },
+              last_message_at: new Date().toISOString(),
+            },
+          ],
+        } as any;
+      }
+      if (sql.includes('UPDATE whatsapp_sessions')) {
+        sessionStage = params![0];
+        pendingSub = undefined;
+        return { rows: [] } as any;
+      }
+      return { rows: [] } as any;
+    };
+
+    const mockCatalog = {
+      disambiguate: async () => ({ isAmbiguous: false, query: '', matchingCategories: [] }),
+      searchProducts: async () => ({ items: [] }),
+      getSimilarAlternatives: async () => null,
+    };
+    const mockPricing = { calculateQuote: async () => ({} as any) };
+    const mockOrder = { checkout: async () => ({} as any) };
+
+    try {
+      const bot = new WhatsAppBot(mockCatalog, mockPricing, mockOrder);
+
+      // Customer sends explicit acceptance
+      const reply = await bot.handleInboundMessage({
+        messageId: 'wamid.sub.accept.001',
+        fromPhoneNumber: '+919876543210',
+        text: 'Accept',
+        timestamp: '1700000002',
+      });
+
+      assert.ok(reply);
+      assert.ok(reply?.bodyText.includes('Substitution approved'));
+      assert.ok(reply?.bodyText.includes('The Health Factory Zero Maida Bread'));
+      assert.equal(sessionStage, 'IDLE');
+    } finally {
+      Database.query = originalQuery;
+    }
+  });
+
+  it('Verifies Meta HMAC-SHA256 Webhook Signatures (Security by Default)', () => {
+    const appSecret = 'super_secret_whatsapp_app_token_999';
+    const payload = JSON.stringify({ entry: [{ id: '12345' }] });
+
+    // Generate valid HMAC
+    const validHmac = crypto.createHmac('sha256', appSecret).update(payload).digest('hex');
+    const validHeader = `sha256=${validHmac}`;
+
+    // Verify valid signature passes
+    const isValid = SignatureVerifier.verifyMetaSignature(payload, validHeader, appSecret);
+    assert.equal(isValid, true);
+
+    // Verify tampered signature fails
+    const isTampered = SignatureVerifier.verifyMetaSignature(
+      payload + 'tampered',
+      validHeader,
+      appSecret
+    );
+    assert.equal(isTampered, false);
+
+    // Verify missing signature fails
+    assert.equal(SignatureVerifier.verifyMetaSignature(payload, undefined, appSecret), false);
+  });
+});

@@ -1,0 +1,22 @@
+{
+  "name": "@grocery/whatsapp-adapter",
+  "version": "0.1.0",
+  "description": "WhatsApp Cloud API webhook receiver, intent resolution, and conversational ordering engine",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/src/index.js",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@grocery/contracts": "workspace:*",
+    "@grocery/observability": "workspace:*",
+    "express": "^4.21.2",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/pg": "^8.11.11",
+    "typescript": "^5.7.3"
+  }
+}
