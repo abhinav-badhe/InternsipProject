@@ -19,6 +19,9 @@ export interface GatewayServicesConfig {
   orderServiceUrl?: string;
   whatsappAdapterUrl?: string;
   paymentServiceUrl?: string;
+  fulfillmentServiceUrl?: string;
+  invoiceServiceUrl?: string;
+  analyticsServiceUrl?: string;
   jwtSecret?: string;
   rateLimitMaxRequests?: number;
   rateLimitWindowMs?: number;
@@ -35,6 +38,15 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   const app = express();
   app.use(express.json());
 
+  // CORS Middleware for frontend web applications
+  app.use((_req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Correlation-Id');
+    if (_req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
   const authMiddleware = new AuthMiddleware(config?.jwtSecret);
   const rateLimiter = new InMemoryRateLimiter(
     config?.rateLimitWindowMs || 60000,
@@ -49,6 +61,9 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     order: config?.orderServiceUrl || process.env.ORDER_SERVICE_URL || 'http://localhost:3004',
     whatsapp: config?.whatsappAdapterUrl || process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005',
     payment: config?.paymentServiceUrl || process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006',
+    fulfillment: config?.fulfillmentServiceUrl || process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008',
+    invoice: config?.invoiceServiceUrl || process.env.INVOICE_SERVICE_URL || 'http://localhost:3009',
+    analytics: config?.analyticsServiceUrl || process.env.ANALYTICS_SERVICE_URL || 'http://localhost:3010',
   };
 
   // Helper forwarder function
@@ -181,6 +196,31 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     authMiddleware.requireRole('STORE_ADMIN', 'INVENTORY_STAFF'),
     (req: Request, res: Response) => {
       forwardRequest(urls.inventory, req, res);
+    }
+  );
+
+  // Fulfillment & Pick-Pack Operations
+  app.use(
+    '/api/v1/fulfillment*',
+    authMiddleware.authenticate,
+    authMiddleware.requireRole('STORE_ADMIN', 'INVENTORY_STAFF'),
+    (req: Request, res: Response) => {
+      forwardRequest(urls.fulfillment, req, res);
+    }
+  );
+
+  // Invoices & Tax Compliance
+  app.use('/api/v1/invoices*', (req: Request, res: Response) => {
+    forwardRequest(urls.invoice, req, res);
+  });
+
+  // Analytics, Demand Forecasting & Risk
+  app.use(
+    '/api/v1/analytics*',
+    authMiddleware.authenticate,
+    authMiddleware.requireRole('STORE_ADMIN'),
+    (req: Request, res: Response) => {
+      forwardRequest(urls.analytics, req, res);
     }
   );
 

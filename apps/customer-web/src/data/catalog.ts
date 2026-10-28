@@ -56,7 +56,7 @@ export const PRODUCTS: Product[] = [
         price: 38.0,
         mrp: 42.0,
         availableStock: 45,
-        imageUrl: 'https://images.unsplash.com/photo-1607006314144-8d9106fb3c9c?w=500&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=500&auto=format&fit=crop&q=80',
       },
       {
         sku: 'DETTOL-ORIG-125G',
@@ -65,7 +65,7 @@ export const PRODUCTS: Product[] = [
         price: 58.0,
         mrp: 65.0,
         availableStock: 28,
-        imageUrl: 'https://images.unsplash.com/photo-1607006314144-8d9106fb3c9c?w=500&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=500&auto=format&fit=crop&q=80',
       },
       {
         sku: 'DETTOL-ORIG-4PK',
@@ -74,7 +74,7 @@ export const PRODUCTS: Product[] = [
         price: 215.0,
         mrp: 260.0,
         availableStock: 12,
-        imageUrl: 'https://images.unsplash.com/photo-1607006314144-8d9106fb3c9c?w=500&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=500&auto=format&fit=crop&q=80',
       },
     ],
   },
@@ -125,7 +125,7 @@ export const PRODUCTS: Product[] = [
         price: 32.0,
         mrp: 36.0,
         availableStock: 0, // Out of stock example for substitution demo!
-        imageUrl: 'https://images.unsplash.com/photo-1594913785162-e678a0c23dd9?w=500&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1590439471364-192aa70c0b53?w=500&auto=format&fit=crop&q=80',
       },
       {
         sku: 'LIFEBUOY-RED-4PK',

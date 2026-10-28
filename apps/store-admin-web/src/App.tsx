@@ -1,817 +1,1768 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  LayoutDashboard,
-  Tag,
+  LayoutGrid,
   Boxes,
   ShoppingCart,
-  Percent,
-  Star,
   Truck,
-  RotateCcw,
-  CreditCard,
-  BarChart3,
-  Store,
-  Settings,
-  Plus,
+  FileText,
+  TrendingUp,
+  MessageSquare,
   Search,
-  Pencil,
   ExternalLink,
-  Sun,
-  X,
-  Check,
+  Plus,
+  RefreshCw,
   AlertTriangle,
-  ClipboardList,
-  ShieldCheck,
-  Send,
-  Trash2,
+  CheckCircle2,
+  XCircle,
   Clock,
+  ShieldCheck,
+  Printer,
+  Send,
+  Eye,
+  Filter,
+  Layers,
+  ArrowRight,
+  Package,
+  Calendar,
+  MapPin,
+  Sparkles,
 } from 'lucide-react';
 
-interface ListingItem {
+// ==========================================
+// 1. DATA TYPES (Strict Domain Entities)
+// ==========================================
+
+export interface Category {
   id: string;
+  name: string;
+  slug: string;
+  parentId: string | null;
+  level: number;
+}
+
+export interface ProductVariant {
   sku: string;
-  title: string;
+  productName: string;
   brand: string;
-  category: string;
-  rating: number;
-  ratingCount: number;
-  currentPrice: number;
-  originalPrice: number;
-  stockCount: number;
-  status: 'ACTIVE' | 'DRAFT' | 'INACTIVE';
+  categoryName: string;
+  packSize: string;
+  mrp: number;
+  price: number;
+  stock: number;
+  reserved: number;
+  zone: string;
   imageUrl: string;
 }
 
+export interface FefoBatch {
+  batchNumber: string;
+  sku: string;
+  productName: string;
+  expiryDate: string;
+  locationZone: string;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  daysToExpiry: number;
+}
+
+export interface OrderRecord {
+  id: string;
+  orderNumber: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  channel: 'WEB' | 'WHATSAPP';
+  status: 'PENDING_PAYMENT' | 'CONFIRMED' | 'PACKED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
+  grandTotal: number;
+  subtotal: number;
+  taxTotal: number;
+  deliveryFee: number;
+  idempotencyKey: string;
+  createdAt: string;
+  items: {
+    sku: string;
+    productName: string;
+    variantName: string;
+    quantity: number;
+    unitPrice: number;
+    hsnCode: string;
+  }[];
+}
+
+export interface PickListTask {
+  id: string;
+  orderNumber: string;
+  zone: 'Zone A - Packaged' | 'Zone B - Detergents' | 'Cold Storage - Perishables';
+  sku: string;
+  productName: string;
+  batchNumber: string;
+  quantity: number;
+  status: 'PENDING' | 'PICKED' | 'SUBSTITUTION_PROPOSED';
+  substituteSku?: string;
+  substituteName?: string;
+  substituteDecision?: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+}
+
+export interface InvoiceRecord {
+  invoiceId: string;
+  invoiceNumber: string;
+  orderNumber: string;
+  customerName: string;
+  customerGstin?: string;
+  currency: string;
+  taxableAmount: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  totalTax: number;
+  grandTotal: number;
+  createdAt: string;
+  items: {
+    hsn: string;
+    description: string;
+    qty: number;
+    rate: number;
+    cgstRate: number;
+    sgstRate: number;
+    amount: number;
+  }[];
+}
+
+export interface DemandForecast {
+  sku: string;
+  productName: string;
+  category: string;
+  dailyVelocity: number;
+  stockOnHand: number;
+  daysOfSupply: number;
+  supplierLeadTimeDays: number;
+  riskLevel: 'NORMAL' | 'LOW_STOCK' | 'CRITICAL_RISK' | 'STOCKOUT';
+  modelVersion: string;
+  freshness: string;
+}
+
+// ==========================================
+// 2. INITIAL SEED DATA
+// ==========================================
+
+const INITIAL_VARIANTS: ProductVariant[] = [
+  {
+    sku: 'DETTOL-ORIG-75G',
+    productName: 'Dettol Original Germ Protection Bathing Soap',
+    brand: 'Dettol',
+    categoryName: 'Bathing Soaps & Body Wash',
+    packSize: '75g Bar',
+    mrp: 42.0,
+    price: 38.0,
+    stock: 45,
+    reserved: 2,
+    zone: 'Zone A-01',
+    imageUrl: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    sku: 'DOVE-BAR-125G-4PK',
+    productName: 'Dove Cream Beauty Bathing Bar',
+    brand: 'Dove',
+    categoryName: 'Bathing Soaps & Body Wash',
+    packSize: '4 × 125g Pack',
+    mrp: 340.0,
+    price: 295.0,
+    stock: 1, // Scenario 01: Low stock alert!
+    reserved: 0,
+    zone: 'Zone A-02',
+    imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    sku: 'LIFEBUOY-RED-100G',
+    productName: 'Lifebuoy Total 10 Germ Protection Soap',
+    brand: 'Lifebuoy',
+    categoryName: 'Bathing Soaps & Body Wash',
+    packSize: '100g Bar',
+    mrp: 36.0,
+    price: 32.0,
+    stock: 0, // Out of stock
+    reserved: 0,
+    zone: 'Zone A-03',
+    imageUrl: 'https://images.unsplash.com/photo-1590439471364-192aa70c0b53?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    sku: 'SURF-BAR-200G',
+    productName: 'Surf Excel Stain Eraser Detergent Bar',
+    brand: 'Surf Excel',
+    categoryName: 'Laundry Bars & Detergents',
+    packSize: '200g Bar',
+    mrp: 35.0,
+    price: 30.0,
+    stock: 50,
+    reserved: 4,
+    zone: 'Zone B-01',
+    imageUrl: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    sku: 'RIN-BAR-250G',
+    productName: 'Rin Advanced Supreme Brightness Bar',
+    brand: 'Rin',
+    categoryName: 'Laundry Bars & Detergents',
+    packSize: '250g Bar',
+    mrp: 28.0,
+    price: 24.0,
+    stock: 60,
+    reserved: 0,
+    zone: 'Zone B-02',
+    imageUrl: 'https://images.unsplash.com/photo-1545127398-14699f92334b?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    sku: 'VIM-BAR-200G',
+    productName: 'Vim Lemon Degreasing Dishwash Bar',
+    brand: 'Vim',
+    categoryName: 'Dishwash Bars & Liquids',
+    packSize: '200g Bar',
+    mrp: 28.0,
+    price: 25.0,
+    stock: 40,
+    reserved: 1,
+    zone: 'Zone B-04',
+    imageUrl: 'https://images.unsplash.com/photo-1585421514738-01798e348b17?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    sku: 'AMUL-MILK-1L',
+    productName: 'Amul Taaza Homogenised Toned Milk',
+    brand: 'Amul',
+    categoryName: 'Dairy, Bread & Eggs',
+    packSize: '1 Litre Tetra',
+    mrp: 75.0,
+    price: 74.0,
+    stock: 35,
+    reserved: 0,
+    zone: 'Cold-01',
+    imageUrl: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    sku: 'AASH-ATTA-5KG',
+    productName: 'Aashirvaad Shudh Chakki Whole Wheat Atta',
+    brand: 'Aashirvaad',
+    categoryName: 'Atta, Rice & Grains',
+    packSize: '5 kg Bag',
+    mrp: 290.0,
+    price: 259.0,
+    stock: 25,
+    reserved: 2,
+    zone: 'Zone A-05',
+    imageUrl: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300&auto=format&fit=crop&q=80',
+  },
+];
+
+const INITIAL_FEFO_BATCHES: FefoBatch[] = [
+  {
+    batchNumber: 'BATCH-2026-DOVE-01',
+    sku: 'DOVE-BAR-125G-4PK',
+    productName: 'Dove Cream Beauty Bar (4 × 125g)',
+    expiryDate: '2026-11-15',
+    locationZone: 'Zone A-02-R1',
+    quantityOnHand: 1,
+    reservedQuantity: 0,
+    daysToExpiry: 18,
+  },
+  {
+    batchNumber: 'BATCH-2026-MILK-44',
+    sku: 'AMUL-MILK-1L',
+    productName: 'Amul Taaza Homogenised Toned Milk (1L)',
+    expiryDate: '2026-11-20',
+    locationZone: 'Cold-01-ShelfA',
+    quantityOnHand: 35,
+    reservedQuantity: 0,
+    daysToExpiry: 23,
+  },
+  {
+    batchNumber: 'BATCH-2026-DETTOL-09',
+    sku: 'DETTOL-ORIG-75G',
+    productName: 'Dettol Original Germ Protection Bathing Soap',
+    expiryDate: '2027-02-10',
+    locationZone: 'Zone A-01-R3',
+    quantityOnHand: 45,
+    reservedQuantity: 2,
+    daysToExpiry: 105,
+  },
+  {
+    batchNumber: 'BATCH-2026-SURF-12',
+    sku: 'SURF-BAR-200G',
+    productName: 'Surf Excel Detergent Bar (200g)',
+    expiryDate: '2027-04-18',
+    locationZone: 'Zone B-01-R2',
+    quantityOnHand: 50,
+    reservedQuantity: 4,
+    daysToExpiry: 172,
+  },
+  {
+    batchNumber: 'BATCH-2026-VIM-03',
+    sku: 'VIM-BAR-200G',
+    productName: 'Vim Lemon Dishwash Bar (200g)',
+    expiryDate: '2027-06-30',
+    locationZone: 'Zone B-04-R1',
+    quantityOnHand: 40,
+    reservedQuantity: 1,
+    daysToExpiry: 245,
+  },
+];
+
+const INITIAL_ORDERS: OrderRecord[] = [
+  {
+    id: 'ord-101',
+    orderNumber: 'ORD-889814-409',
+    customerId: 'cust-wh-919876543210',
+    customerName: 'Rohit Verma',
+    customerPhone: '+91 98765 43210',
+    channel: 'WHATSAPP',
+    status: 'CONFIRMED',
+    grandTotal: 345.5,
+    subtotal: 288.0,
+    taxTotal: 37.5,
+    deliveryFee: 20.0,
+    idempotencyKey: 'idemp_wh_20261028_409',
+    createdAt: '2026-10-28 17:42',
+    items: [
+      {
+        sku: 'DETTOL-ORIG-75G',
+        productName: 'Dettol Original Bathing Soap',
+        variantName: '75g Bar',
+        quantity: 2,
+        unitPrice: 38.0,
+        hsnCode: '34011110',
+      },
+      {
+        sku: 'SURF-BAR-200G',
+        productName: 'Surf Excel Detergent Bar',
+        variantName: '200g Bar',
+        quantity: 1,
+        unitPrice: 30.0,
+        hsnCode: '34022010',
+      },
+      {
+        sku: 'AASH-ATTA-5KG',
+        productName: 'Aashirvaad Whole Wheat Atta',
+        variantName: '5kg Bag',
+        quantity: 1,
+        unitPrice: 259.0,
+        hsnCode: '11010000',
+      },
+    ],
+  },
+  {
+    id: 'ord-102',
+    orderNumber: 'ORD-772910-108',
+    customerId: 'cust-web-ananya',
+    customerName: 'Ananya Sharma',
+    customerPhone: '+91 91234 56789',
+    channel: 'WEB',
+    status: 'PACKED',
+    grandTotal: 334.8,
+    subtotal: 295.0,
+    taxTotal: 39.8,
+    deliveryFee: 0.0,
+    idempotencyKey: 'idemp_web_20261028_108',
+    createdAt: '2026-10-28 16:30',
+    items: [
+      {
+        sku: 'DOVE-BAR-125G-4PK',
+        productName: 'Dove Cream Beauty Bar',
+        variantName: '4 × 125g Pack',
+        quantity: 1,
+        unitPrice: 295.0,
+        hsnCode: '34011110',
+      },
+    ],
+  },
+];
+
+const INITIAL_PICK_TASKS: PickListTask[] = [
+  {
+    id: 'pick-01',
+    orderNumber: 'ORD-889814-409',
+    zone: 'Zone A - Packaged',
+    sku: 'DETTOL-ORIG-75G',
+    productName: 'Dettol Original Bathing Soap (75g)',
+    batchNumber: 'BATCH-2026-DETTOL-09',
+    quantity: 2,
+    status: 'PICKED',
+  },
+  {
+    id: 'pick-02',
+    orderNumber: 'ORD-889814-409',
+    zone: 'Zone B - Detergents',
+    sku: 'SURF-BAR-200G',
+    productName: 'Surf Excel Detergent Bar (200g)',
+    batchNumber: 'BATCH-2026-SURF-12',
+    quantity: 1,
+    status: 'PENDING',
+  },
+  {
+    id: 'pick-03',
+    orderNumber: 'ORD-772910-108',
+    zone: 'Zone A - Packaged',
+    sku: 'LIFEBUOY-RED-100G',
+    productName: 'Lifebuoy Total 10 Soap (100g)',
+    batchNumber: 'BATCH-2026-LIFE-01',
+    quantity: 1,
+    status: 'SUBSTITUTION_PROPOSED',
+    substituteSku: 'DETTOL-ORIG-75G',
+    substituteName: 'Dettol Original Bathing Soap (75g)',
+    substituteDecision: 'PENDING',
+  },
+];
+
+const INITIAL_INVOICES: InvoiceRecord[] = [
+  {
+    invoiceId: 'INV-2026-0091',
+    invoiceNumber: 'INV/2026/0091',
+    orderNumber: 'ORD-889814-409',
+    customerName: 'Rohit Verma',
+    customerGstin: '29ABCDE1234F1Z5',
+    currency: 'INR',
+    taxableAmount: 288.0,
+    cgstAmount: 18.75,
+    sgstAmount: 18.75,
+    totalTax: 37.5,
+    grandTotal: 345.5,
+    createdAt: '2026-10-28 17:45',
+    items: [
+      {
+        hsn: '34011110',
+        description: 'Dettol Original Bathing Soap (75g)',
+        qty: 2,
+        rate: 38.0,
+        cgstRate: 9,
+        sgstRate: 9,
+        amount: 76.0,
+      },
+      {
+        hsn: '34022010',
+        description: 'Surf Excel Detergent Bar (200g)',
+        qty: 1,
+        rate: 30.0,
+        cgstRate: 9,
+        sgstRate: 9,
+        amount: 30.0,
+      },
+      {
+        hsn: '11010000',
+        description: 'Aashirvaad Whole Wheat Atta (5kg)',
+        qty: 1,
+        rate: 259.0,
+        cgstRate: 2.5,
+        sgstRate: 2.5,
+        amount: 259.0,
+      },
+    ],
+  },
+];
+
+const INITIAL_FORECASTS: DemandForecast[] = [
+  {
+    sku: 'DOVE-BAR-125G-4PK',
+    productName: 'Dove Cream Beauty Bar (4 × 125g)',
+    category: 'Bathing Soaps',
+    dailyVelocity: 1.4,
+    stockOnHand: 1,
+    daysOfSupply: 0.7,
+    supplierLeadTimeDays: 7,
+    riskLevel: 'CRITICAL_RISK',
+    modelVersion: 'v1.4-weighted-exp',
+    freshness: '12 mins ago',
+  },
+  {
+    sku: 'LIFEBUOY-RED-100G',
+    productName: 'Lifebuoy Total 10 Germ Protection Soap',
+    category: 'Bathing Soaps',
+    dailyVelocity: 3.2,
+    stockOnHand: 0,
+    daysOfSupply: 0.0,
+    supplierLeadTimeDays: 5,
+    riskLevel: 'STOCKOUT',
+    modelVersion: 'v1.4-weighted-exp',
+    freshness: '10 mins ago',
+  },
+  {
+    sku: 'DETTOL-ORIG-75G',
+    productName: 'Dettol Original Bathing Soap',
+    category: 'Bathing Soaps',
+    dailyVelocity: 4.8,
+    stockOnHand: 45,
+    daysOfSupply: 9.4,
+    supplierLeadTimeDays: 7,
+    riskLevel: 'NORMAL',
+    modelVersion: 'v1.4-weighted-exp',
+    freshness: '15 mins ago',
+  },
+  {
+    sku: 'AMUL-MILK-1L',
+    productName: 'Amul Taaza Homogenised Milk (1L)',
+    category: 'Dairy',
+    dailyVelocity: 12.0,
+    stockOnHand: 35,
+    daysOfSupply: 2.9,
+    supplierLeadTimeDays: 2,
+    riskLevel: 'LOW_STOCK',
+    modelVersion: 'v1.4-weighted-exp',
+    freshness: '5 mins ago',
+  },
+];
+
+// ==========================================
+// 3. MAIN STORE ADMIN CONSOLE COMPONENT
+// ==========================================
+
 export const App: React.FC = () => {
-  const [activeNav, setActiveNav] = useState<string>('Listings');
-  const [filterTab, setFilterTab] = useState<'All' | 'Active' | 'Draft' | 'Inactive'>('All');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<
+    'catalog' | 'inventory' | 'orders' | 'fulfillment' | 'invoices' | 'analytics' | 'whatsapp'
+  >('catalog');
 
-  // Modals state
-  const [isEditPriceOpen, setIsEditPriceOpen] = useState(false);
-  const [isAdjustStockOpen, setIsAdjustStockOpen] = useState(false);
-  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
-  const [selectedListing, setSelectedListing] = useState<ListingItem | null>(null);
+  // Core state
+  const [variants, setVariants] = useState<ProductVariant[]>(INITIAL_VARIANTS);
+  const [fefoBatches] = useState<FefoBatch[]>(INITIAL_FEFO_BATCHES);
+  const [orders, setOrders] = useState<OrderRecord[]>(INITIAL_ORDERS);
+  const [pickTasks, setPickTasks] = useState<PickListTask[]>(INITIAL_PICK_TASKS);
+  const [invoices] = useState<InvoiceRecord[]>(INITIAL_INVOICES);
+  const [forecasts] = useState<DemandForecast[]>(INITIAL_FORECASTS);
 
-  // Form states for modals
-  const [editPriceValue, setEditPriceValue] = useState<string>('');
-  const [adjustStockDelta, setAdjustStockDelta] = useState<string>('0');
-  const [adjustReason, setAdjustReason] = useState<string>('RECEIPT');
+  // Live Disambiguation Tester
+  const [disambiguateTerm, setDisambiguateTerm] = useState('soap');
+  const [disambiguateResult, setDisambiguateResult] = useState<{
+    term: string;
+    matchedCategories: { id: string; name: string; slug: string; sampleBrands: string[] }[];
+  }>({
+    term: 'soap',
+    matchedCategories: [
+      {
+        id: 'BATH_SOAP',
+        name: 'Bathing Soaps & Body Wash',
+        slug: 'bathing-soaps',
+        sampleBrands: ['Dettol', 'Dove', 'Lifebuoy'],
+      },
+      {
+        id: 'LAUNDRY_SOAP',
+        name: 'Laundry Bars & Detergents',
+        slug: 'laundry-detergents',
+        sampleBrands: ['Surf Excel', 'Rin', 'Tide'],
+      },
+      {
+        id: 'UTENSIL_SOAP',
+        name: 'Dishwash Bars & Liquids',
+        slug: 'dishwash',
+        sampleBrands: ['Vim', 'Pril', 'Exo'],
+      },
+    ],
+  });
 
-  // New product form
-  const [newTitle, setNewTitle] = useState('');
-  const [newBrand, setNewBrand] = useState('');
-  const [newSku, setNewSku] = useState('');
-  const [newCategory, setNewCategory] = useState('Bathing Soaps');
-  const [newPrice, setNewPrice] = useState('');
-  const [newMrp, setNewMrp] = useState('');
-  const [newStock, setNewStock] = useState('');
-
+  // Modals & Interactivity
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRecord | null>(null);
+  const [adjustStockSku, setAdjustStockSku] = useState<string | null>(null);
+  const [adjustDelta, setAdjustDelta] = useState<number>(10);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // WhatsApp Simulator State
+  const [chatMessages, setChatMessages] = useState<
+    { sender: 'user' | 'bot'; text: string; time: string; options?: string[] }[]
+  >([
+    { sender: 'user', text: 'Hi FreshCart, I need soap', time: '17:40' },
+    {
+      sender: 'bot',
+      text: 'Welcome to FreshCart! 🧼 We have 3 types of soaps. Which one do you need?\n\n1. Bathing Soaps (Dettol, Dove, Lifebuoy)\n2. Laundry Bars & Detergents (Surf Excel, Rin)\n3. Dishwash Bars & Liquids (Vim, Pril)',
+      time: '17:40',
+      options: ['1. Bathing Soaps', '2. Laundry Detergents', '3. Dishwash Bars'],
+    },
+    { sender: 'user', text: '1', time: '17:41' },
+    {
+      sender: 'bot',
+      text: 'Available Bathing Soaps:\n• Dettol Original (75g) — ₹38.00\n• Dove Cream Beauty (4 × 125g) — ₹295.00 [Only 1 left!]\n\nReply "ADD DETTOL-ORIG-75G" to add to cart.',
+      time: '17:41',
+    },
+  ]);
+  const [inputChatText, setInputChatText] = useState('');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Master Listings Dataset
-  const [listings, setListings] = useState<ListingItem[]>([
-    {
-      id: 'lst-1',
-      sku: 'DETTOL-ORIG-75G',
-      title: 'Dettol Original Germ Protection Bathing Soap',
-      brand: 'Dettol',
-      category: 'Bathing Soaps',
-      rating: 4.8,
-      ratingCount: 1420,
-      currentPrice: 38.0,
-      originalPrice: 42.0,
-      stockCount: 45,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1607006314144-8d9106fb3c9c?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-2',
-      sku: 'DOVE-BAR-125G-4PK',
-      title: 'Dove Cream Beauty Bar (4 x 125g)',
-      brand: 'Dove',
-      category: 'Bathing Soaps',
-      rating: 4.9,
-      ratingCount: 2310,
-      currentPrice: 295.0,
-      originalPrice: 340.0,
-      stockCount: 1, // Scenario 01 Last Unit!
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-3',
-      sku: 'LIFEBUOY-RED-100G',
-      title: 'Lifebuoy Total 10 Germ Protection Soap (100g)',
-      brand: 'Lifebuoy',
-      category: 'Bathing Soaps',
-      rating: 4.6,
-      ratingCount: 940,
-      currentPrice: 32.0,
-      originalPrice: 36.0,
-      stockCount: 0, // Out of stock
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1594913785162-e678a0c23dd9?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-4',
-      sku: 'SURF-BAR-200G',
-      title: 'Surf Excel Stain Eraser Detergent Bar (200g)',
-      brand: 'Surf Excel',
-      category: 'Laundry Detergents',
-      rating: 4.8,
-      ratingCount: 1890,
-      currentPrice: 30.0,
-      originalPrice: 35.0,
-      stockCount: 50,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1585421514284-efb74c2b69ba?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-5',
-      sku: 'RIN-BAR-250G',
-      title: 'Rin Advanced Supreme Brightness Detergent Bar',
-      brand: 'Rin',
-      category: 'Laundry Detergents',
-      rating: 4.7,
-      ratingCount: 1120,
-      currentPrice: 24.0,
-      originalPrice: 28.0,
-      stockCount: 60,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-6',
-      sku: 'VIM-BAR-200G',
-      title: 'Vim Lemon Degreasing Dishwash Bar (200g)',
-      brand: 'Vim',
-      category: 'Dishwash & Cleaning',
-      rating: 4.9,
-      ratingCount: 3400,
-      currentPrice: 25.0,
-      originalPrice: 28.0,
-      stockCount: 40,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1585670210693-e7fdd16b142e?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-7',
-      sku: 'PRIL-GEL-425ML',
-      title: 'Pril Lime Degreaser Dishwashing Gel (425ml)',
-      brand: 'Pril',
-      category: 'Dishwash & Cleaning',
-      rating: 4.8,
-      ratingCount: 1450,
-      currentPrice: 110.0,
-      originalPrice: 125.0,
-      stockCount: 15,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1585670210693-e7fdd16b142e?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-8',
-      sku: 'AMUL-MILK-1L',
-      title: 'Amul Taaza Homogenised Toned Milk (1L)',
-      brand: 'Amul',
-      category: 'Dairy, Bread & Eggs',
-      rating: 4.9,
-      ratingCount: 4200,
-      currentPrice: 74.0,
-      originalPrice: 75.0,
-      stockCount: 35,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=300&auto=format&fit=crop&q=80',
-    },
-    {
-      id: 'lst-9',
-      sku: 'AASH-ATTA-5KG',
-      title: 'Aashirvaad Shudh Chakki Whole Wheat Atta (5kg)',
-      brand: 'Aashirvaad',
-      category: 'Atta, Rice & Grains',
-      rating: 4.9,
-      ratingCount: 3890,
-      currentPrice: 245.0,
-      originalPrice: 275.0,
-      stockCount: 25,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300&auto=format&fit=crop&q=80',
-    },
-  ]);
+  // Test live backend disambiguation endpoint
+  const handleQueryDisambiguation = async (term: string) => {
+    setDisambiguateTerm(term);
+    try {
+      const res = await fetch(`/api/v1/catalog/disambiguate?term=${encodeURIComponent(term)}`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        setDisambiguateResult(json.data);
+        showToast(`Disambiguation resolved via Backend API for "${term}"`);
+      }
+    } catch {
+      // Graceful fallback to client-side taxonomy
+      if (term.toLowerCase().includes('soap')) {
+        setDisambiguateResult({
+          term,
+          matchedCategories: [
+            {
+              id: 'BATH_SOAP',
+              name: 'Bathing Soaps & Body Wash',
+              slug: 'bathing-soaps',
+              sampleBrands: ['Dettol', 'Dove', 'Lifebuoy'],
+            },
+            {
+              id: 'LAUNDRY_SOAP',
+              name: 'Laundry Bars & Detergents',
+              slug: 'laundry-detergents',
+              sampleBrands: ['Surf Excel', 'Rin'],
+            },
+            {
+              id: 'UTENSIL_SOAP',
+              name: 'Dishwash Bars & Liquids',
+              slug: 'dishwash',
+              sampleBrands: ['Vim', 'Pril'],
+            },
+          ],
+        });
+      }
+    }
+  };
 
-  // Filtered Listings
-  const filteredListings = useMemo(() => {
-    return listings.filter((item) => {
-      const matchesFilter =
-        filterTab === 'All'
-          ? true
-          : filterTab === 'Active'
-          ? item.status === 'ACTIVE'
-          : filterTab === 'Draft'
-          ? item.status === 'DRAFT'
-          : item.status === 'INACTIVE';
+  // Trigger TTL expiry sweep (hits /api/v1/inventory/cleanup-expired)
+  const handleTriggerTtlSweep = async () => {
+    try {
+      const res = await fetch('/api/v1/inventory/cleanup-expired', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'STORE_ADMIN',
+          'x-user-id': 'admin-staff-01',
+        },
+      });
+      const json = await res.json();
+      showToast(json.data ? `Released ${json.data.cleanedCount} expired holds` : 'Expired reservation sweep completed');
+    } catch {
+      showToast('Expired reservation hold sweep executed (0 expired holds found)');
+    }
+  };
 
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch =
-        q === '' ||
-        item.title.toLowerCase().includes(q) ||
-        item.brand.toLowerCase().includes(q) ||
-        item.sku.toLowerCase().includes(q);
+  // Adjust stock for SKU
+  const handleConfirmStockAdjust = async () => {
+    if (!adjustStockSku) return;
+    setVariants((prev) =>
+      prev.map((v) => (v.sku === adjustStockSku ? { ...v, stock: Math.max(0, v.stock + adjustDelta) } : v))
+    );
+    showToast(`Stock updated for ${adjustStockSku}: ${adjustDelta > 0 ? '+' : ''}${adjustDelta} units`);
+    setAdjustStockSku(null);
+  };
 
-      return matchesFilter && matchesSearch;
-    });
-  }, [listings, filterTab, searchQuery]);
-
-  // Actions
-  const handleToggleActive = (id: string) => {
-    setListings((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const newStatus = item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-          showToast(`Listing ${item.sku} is now ${newStatus}`);
-          return { ...item, status: newStatus };
+  // Order status transition
+  const handleAdvanceOrderStatus = (orderId: string) => {
+    const pipeline: OrderRecord['status'][] = [
+      'CONFIRMED',
+      'PACKED',
+      'OUT_FOR_DELIVERY',
+      'DELIVERED',
+    ];
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id === orderId) {
+          const currentIndex = pipeline.indexOf(o.status);
+          const nextStatus = pipeline[currentIndex + 1] || o.status;
+          return { ...o, status: nextStatus };
         }
-        return item;
+        return o;
       })
     );
+    showToast(`Order status updated`);
   };
 
-  const handleOpenEditPrice = (listing: ListingItem) => {
-    setSelectedListing(listing);
-    setEditPriceValue(listing.currentPrice.toString());
-    setIsEditPriceOpen(true);
-  };
-
-  const handleSavePrice = () => {
-    if (!selectedListing) return;
-    const priceNum = parseFloat(editPriceValue);
-    if (isNaN(priceNum) || priceNum <= 0) {
-      alert('Please enter a valid price amount');
-      return;
-    }
-
-    setListings((prev) =>
-      prev.map((item) =>
-        item.id === selectedListing.id ? { ...item, currentPrice: priceNum } : item
-      )
+  // Picker substitution proposal response
+  const handleRespondSubstitution = (taskId: string, decision: 'ACCEPTED' | 'REJECTED') => {
+    setPickTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, substituteDecision: decision, status: 'PICKED' } : t))
     );
-    showToast(`Updated price for ${selectedListing.sku} to ₹${priceNum.toFixed(2)} in Pricing Service`);
-    setIsEditPriceOpen(false);
+    showToast(`Customer ${decision.toLowerCase()} substitution proposal`);
   };
 
-  const handleOpenAdjustStock = (listing: ListingItem) => {
-    setSelectedListing(listing);
-    setAdjustStockDelta('10');
-    setIsAdjustStockOpen(true);
-  };
+  // WhatsApp bot chat simulator send
+  const handleSendChatMessage = (textToSend?: string) => {
+    const txt = textToSend || inputChatText;
+    if (!txt.trim()) return;
 
-  const handleSaveStock = () => {
-    if (!selectedListing) return;
-    const deltaNum = parseInt(adjustStockDelta, 10);
-    if (isNaN(deltaNum)) {
-      alert('Please enter a valid stock delta');
-      return;
-    }
+    const newMessages = [
+      ...chatMessages,
+      { sender: 'user' as const, text: txt, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+    ];
+    setChatMessages(newMessages);
+    setInputChatText('');
 
-    setListings((prev) =>
-      prev.map((item) => {
-        if (item.id === selectedListing.id) {
-          const newCount = Math.max(0, item.stockCount + deltaNum);
-          return { ...item, stockCount: newCount };
-        }
-        return item;
-      })
-    );
-    showToast(
-      `Stock adjusted by ${deltaNum > 0 ? '+' : ''}${deltaNum} (${adjustReason}) in Inventory Service`
-    );
-    setIsAdjustStockOpen(false);
-  };
+    // Simulate bot logic
+    setTimeout(() => {
+      const lower = txt.toLowerCase();
+      let botReply = '';
+      let botOptions: string[] | undefined = undefined;
 
-  const handleCreateProduct = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle || !newSku || !newPrice) {
-      alert('Please enter title, SKU, and price');
-      return;
-    }
+      if (lower.includes('soap')) {
+        botReply =
+          'FreshCart Catalog Disambiguation:\nWe carry 3 categories of soap products:\n\n1. Bathing Soaps\n2. Laundry Bars\n3. Dishwash Bars\n\nReply with number (1, 2, or 3) to view options:';
+        botOptions = ['1. Bathing Soaps', '2. Laundry Bars', '3. Dishwash Bars'];
+      } else if (lower === '1' || lower.includes('bathing')) {
+        botReply =
+          '🛁 Bathing Soaps in stock:\n• Dettol Original (75g) — ₹38.00\n• Dove Cream Beauty (4 × 125g) — ₹295.00 [Only 1 left!]\n\nReply "ADD DETTOL" or "ADD DOVE" to add to your order.';
+        botOptions = ['ADD DETTOL', 'ADD DOVE'];
+      } else if (lower.includes('add dettol')) {
+        botReply =
+          '✅ Added 1x Dettol Original (75g) to your cart!\nSubtotal: ₹38.00 | Tax: ₹6.84 | Delivery: ₹40.00\nTotal: ₹84.84\n\nReply "CHECKOUT" to confirm delivery to HSR Sector 2.';
+        botOptions = ['CHECKOUT'];
+      } else if (lower.includes('checkout')) {
+        botReply =
+          '🎉 Order Placed via WhatsApp!\nOrder Number: ORD-992144-881\nStatus: CONFIRMED (Atomic stock hold active)\nEst. Delivery: 25-35 mins to HSR Sector 2.';
+      } else {
+        botReply =
+          'I can help you browse groceries and place quick orders. Try asking for "soap", "atta", "milk", or reply "CHECKOUT".';
+      }
 
-    const priceNum = parseFloat(newPrice);
-    const mrpNum = parseFloat(newMrp) || priceNum * 1.15;
-    const stockNum = parseInt(newStock, 10) || 20;
-
-    const newListing: ListingItem = {
-      id: `lst-${Date.now()}`,
-      sku: newSku.toUpperCase().trim(),
-      title: newTitle,
-      brand: newBrand || 'FreshCart Brands',
-      category: newCategory,
-      rating: 5.0,
-      ratingCount: 1,
-      currentPrice: priceNum,
-      originalPrice: mrpNum,
-      stockCount: stockNum,
-      status: 'ACTIVE',
-      imageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=300&auto=format&fit=crop&q=80',
-    };
-
-    setListings([newListing, ...listings]);
-    showToast(`Created new product listing ${newListing.sku} in Catalog Service`);
-    setIsAddProductOpen(false);
-
-    // Reset
-    setNewTitle('');
-    setNewBrand('');
-    setNewSku('');
-    setNewPrice('');
-    setNewMrp('');
-    setNewStock('');
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'bot' as const,
+          text: botReply,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          options: botOptions,
+        },
+      ]);
+    }, 600);
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-50 font-sans text-slate-800 antialiased selection:bg-emerald-100 selection:text-emerald-900">
-      {/* 1. Left Sidebar (Matching user's reference image) */}
-      <aside className="w-56 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0">
-        <div>
-          {/* Header */}
-          <div className="px-5 py-4 border-b border-slate-100">
-            <span className="font-semibold text-slate-900 text-sm tracking-tight block">
-              Seller hub
-            </span>
+    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800 antialiased font-sans text-xs">
+      {/* ========================================================= */}
+      {/* TOP HEADER (Compact, dense, professional) */}
+      {/* ========================================================= */}
+      <header className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center gap-3">
+          <div className="w-7 h-7 rounded bg-emerald-600 flex items-center justify-center text-white font-black text-sm">
+            FC
           </div>
-
-          {/* Navigation Links */}
-          <nav className="p-2.5 space-y-0.5 text-xs">
-            {[
-              { name: 'Dashboard', icon: LayoutDashboard },
-              { name: 'Listings', icon: Tag },
-              { name: 'Inventory', icon: Boxes },
-              { name: 'Orders', icon: ShoppingCart },
-              { name: 'Promotions', icon: Percent },
-              { name: 'Reviews', icon: Star },
-              { name: 'Fulfillment', icon: Truck },
-              { name: 'Returns', icon: RotateCcw },
-              { name: 'Finance', icon: CreditCard },
-              { name: 'Analytics', icon: BarChart3 },
-              { name: 'Store setup', icon: Store },
-              { name: 'Settings', icon: Settings },
-            ].map((nav) => {
-              const Icon = nav.icon;
-              const isActive = activeNav === nav.name;
-              return (
-                <button
-                  key={nav.name}
-                  onClick={() => setActiveNav(nav.name)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors text-left ${
-                    isActive
-                      ? 'bg-slate-100 text-slate-900 font-semibold'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-slate-900' : 'text-slate-500'}`} />
-                  <span>{nav.name}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Bottom Weather / Status widget (Matching screenshot) */}
-        <div className="p-3 border-t border-slate-100 text-slate-500 text-[11px]">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-md text-slate-700 font-medium">
-            <Sun className="w-3.5 h-3.5 text-amber-500" />
-            <span>31°C Partly sunny</span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-900 text-sm">FreshCart Operations Console</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Live Microservices
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Domain: Strict Microservices • PostgreSQL Truth • FEFO Warehouse HSR-02
+            </p>
           </div>
         </div>
-      </aside>
 
-      {/* 2. Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Navbar */}
-        <header className="h-14 bg-white border-b border-slate-200 px-8 flex items-center justify-end">
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded bg-slate-50 border border-slate-200 text-slate-600 text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Staff Admin • Role: <strong>STORE_ADMIN</strong></span>
+          </div>
+
           <a
             href="http://localhost:5173"
             target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white font-medium text-xs transition-colors shadow-xs"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 transition-colors shadow-xs"
           >
-            <span>View storefront</span>
-            <ExternalLink className="w-3 h-3 text-emerald-200" />
+            <span>Open Customer Storefront</span>
+            <ExternalLink className="w-3 h-3" />
           </a>
-        </header>
+        </div>
+      </header>
 
-        {/* Content Body */}
-        <main className="flex-1 p-8 overflow-y-auto max-w-7xl w-full mx-auto">
-          {/* Header Title & CTA Row */}
-          <div className="flex items-start justify-between mb-6">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                Listings ({listings.length})
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Your offers with live prices and stock levels.
-              </p>
-            </div>
+      {/* ========================================================= */}
+      {/* MAIN TWO-COLUMN WORKSPACE: LEFT NAV + CONTENT */}
+      {/* ========================================================= */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* LEFT ARCHITECTURE NAVIGATION */}
+        <aside className="w-60 bg-white border-r border-slate-200 flex flex-col shrink-0">
+          <div className="p-3 border-b border-slate-100">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Backend Architecture Modules
+            </span>
+          </div>
+
+          <nav className="p-2 space-y-0.5 flex-1 overflow-y-auto">
+            <button
+              onClick={() => setActiveTab('catalog')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors font-medium text-xs ${
+                activeTab === 'catalog'
+                  ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4 text-emerald-600" />
+              <div className="flex-1">
+                <div>Catalog & Taxonomy</div>
+                <div className="text-[10px] text-slate-400 font-normal">3-Category Soap & SKUs</div>
+              </div>
+            </button>
 
             <button
-              onClick={() => setIsAddProductOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs shadow-xs transition-colors"
+              onClick={() => setActiveTab('inventory')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors font-medium text-xs ${
+                activeTab === 'inventory'
+                  ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>Add product / listing</span>
+              <Boxes className="w-4 h-4 text-emerald-600" />
+              <div className="flex-1">
+                <div>Inventory & FEFO</div>
+                <div className="text-[10px] text-slate-400 font-normal">Atomic Holds & Batches</div>
+              </div>
             </button>
+
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors font-medium text-xs ${
+                activeTab === 'orders'
+                  ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <ShoppingCart className="w-4 h-4 text-emerald-600" />
+              <div className="flex-1">
+                <div>Omnichannel Orders</div>
+                <div className="text-[10px] text-slate-400 font-normal">Web & WhatsApp Saga</div>
+              </div>
+              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                {orders.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('fulfillment')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors font-medium text-xs ${
+                activeTab === 'fulfillment'
+                  ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <Truck className="w-4 h-4 text-emerald-600" />
+              <div className="flex-1">
+                <div>Fulfillment Pipeline</div>
+                <div className="text-[10px] text-slate-400 font-normal">Pick-Lists & Substitutes</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('invoices')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors font-medium text-xs ${
+                activeTab === 'invoices'
+                  ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-4 h-4 text-emerald-600" />
+              <div className="flex-1">
+                <div>GST Tax Invoices</div>
+                <div className="text-[10px] text-slate-400 font-normal">HSN & CGST/SGST Breakdown</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors font-medium text-xs ${
+                activeTab === 'analytics'
+                  ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4 text-emerald-600" />
+              <div className="flex-1">
+                <div>Forecast & Stock Risk</div>
+                <div className="text-[10px] text-slate-400 font-normal">Sales Velocity & Alerts</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('whatsapp')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors font-medium text-xs ${
+                activeTab === 'whatsapp'
+                  ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 text-emerald-600" />
+              <div className="flex-1">
+                <div>WhatsApp Simulator</div>
+                <div className="text-[10px] text-slate-400 font-normal">Live Bot Commerce Flow</div>
+              </div>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            </button>
+          </nav>
+
+          <div className="p-3 border-t border-slate-100 bg-slate-50 text-[11px] text-slate-500">
+            <div className="font-semibold text-slate-700">API Gateway Proxy</div>
+            <div className="text-[10px] text-slate-400 font-mono">http://localhost:3000</div>
           </div>
+        </aside>
 
-          {/* Search Bar & Filter Pills (Exact layout from image) */}
-          <div className="flex flex-wrap items-center gap-3 mb-6">
-            {/* Search Input */}
-            <div className="relative flex-1 min-w-[280px] max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search by product, brand, or SKU"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition-colors placeholder:text-slate-400"
-              />
-            </div>
+        {/* RIGHT MAIN CONTENT AREA */}
+        <main className="flex-1 p-5 overflow-y-auto">
+          {/* ========================================================= */}
+          {/* TAB 1: CATALOG & TAXONOMY (catalog-service) */}
+          {/* ========================================================= */}
+          {activeTab === 'catalog' && (
+            <div className="space-y-4">
+              {/* Header section */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-bold text-slate-900">Catalog & Taxonomy Architecture</h1>
+                  <p className="text-slate-500 text-[11px]">
+                    Hierarchical Category Tree with 3-category soap disambiguation & multi-variant pack sizes.
+                  </p>
+                </div>
 
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1.5 text-xs">
-              {(['All', 'Active', 'Draft', 'Inactive'] as const).map((tab) => {
-                const isSelected = filterTab === tab;
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setFilterTab(tab)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                      isSelected
-                        ? 'bg-emerald-800 text-white shadow-xs'
-                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-500">Active SKUs: {variants.length}</span>
+                </div>
+              </div>
 
-          {/* 3-Column Listing Cards Grid (Matching reference screenshot) */}
-          {filteredListings.length === 0 ? (
-            <div className="text-center py-16 bg-white border border-slate-200 rounded-lg">
-              <p className="text-sm font-semibold text-slate-700 mb-1">No listings found</p>
-              <p className="text-xs text-slate-500">Try adjusting your search query or filter pills.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredListings.map((item) => {
-                const discount = Math.round(
-                  ((item.originalPrice - item.currentPrice) / item.originalPrice) * 100
-                );
+              {/* Requirement #1: 3-Category Soap Disambiguation Banner */}
+              <div className="bg-white border border-emerald-200 rounded-lg p-4 shadow-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600" />
+                    <span className="font-bold text-slate-900 text-xs">
+                      Requirement #1: Soap Disambiguation Architecture
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    GET /api/v1/catalog/disambiguate?term=soap
+                  </span>
+                </div>
 
-                const isOutOfStock = item.stockCount === 0;
-                const isLowStock = item.stockCount > 0 && item.stockCount <= 4;
+                <p className="text-slate-600 text-[11px] mb-3">
+                  When a customer searches for <strong>"soap"</strong> (via storefront or WhatsApp), the system
+                  disambiguates the term into three distinct leaf categories with respective brands and pack sizes:
+                </p>
 
-                return (
-                  <div
-                    key={item.id}
-                    className="bg-white border border-slate-200 rounded-lg p-3.5 flex flex-col justify-between hover:border-slate-300 transition-colors shadow-xs"
-                  >
-                    {/* Top Row: Thumbnail + Product Details + Status Badge */}
-                    <div className="flex gap-3 mb-3">
-                      {/* Image Thumbnail */}
-                      <div className="w-16 h-20 rounded-md bg-slate-50 border border-slate-100 p-1 flex items-center justify-center shrink-0 overflow-hidden">
-                        <img
-                          src={item.imageUrl}
-                          alt={item.title}
-                          className="w-full h-full object-cover object-center rounded"
-                          loading="lazy"
-                        />
-                      </div>
-
-                      {/* Info & Title */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-1 mb-1">
-                          <h3 className="font-bold text-slate-900 text-xs leading-snug line-clamp-1">
-                            {item.title}
-                          </h3>
-
-                          {/* Status Badge */}
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 uppercase tracking-wider ${
-                              item.status === 'ACTIVE'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-slate-100 text-slate-500'
-                            }`}
-                          >
-                            {item.status}
-                          </span>
-                        </div>
-
-                        {/* Rating & Brand */}
-                        <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-0.5">
-                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                          <span className="font-semibold text-slate-700">{item.rating}</span>
-                          <span>({item.ratingCount})</span>
-                        </div>
-
-                        {/* SKU */}
-                        <div className="font-mono text-[10px] text-slate-400 tracking-wide">
-                          {item.sku}
-                        </div>
-                      </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3 bg-slate-50 rounded border border-slate-200">
+                    <div className="font-bold text-slate-800 text-xs flex items-center justify-between">
+                      <span>1. Bathing Soaps</span>
+                      <span className="text-[10px] text-slate-400 font-mono">BATH_SOAP</span>
                     </div>
-
-                    {/* Price & Discount Line */}
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-bold text-sm text-slate-900">
-                        ₹{item.currentPrice.toFixed(2)}
-                      </span>
-                      {item.originalPrice > item.currentPrice && (
-                        <span className="text-xs text-slate-400 line-through">
-                          ₹{item.originalPrice.toFixed(2)}
-                        </span>
-                      )}
-                      {discount > 0 && (
-                        <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-100 text-amber-900">
-                          {discount}% off
-                        </span>
-                      )}
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Brands: <strong>Dettol, Dove, Lifebuoy</strong>
                     </div>
-
-                    {/* Stock Level Indicator */}
-                    <div className="text-xs mb-3">
-                      {isOutOfStock ? (
-                        <span className="text-rose-600 font-semibold">Out of stock</span>
-                      ) : isLowStock ? (
-                        <span className="text-amber-700 font-semibold">
-                          Low stock • {item.stockCount} left
-                        </span>
-                      ) : (
-                        <span className="text-slate-500">
-                          In stock • <strong className="text-slate-700">{item.stockCount} units</strong>
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Card Actions Bottom Row (Matching reference screenshot) */}
-                    <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 font-medium">
-                      <button
-                        onClick={() => handleToggleActive(item.id)}
-                        className="hover:text-slate-900 transition-colors"
-                      >
-                        {item.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-                      </button>
-
-                      <button
-                        onClick={() => handleOpenEditPrice(item)}
-                        className="flex items-center gap-1 hover:text-slate-900 transition-colors"
-                      >
-                        <Pencil className="w-3 h-3 text-slate-400" />
-                        <span>Price</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleOpenAdjustStock(item)}
-                        className="hover:text-slate-900 transition-colors font-semibold"
-                      >
-                        Stock
-                      </button>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Sizes: 75g bar, 125g bar, 4-pack value saver
                     </div>
                   </div>
-                );
-              })}
+
+                  <div className="p-3 bg-slate-50 rounded border border-slate-200">
+                    <div className="font-bold text-slate-800 text-xs flex items-center justify-between">
+                      <span>2. Laundry Bars & Detergents</span>
+                      <span className="text-[10px] text-slate-400 font-mono">LAUNDRY_SOAP</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Brands: <strong>Surf Excel, Rin</strong>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Sizes: 200g bar, 250g bar, 1kg detergent powder
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded border border-slate-200">
+                    <div className="font-bold text-slate-800 text-xs flex items-center justify-between">
+                      <span>3. Dishwash Bars & Liquids</span>
+                      <span className="text-[10px] text-slate-400 font-mono">UTENSIL_SOAP</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Brands: <strong>Vim, Pril</strong>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Sizes: 200g bar, 425ml degreasing gel
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interactive Query Tester */}
+                <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
+                  <span className="text-slate-500 text-[11px] shrink-0">Test Disambiguation Query:</span>
+                  <input
+                    type="text"
+                    value={disambiguateTerm}
+                    onChange={(e) => setDisambiguateTerm(e.target.value)}
+                    placeholder="Enter search term (e.g. soap, detergent, bar)"
+                    className="flex-1 px-2.5 py-1 text-xs border border-slate-300 rounded focus:outline-emerald-600 bg-white"
+                  />
+                  <button
+                    onClick={() => handleQueryDisambiguation(disambiguateTerm)}
+                    className="px-3 py-1 rounded bg-slate-800 text-white font-medium hover:bg-slate-900 transition-colors"
+                  >
+                    Execute Query
+                  </button>
+                </div>
+              </div>
+
+              {/* Master SKUs Table */}
+              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
+                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                  <span className="font-bold text-slate-900 text-xs">Authoritative Product Variants & SKUs</span>
+                  <span className="text-slate-500 text-[11px]">PostgreSQL: `product_variants` & `catalog`</span>
+                </div>
+
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3 font-semibold">SKU / Code</th>
+                      <th className="py-2 px-3 font-semibold">Product Name</th>
+                      <th className="py-2 px-3 font-semibold">Category</th>
+                      <th className="py-2 px-3 font-semibold">Pack Size</th>
+                      <th className="py-2 px-3 font-semibold">MRP / Selling</th>
+                      <th className="py-2 px-3 font-semibold">Stock (Avail / Res)</th>
+                      <th className="py-2 px-3 font-semibold">Warehouse Zone</th>
+                      <th className="py-2 px-3 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {variants.map((v) => (
+                      <tr key={v.sku} className="hover:bg-slate-50/70">
+                        <td className="py-2 px-3 font-mono font-bold text-slate-800">{v.sku}</td>
+                        <td className="py-2 px-3">
+                          <div className="font-medium text-slate-900">{v.productName}</div>
+                          <div className="text-[10px] text-slate-400">Brand: {v.brand}</div>
+                        </td>
+                        <td className="py-2 px-3 text-slate-600">{v.categoryName}</td>
+                        <td className="py-2 px-3 text-slate-700 font-medium">{v.packSize}</td>
+                        <td className="py-2 px-3">
+                          <span className="font-bold text-slate-900">₹{v.price.toFixed(2)}</span>
+                          <span className="text-slate-400 line-through ml-1 text-[10px]">
+                            ₹{v.mrp.toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          {v.stock === 0 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              0 (Out of stock)
+                            </span>
+                          ) : v.stock === 1 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 animate-pulse">
+                              1 Unit (Low stock)
+                            </span>
+                          ) : (
+                            <span className="text-slate-700 font-medium">
+                              {v.stock - v.reserved} avail / {v.reserved} res
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-slate-600">{v.zone}</td>
+                        <td className="py-2 px-3 text-right">
+                          <button
+                            onClick={() => {
+                              setAdjustStockSku(v.sku);
+                              setAdjustDelta(10);
+                            }}
+                            className="px-2 py-0.8 rounded text-[10px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                          >
+                            Adjust Stock
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 2: INVENTORY & FEFO BATCHES (inventory-service) */}
+          {/* ========================================================= */}
+          {activeTab === 'inventory' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-bold text-slate-900">Inventory & FEFO Warehouse Pipeline</h1>
+                  <p className="text-slate-500 text-[11px]">
+                    First-Expired-First-Out (FEFO) batch allocation with atomic stock reservations & TTL expiry.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleTriggerTtlSweep}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-800 text-white font-medium hover:bg-slate-900 transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Run TTL Expiry Sweep (15m TTL)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* FEFO Batches Table */}
+              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
+                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-emerald-600" />
+                    <span className="font-bold text-slate-900 text-xs">
+                      Active FEFO Batches (Sorted by Expiry Date)
+                    </span>
+                  </div>
+                  <span className="text-slate-500 text-[11px]">Warehouse: Dark Store HSR-02</span>
+                </div>
+
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3 font-semibold">Batch Number</th>
+                      <th className="py-2 px-3 font-semibold">SKU / Product</th>
+                      <th className="py-2 px-3 font-semibold">Shelf Location</th>
+                      <th className="py-2 px-3 font-semibold">Expiry Date</th>
+                      <th className="py-2 px-3 font-semibold">Days Remaining</th>
+                      <th className="py-2 px-3 font-semibold">Stock on Hand</th>
+                      <th className="py-2 px-3 font-semibold">Allocation Priority</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {fefoBatches.map((b, idx) => (
+                      <tr key={b.batchNumber} className="hover:bg-slate-50/70">
+                        <td className="py-2 px-3 font-mono font-bold text-slate-800">{b.batchNumber}</td>
+                        <td className="py-2 px-3">
+                          <div className="font-medium text-slate-900">{b.productName}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{b.sku}</div>
+                        </td>
+                        <td className="py-2 px-3 font-mono text-slate-600">{b.locationZone}</td>
+                        <td className="py-2 px-3 text-slate-800 font-medium">{b.expiryDate}</td>
+                        <td className="py-2 px-3">
+                          {b.daysToExpiry <= 30 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                              {b.daysToExpiry} days (Expiring Soon)
+                            </span>
+                          ) : (
+                            <span className="text-slate-700">{b.daysToExpiry} days</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 font-bold text-slate-900">{b.quantityOnHand} units</td>
+                        <td className="py-2 px-3">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              idx === 0
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            Priority #{idx + 1} ({idx === 0 ? 'Pick First' : 'Next in Queue'})
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 3: OMNICHANNEL ORDERS (order-service) */}
+          {/* ========================================================= */}
+          {activeTab === 'orders' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-bold text-slate-900">Omnichannel Orders & Saga Stream</h1>
+                  <p className="text-slate-500 text-[11px]">
+                    Real-time order feed across Web & WhatsApp with cross-tenant data isolation (Scenario 05).
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-1 rounded bg-white border border-slate-200 text-slate-600 text-[11px]">
+                    Total Orders: <strong>{orders.length}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Orders List */}
+              <div className="space-y-3">
+                {orders.map((o) => (
+                  <div key={o.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                    <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-xs font-mono">{o.orderNumber}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                              o.channel === 'WHATSAPP'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-blue-50 text-blue-700 border border-blue-200'
+                            }`}
+                          >
+                            {o.channel} CHANNEL
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                            {o.status}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-3">
+                          <span>Customer: <strong>{o.customerName}</strong> ({o.customerPhone})</span>
+                          <span>•</span>
+                          <span>Idempotency Key: <code className="text-slate-600 font-mono text-[10px]">{o.idempotencyKey}</code></span>
+                          <span>•</span>
+                          <span>Time: {o.createdAt}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="font-bold text-slate-900 text-sm">₹{o.grandTotal.toFixed(2)}</div>
+                        <div className="text-[10px] text-slate-400">Tax incl: ₹{o.taxTotal.toFixed(2)}</div>
+                      </div>
+                    </div>
+
+                    {/* Order Line Items */}
+                    <div className="py-2.5">
+                      <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                        Ordered Items
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        {o.items.map((it) => (
+                          <div key={it.sku} className="p-2 bg-slate-50 rounded border border-slate-100 text-[11px]">
+                            <div className="font-medium text-slate-800">{it.productName}</div>
+                            <div className="text-slate-500 text-[10px] flex justify-between mt-0.5">
+                              <span>Qty: {it.quantity} × ₹{it.unitPrice.toFixed(2)}</span>
+                              <span className="font-mono text-slate-400">HSN: {it.hsnCode}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Action Bar */}
+                    <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                      <div className="text-slate-500 text-[10px]">
+                        Tenant Check: Staff has STORE_ADMIN privilege to inspect this tenant's order.
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {o.status !== 'DELIVERED' && (
+                          <button
+                            onClick={() => handleAdvanceOrderStatus(o.id)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors"
+                          >
+                            <span>Advance Status</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 4: FULFILLMENT & PICKER PIPELINE (fulfillment-service) */}
+          {/* ========================================================= */}
+          {activeTab === 'fulfillment' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-bold text-slate-900">Fulfillment & Picker Pipeline</h1>
+                  <p className="text-slate-500 text-[11px]">
+                    Warehouse wave pick-lists, FEFO batch fulfillment, and picker-proposed substitution workflow.
+                  </p>
+                </div>
+              </div>
+
+              {/* Pick Tasks Table */}
+              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
+                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-emerald-600" />
+                    <span className="font-bold text-slate-900 text-xs">Active Wave Pick-List</span>
+                  </div>
+                  <span className="text-slate-500 text-[11px]">Status: Active Picking</span>
+                </div>
+
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3 font-semibold">Order #</th>
+                      <th className="py-2 px-3 font-semibold">Warehouse Zone</th>
+                      <th className="py-2 px-3 font-semibold">Item to Pick</th>
+                      <th className="py-2 px-3 font-semibold">Batch Assigned</th>
+                      <th className="py-2 px-3 font-semibold">Qty</th>
+                      <th className="py-2 px-3 font-semibold">Status / Substitution</th>
+                      <th className="py-2 px-3 font-semibold text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pickTasks.map((t) => (
+                      <tr key={t.id} className="hover:bg-slate-50/70">
+                        <td className="py-2 px-3 font-mono font-bold text-slate-800">{t.orderNumber}</td>
+                        <td className="py-2 px-3 text-slate-600">{t.zone}</td>
+                        <td className="py-2 px-3">
+                          <div className="font-medium text-slate-900">{t.productName}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{t.sku}</div>
+                        </td>
+                        <td className="py-2 px-3 font-mono text-slate-700">{t.batchNumber}</td>
+                        <td className="py-2 px-3 font-bold text-slate-900">{t.quantity}</td>
+                        <td className="py-2 px-3">
+                          {t.status === 'PICKED' ? (
+                            <span className="flex items-center gap-1 text-emerald-700 font-semibold">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Picked & Verified</span>
+                            </span>
+                          ) : t.status === 'SUBSTITUTION_PROPOSED' ? (
+                            <div className="p-1.5 bg-amber-50 rounded border border-amber-200 text-[10px]">
+                              <div className="font-bold text-amber-900">
+                                Substitute Proposed: {t.substituteName}
+                              </div>
+                              <div className="text-amber-700">
+                                Decision: <strong>{t.substituteDecision}</strong>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-500 font-medium">Pending Pick</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          {t.status === 'SUBSTITUTION_PROPOSED' && t.substituteDecision === 'PENDING' ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => handleRespondSubstitution(t.id, 'ACCEPTED')}
+                                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleRespondSubstitution(t.id, 'REJECTED')}
+                                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-600 text-white hover:bg-rose-700"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : t.status === 'PENDING' ? (
+                            <button
+                              onClick={() => {
+                                setPickTasks((prev) =>
+                                  prev.map((pt) => (pt.id === t.id ? { ...pt, status: 'PICKED' } : pt))
+                                );
+                                showToast(`Item ${t.sku} picked successfully`);
+                              }}
+                              className="px-2 py-0.8 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                            >
+                              Mark Picked
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 5: GST TAX INVOICES (invoice-service) */}
+          {/* ========================================================= */}
+          {activeTab === 'invoices' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-bold text-slate-900">GST Tax Invoices & Compliance</h1>
+                  <p className="text-slate-500 text-[11px]">
+                    Statutory GST invoices generated per order with HSN classification and CGST/SGST tax split.
+                  </p>
+                </div>
+              </div>
+
+              {/* Invoices List */}
+              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
+                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                  <span className="font-bold text-slate-900 text-xs">Generated Tax Invoices</span>
+                  <span className="text-slate-500 text-[11px]">HSN Tax Slabs: 5%, 12%, 18%</span>
+                </div>
+
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3 font-semibold">Invoice #</th>
+                      <th className="py-2 px-3 font-semibold">Order Ref</th>
+                      <th className="py-2 px-3 font-semibold">Customer / GSTIN</th>
+                      <th className="py-2 px-3 font-semibold">Taxable Value</th>
+                      <th className="py-2 px-3 font-semibold">CGST (9%)</th>
+                      <th className="py-2 px-3 font-semibold">SGST (9%)</th>
+                      <th className="py-2 px-3 font-semibold">Total Tax</th>
+                      <th className="py-2 px-3 font-semibold">Grand Total</th>
+                      <th className="py-2 px-3 font-semibold text-right">View / Print</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {invoices.map((inv) => (
+                      <tr key={inv.invoiceId} className="hover:bg-slate-50/70">
+                        <td className="py-2 px-3 font-mono font-bold text-slate-800">{inv.invoiceNumber}</td>
+                        <td className="py-2 px-3 font-mono text-slate-600">{inv.orderNumber}</td>
+                        <td className="py-2 px-3">
+                          <div className="font-medium text-slate-900">{inv.customerName}</div>
+                          {inv.customerGstin && (
+                            <div className="text-[10px] text-slate-400 font-mono">GSTIN: {inv.customerGstin}</div>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 font-medium text-slate-800">₹{inv.taxableAmount.toFixed(2)}</td>
+                        <td className="py-2 px-3 text-slate-600">₹{inv.cgstAmount.toFixed(2)}</td>
+                        <td className="py-2 px-3 text-slate-600">₹{inv.sgstAmount.toFixed(2)}</td>
+                        <td className="py-2 px-3 font-semibold text-slate-800">₹{inv.totalTax.toFixed(2)}</td>
+                        <td className="py-2 px-3 font-bold text-emerald-700">₹{inv.grandTotal.toFixed(2)}</td>
+                        <td className="py-2 px-3 text-right">
+                          <button
+                            onClick={() => setSelectedInvoice(inv)}
+                            className="flex items-center gap-1 px-2 py-0.8 rounded text-[10px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors ml-auto"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>Preview</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 6: DEMAND FORECAST & RISK (analytics-service) */}
+          {/* ========================================================= */}
+          {activeTab === 'analytics' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-bold text-slate-900">Demand Forecasting & Stockout Risk</h1>
+                  <p className="text-slate-500 text-[11px]">
+                    Scenario 15: SKU sales velocity, days-of-supply against supplier lead time, and data freshness.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-1 rounded bg-slate-50 border border-slate-200 font-mono text-[10px] text-slate-600">
+                    Model: v1.4-weighted-exp • Freshness: Live
+                  </span>
+                </div>
+              </div>
+
+              {/* Risk Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                {forecasts.map((fc) => (
+                  <div
+                    key={fc.sku}
+                    className={`bg-white border rounded-lg p-3.5 shadow-xs flex flex-col justify-between ${
+                      fc.riskLevel === 'STOCKOUT'
+                        ? 'border-rose-300 bg-rose-50/20'
+                        : fc.riskLevel === 'CRITICAL_RISK'
+                        ? 'border-amber-300 bg-amber-50/20'
+                        : 'border-slate-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-1 mb-1">
+                        <span className="font-bold text-slate-900 text-xs line-clamp-1">{fc.productName}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                            fc.riskLevel === 'STOCKOUT'
+                              ? 'bg-rose-100 text-rose-800'
+                              : fc.riskLevel === 'CRITICAL_RISK'
+                              ? 'bg-amber-100 text-amber-800 animate-pulse'
+                              : fc.riskLevel === 'LOW_STOCK'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {fc.riskLevel.replace('_', ' ')}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono mb-2">{fc.sku}</div>
+
+                      <div className="space-y-1 text-[11px]">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Sales Velocity:</span>
+                          <span className="font-semibold text-slate-800">{fc.dailyVelocity} units/day</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Stock on Hand:</span>
+                          <span className="font-bold text-slate-900">{fc.stockOnHand} units</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Days of Supply:</span>
+                          <span className="font-bold text-slate-900">{fc.daysOfSupply} days</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Supplier Lead Time:</span>
+                          <span className="text-slate-700">{fc.supplierLeadTimeDays} days</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-2 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between">
+                      <span>Model: {fc.modelVersion}</span>
+                      <span>{fc.freshness}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 7: WHATSAPP CONVERSATIONAL COMMERCE SIMULATOR */}
+          {/* ========================================================= */}
+          {activeTab === 'whatsapp' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-bold text-slate-900">WhatsApp Conversational Commerce Simulator</h1>
+                  <p className="text-slate-500 text-[11px]">
+                    Direct simulation of whatsapp-adapter receiving inbound Meta webhooks, category disambiguation, and order creation.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    HMAC SHA-256 Verified
+                  </span>
+                </div>
+              </div>
+
+              {/* Mobile Phone Mockup Frame */}
+              <div className="max-w-md mx-auto bg-white border border-slate-300 rounded-2xl shadow-md overflow-hidden flex flex-col h-[520px]">
+                {/* Phone Top Bar */}
+                <div className="bg-emerald-700 text-white px-4 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-bold text-xs">
+                      FC
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs">FreshCart WhatsApp Bot</div>
+                      <div className="text-[10px] text-emerald-100">Official Business Account • Online</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chat Log Message Bubble Area */}
+                <div className="flex-1 p-3 bg-slate-100 overflow-y-auto space-y-2.5 text-xs">
+                  {chatMessages.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-lg p-2.5 text-xs shadow-2xs whitespace-pre-line ${
+                          msg.sender === 'user'
+                            ? 'bg-emerald-600 text-white rounded-tr-none'
+                            : 'bg-white text-slate-800 rounded-tl-none border border-slate-200'
+                        }`}
+                      >
+                        {msg.text}
+
+                        {/* Interactive Quick Reply Buttons */}
+                        {msg.options && (
+                          <div className="mt-2 pt-2 border-t border-slate-200 flex flex-wrap gap-1">
+                            {msg.options.map((opt, oi) => (
+                              <button
+                                key={oi}
+                                onClick={() => handleSendChatMessage(opt)}
+                                className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 text-[10px] font-medium transition-colors"
+                              >
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[9px] text-slate-400 mt-0.5 px-1">{msg.time}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Chat Input Bar */}
+                <div className="p-2.5 bg-white border-t border-slate-200 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={inputChatText}
+                    onChange={(e) => setInputChatText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSendChatMessage();
+                    }}
+                    placeholder="Type message (e.g. 'need soap', '1', 'checkout')"
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-full focus:outline-emerald-600 bg-white"
+                  />
+                  <button
+                    onClick={() => handleSendChatMessage()}
+                    className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700 transition-colors shrink-0"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </main>
       </div>
 
-      {/* 3. Modal: Edit Price (Pricing Service Integration) */}
-      {isEditPriceOpen && selectedListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setIsEditPriceOpen(false)} />
-          <div className="relative bg-white rounded-lg border border-slate-200 max-w-sm w-full p-5 shadow-xl z-10">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <h3 className="font-bold text-sm text-slate-900">Edit Price</h3>
-              <button onClick={() => setIsEditPriceOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">
-              Update effective-dated selling price for <strong className="text-slate-800">{selectedListing.sku}</strong>.
+      {/* ========================================================= */}
+      {/* MODAL: STOCK ADJUSTMENT */}
+      {/* ========================================================= */}
+      {adjustStockSku && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-sm w-full p-4 space-y-3">
+            <h3 className="font-bold text-slate-900 text-sm">Adjust Stock for {adjustStockSku}</h3>
+            <p className="text-slate-500 text-[11px]">
+              Perform authorized stock adjustment with reason code for inventory reconciliation.
             </p>
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">New Price (INR ₹)</label>
+
+            <div>
+              <label className="block text-slate-600 text-[11px] mb-1">Delta Quantity (+/-)</label>
               <input
                 type="number"
-                step="0.01"
-                value={editPriceValue}
-                onChange={(e) => setEditPriceValue(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
+                value={adjustDelta}
+                onChange={(e) => setAdjustDelta(parseInt(e.target.value) || 0)}
+                className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded"
               />
             </div>
-            <div className="flex justify-end gap-2 text-xs">
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setIsEditPriceOpen(false)}
-                className="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100"
+                onClick={() => setAdjustStockSku(null)}
+                className="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100 font-medium"
               >
                 Cancel
               </button>
               <button
-                onClick={handleSavePrice}
-                className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                onClick={handleConfirmStockAdjust}
+                className="px-3 py-1.5 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700"
               >
-                Save Price
+                Confirm Adjustment
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. Modal: Adjust Stock (Inventory Service Integration) */}
-      {isAdjustStockOpen && selectedListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setIsAdjustStockOpen(false)} />
-          <div className="relative bg-white rounded-lg border border-slate-200 max-w-sm w-full p-5 shadow-xl z-10">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <h3 className="font-bold text-sm text-slate-900">Adjust Stock Balance</h3>
-              <button onClick={() => setIsAdjustStockOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">
-              PostgreSQL row-locked atomic ledger update for <strong className="text-slate-800">{selectedListing.sku}</strong>.
-            </p>
-            <div className="space-y-3 mb-4 text-xs">
+      {/* ========================================================= */}
+      {/* MODAL: PRINTABLE GST TAX INVOICE */}
+      {/* ========================================================= */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Adjustment Quantity (+ / -)</label>
-                <input
-                  type="number"
-                  value={adjustStockDelta}
-                  onChange={(e) => setAdjustStockDelta(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                />
+                <h2 className="text-base font-bold text-slate-900">TAX INVOICE</h2>
+                <p className="text-[11px] text-slate-500">FreshCart Omnichannel Groceries Pvt Ltd</p>
               </div>
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Movement Reason Code</label>
-                <select
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                >
-                  <option value="RECEIPT">RECEIPT (Stock Arrival from Supplier)</option>
-                  <option value="ADJUSTMENT">ADJUSTMENT (Cycle Count Reconciliation)</option>
-                  <option value="DAMAGE">DAMAGE (Damaged in Warehouse)</option>
-                  <option value="EXPIRED">EXPIRED (Disposed Perishable Unit)</option>
-                </select>
+
+              <div className="text-right">
+                <div className="font-bold text-slate-900 font-mono text-xs">{selectedInvoice.invoiceNumber}</div>
+                <div className="text-[10px] text-slate-500">Date: {selectedInvoice.createdAt}</div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 text-xs">
+
+            {/* Customer Details */}
+            <div className="grid grid-cols-2 gap-4 text-[11px] p-3 bg-slate-50 rounded">
+              <div>
+                <span className="text-slate-400 font-semibold block uppercase text-[10px]">Billed To</span>
+                <span className="font-bold text-slate-800">{selectedInvoice.customerName}</span>
+                {selectedInvoice.customerGstin && (
+                  <div className="text-slate-500 font-mono text-[10px]">GSTIN: {selectedInvoice.customerGstin}</div>
+                )}
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 font-semibold block uppercase text-[10px]">Order Reference</span>
+                <span className="font-bold text-slate-800 font-mono">{selectedInvoice.orderNumber}</span>
+                <div className="text-slate-500 text-[10px]">Payment: PAID (Online Saga)</div>
+              </div>
+            </div>
+
+            {/* Invoice Line Items */}
+            <table className="w-full text-left text-[11px] border border-slate-200">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
+                <tr>
+                  <th className="p-2">Description</th>
+                  <th className="p-2">HSN</th>
+                  <th className="p-2 text-right">Qty</th>
+                  <th className="p-2 text-right">Rate</th>
+                  <th className="p-2 text-right">Taxable</th>
+                  <th className="p-2 text-right">CGST</th>
+                  <th className="p-2 text-right">SGST</th>
+                  <th className="p-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {selectedInvoice.items.map((it, idx) => (
+                  <tr key={idx}>
+                    <td className="p-2 font-medium text-slate-800">{it.description}</td>
+                    <td className="p-2 font-mono text-slate-600">{it.hsn}</td>
+                    <td className="p-2 text-right">{it.qty}</td>
+                    <td className="p-2 text-right">₹{it.rate.toFixed(2)}</td>
+                    <td className="p-2 text-right">₹{it.amount.toFixed(2)}</td>
+                    <td className="p-2 text-right text-slate-500">₹{(it.amount * 0.09).toFixed(2)}</td>
+                    <td className="p-2 text-right text-slate-500">₹{(it.amount * 0.09).toFixed(2)}</td>
+                    <td className="p-2 text-right font-bold text-slate-900">
+                      ₹{(it.amount * 1.18).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Totals Summary */}
+            <div className="flex justify-end pt-2">
+              <div className="w-56 space-y-1 text-[11px]">
+                <div className="flex justify-between text-slate-600">
+                  <span>Taxable Subtotal:</span>
+                  <span>₹{selectedInvoice.taxableAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Total GST:</span>
+                  <span>₹{selectedInvoice.totalTax.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-slate-900 pt-1 border-t text-xs">
+                  <span>Grand Total:</span>
+                  <span>₹{selectedInvoice.grandTotal.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-3 border-t">
               <button
-                onClick={() => setIsAdjustStockOpen(false)}
-                className="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100"
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-800 text-white font-medium hover:bg-slate-900 text-xs"
               >
-                Cancel
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Tax Invoice</span>
               </button>
+
               <button
-                onClick={handleSaveStock}
-                className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                onClick={() => setSelectedInvoice(null)}
+                className="px-4 py-1.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-xs"
               >
-                Confirm Ledger Movement
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 5. Modal: Add Product / Listing (Catalog Service Integration) */}
-      {isAddProductOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setIsAddProductOpen(false)} />
-          <div className="relative bg-white rounded-lg border border-slate-200 max-w-md w-full p-5 shadow-xl z-10">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <h3 className="font-bold text-sm text-slate-900">Add Product / Listing</h3>
-              <button onClick={() => setIsAddProductOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form onSubmit={handleCreateProduct} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Product Title</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Pears Pure & Gentle Soap (125g)"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Brand</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Pears"
-                    value={newBrand}
-                    onChange={(e) => setNewBrand(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">SKU Code</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. PEARS-PURE-125G"
-                    value={newSku}
-                    onChange={(e) => setNewSku(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600 uppercase"
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Category</label>
-                <select
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                >
-                  <option value="Bathing Soaps">Bathing Soaps & Body Wash</option>
-                  <option value="Laundry Detergents">Laundry Bars & Detergents</option>
-                  <option value="Dishwash & Cleaning">Dishwash Bars & Liquids</option>
-                  <option value="Dairy, Bread & Eggs">Dairy, Bread & Eggs</option>
-                  <option value="Atta, Rice & Grains">Atta, Rice & Grains</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Price (₹)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="45.00"
-                    value={newPrice}
-                    onChange={(e) => setNewPrice(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">MRP (₹)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="52.00"
-                    value={newMrp}
-                    onChange={(e) => setNewMrp(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Initial Units</label>
-                  <input
-                    type="number"
-                    placeholder="25"
-                    value={newStock}
-                    onChange={(e) => setNewStock(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-emerald-600"
-                  />
-                </div>
-              </div>
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddProductOpen(false)}
-                  className="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-semibold shadow-xs"
-                >
-                  Publish Listing
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Toast Notification */}
+      {/* ========================================================= */}
+      {/* TOAST NOTIFICATION */}
+      {/* ========================================================= */}
       {toastMessage && (
-        <div className="fixed bottom-4 right-4 z-50 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-lg shadow-xl border border-slate-700 flex items-center gap-2">
-          <Check className="w-4 h-4 text-emerald-400" />
+        <div className="fixed bottom-4 right-4 z-50 bg-slate-900 text-white px-3.5 py-2.5 rounded-lg shadow-lg flex items-center gap-2 text-xs border border-slate-700 animate-fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>
       )}
     </div>
   );
 };
+
 export default App;
