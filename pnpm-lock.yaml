@@ -105,6 +105,31 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  services/payment-service:
+    dependencies:
+      '@grocery/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@grocery/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
+      express:
+        specifier: ^4.21.2
+        version: 4.22.3
+      pg:
+        specifier: ^8.13.3
+        version: 8.23.1
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.0
+        version: 5.0.6
+      '@types/pg':
+        specifier: ^8.11.11
+        version: 8.23.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   services/pricing-service:
     dependencies:
       '@grocery/contracts':

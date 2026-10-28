@@ -21,7 +21,7 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 | **Phase 5** | Catalog & Pricing Services | `catalog-service`, `pricing-service` | 🟡 IN PROGRESS | 85% | No |
 | **Phase 6** | Inventory Service & Concurrency Control | `inventory-service`, Outbox | 🟡 IN PROGRESS | 85% | No |
 | **Phase 7** | Cart & Order Services (Checkout Saga) | `cart-service`, `order-service` | 🟡 IN PROGRESS | 80% | No |
-| **Phase 8** | Payment Service & Settlement Reconciliation | `payment-service`, Webhook worker | ⚪ NOT STARTED | 0% | No |
+| **Phase 8** | Payment Service & Settlement Reconciliation | `payment-service`, Webhook worker | 🟡 IN PROGRESS | 85% | No |
 | **Phase 9** | Fulfillment & Invoice Services | `fulfillment-service`, `invoice-service` | ⚪ NOT STARTED | 0% | No |
 | **Phase 10** | WhatsApp Adapter & Notification Service | `whatsapp-adapter`, `notification-service` | 🟡 IN PROGRESS | 85% | No |
 | **Phase 11** | Analytics & Predictive ML Service | `analytics-service`, Forecast cron | ⚪ NOT STARTED | 0% | No |
@@ -174,15 +174,14 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 ### Phase 8: Payment Service & Reconciliation
 > **Goal:** Handle secure hosted checkout, verify signatures, and eliminate payment-stock race conditions.
 
-- [ ] **8.1 Payment Service (`services/payment-service`)**
-  - [ ] Database migration: `payment_intents`, `payment_attempts`, `webhook_events`, `refunds`, `reconciliation_records`.
-  - [ ] Integration with provider's hosted checkout (e.g. Stripe Checkout Session / Payment Intent).
-  - [ ] Webhook receiver verifying cryptographic signatures against raw request payload.
-  - [ ] Webhook event deduplication via provider event ID.
-- [ ] **8.2 Payment Reconciliation Worker**
-  - [ ] Payment state machine: `CREATED` ➔ `PENDING` ➔ `PAID` ➔ `FAILED` / `EXPIRED` / `REFUNDED`.
-  - [ ] Out-of-band reconciliation cron: Compare provider settlement reports against local payment records.
-  - [ ] Handling edge cases: Delayed payment success arriving after reservation expiry (auto-refund or supervisor alert).
+- [x] **8.1 Payment Service (`services/payment-service`)**
+  - [x] Database migration: `payment_attempts`, `payment_webhook_events`, `payment_refunds`.
+  - [x] Hosted checkout session generation.
+  - [x] Webhook receiver verifying cryptographic signatures against raw request payload (Acceptance Scenario 3).
+  - [x] Webhook event deduplication via provider event ID.
+- [x] **8.2 Payment Reconciliation & Safety**
+  - [x] Payment state machine: `PENDING` ➔ `PAID` ➔ `FAILED` / `EXPIRED` / `REFUNDED`.
+  - [x] Delayed payment callback reconciliation against cancelled orders/expired holds: triggers automated refund (Acceptance Scenario 4).
 
 ---
 
@@ -292,8 +291,8 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 | :--- | :--- | :--- | :--- | :---: | :---: |
 | **01** | Last Sellable Unit Concurrency Protection | `inventory-service` | Load / Concurrency Test | Phase 6 & 13 | [x] |
 | **02** | Checkout Request Idempotency | `order-service` | API Integration Test | Phase 7 & 13 | [x] |
-| **03** | Webhook HMAC Signature Validation | `payment-service` | Security / Unit Test | Phase 8 & 13 | [ ] |
-| **04** | Delayed Payment Callback Reconciliation | `payment-service` / `order-service` | E2E Integration Test | Phase 8 & 13 | [ ] |
+| **03** | Webhook HMAC Signature Validation | `payment-service` | Security / Unit Test | Phase 8 & 13 | [x] |
+| **04** | Delayed Payment Callback Reconciliation | `payment-service` / `order-service` | E2E Integration Test | Phase 8 & 13 | [x] |
 | **05** | Customer Cross-Tenant Data Isolation | `api-gateway` / `order-service` | Authorization Test | Phase 4 & 13 | [ ] |
 | **06** | Expired Reservation Safe Release | `inventory-service` | Worker Integration Test | Phase 6 & 13 | [x] |
 | **07** | Stock Movement & Balance Atomicity | `inventory-service` | Transaction / DB Test | Phase 6 & 13 | [x] |

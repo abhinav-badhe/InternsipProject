@@ -11,6 +11,7 @@
     { "path": "./services/pricing-service" },
     { "path": "./services/inventory-service" },
     { "path": "./services/order-service" },
-    { "path": "./services/whatsapp-adapter" }
+    { "path": "./services/whatsapp-adapter" },
+    { "path": "./services/payment-service" }
   ]
 }
