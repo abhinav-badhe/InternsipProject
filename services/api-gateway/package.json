@@ -1,0 +1,20 @@
+{
+  "name": "@grocery/api-gateway",
+  "version": "0.1.0",
+  "description": "Public API Gateway & BFF with JWT authentication, rate limiting, and cross-tenant data isolation",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/src/index.js",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@grocery/contracts": "workspace:*",
+    "@grocery/observability": "workspace:*",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "typescript": "^5.7.3"
+  }
+}

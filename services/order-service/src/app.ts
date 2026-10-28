@@ -130,6 +130,102 @@ export function createApp(deps?: {
     }
   });
 
+  // Get Single Order (Protected with Tenant Isolation: Scenario 05)
+  app.get('/api/v1/orders/:orderId', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const requestingUserId = req.headers['x-user-id'] as string;
+      const requestingUserRole = req.headers['x-user-role'] as string;
+
+      const orderRes = await Database.query(
+        `SELECT id, order_number, idempotency_key, customer_id, channel, status, currency,
+                subtotal, discount_total, tax_total, delivery_fee, grand_total,
+                reservation_id, payment_intent_id, delivery_address, cancellation_reason, created_at
+         FROM orders
+         WHERE id = $1 OR order_number = $1
+         LIMIT 1`,
+        [orderId]
+      );
+
+      if (orderRes.rows.length === 0) {
+        return res
+          .status(404)
+          .json(errorResponse('ORDER_NOT_FOUND', `Order ${orderId} not found`, correlationId));
+      }
+
+      const order = orderRes.rows[0];
+
+      // Acceptance Scenario 05: Cross-Tenant Isolation
+      // Only the customer who owns the order OR staff with STORE_ADMIN role can view it.
+      if (requestingUserRole !== 'STORE_ADMIN' && requestingUserId && requestingUserId !== order.customer_id) {
+        logger.warn('Unauthorized cross-tenant order access attempt blocked', {
+          requestingUserId,
+          orderOwnerId: order.customer_id,
+          orderId,
+        });
+        return res
+          .status(403)
+          .json(
+            errorResponse(
+              'CROSS_TENANT_ACCESS_DENIED',
+              'Access forbidden: You cannot view orders belonging to another customer',
+              correlationId
+            )
+          );
+      }
+
+      const itemsRes = await Database.query(
+        `SELECT id, sku, product_name, variant_name, quantity, unit_price, tax_amount, discount_amount, line_total
+         FROM order_items
+         WHERE order_id = $1`,
+        [order.id]
+      );
+
+      res.status(200).json(
+        okResponse(
+          {
+            ...order,
+            items: itemsRes.rows,
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // List Orders for Authenticated User or Admin
+  app.get('/api/v1/orders', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const requestingUserId = req.headers['x-user-id'] as string;
+      const requestingUserRole = req.headers['x-user-role'] as string;
+
+      let queryText = `SELECT id, order_number, customer_id, channel, status, grand_total, created_at FROM orders`;
+      const queryParams: any[] = [];
+
+      if (requestingUserRole !== 'STORE_ADMIN') {
+        if (!requestingUserId) {
+          return res
+            .status(401)
+            .json(errorResponse('UNAUTHORIZED', 'Authentication required to list customer orders', correlationId));
+        }
+        queryText += ` WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50`;
+        queryParams.push(requestingUserId);
+      } else {
+        queryText += ` ORDER BY created_at DESC LIMIT 100`;
+      }
+
+      const ordersRes = await Database.query(queryText, queryParams);
+      res.status(200).json(okResponse(ordersRes.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+
   // Global Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';

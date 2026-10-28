@@ -17,14 +17,14 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 | **Phase 1** | Architecture Decisions & Pre-Flight Sign-offs | Cross-platform | 🟡 IN PROGRESS | 30% | No |
 | **Phase 2** | Monorepo & CI/CD Tooling Foundation | Tooling, `packages/`, CI | 🟡 IN PROGRESS | 75% | No |
 | **Phase 3** | Database Foundation & Local Dev Environment | Supabase / Docker Compose | 🟡 IN PROGRESS | 50% | No |
-| **Phase 4** | Identity & Access + Public API Gateway (BFF) | `api-gateway`, `identity-service` | ⚪ NOT STARTED | 0% | No |
+| **Phase 4** | Identity & Access + Public API Gateway (BFF) | `api-gateway`, `identity-service` | 🟢 COMPLETED | 90% | Yes |
 | **Phase 5** | Catalog & Pricing Services | `catalog-service`, `pricing-service` | 🟡 IN PROGRESS | 85% | No |
 | **Phase 6** | Inventory Service & Concurrency Control | `inventory-service`, Outbox | 🟡 IN PROGRESS | 85% | No |
-| **Phase 7** | Cart & Order Services (Checkout Saga) | `cart-service`, `order-service` | 🟡 IN PROGRESS | 80% | No |
+| **Phase 7** | Cart & Order Services (Checkout Saga) | `cart-service`, `order-service` | 🟡 IN PROGRESS | 85% | No |
 | **Phase 8** | Payment Service & Settlement Reconciliation | `payment-service`, Webhook worker | 🟡 IN PROGRESS | 85% | No |
-| **Phase 9** | Fulfillment & Invoice Services | `fulfillment-service`, `invoice-service` | ⚪ NOT STARTED | 0% | No |
-| **Phase 10** | WhatsApp Adapter & Notification Service | `whatsapp-adapter`, `notification-service` | 🟡 IN PROGRESS | 85% | No |
-| **Phase 11** | Analytics & Predictive ML Service | `analytics-service`, Forecast cron | ⚪ NOT STARTED | 0% | No |
+| **Phase 9** | Fulfillment & Invoice Services | `fulfillment-service`, `invoice-service` | 🟢 COMPLETED | 90% | Yes |
+| **Phase 10** | WhatsApp Adapter & Notification Service | `whatsapp-adapter`, `notification-service` | 🟢 COMPLETED | 90% | Yes |
+| **Phase 11** | Analytics & Predictive ML Service | `analytics-service`, Forecast cron | 🟢 COMPLETED | 85% | Yes |
 | **Phase 12** | Storefront & Admin Frontends (Vercel) | `customer-web`, `store-admin-web` | ⚪ NOT STARTED | 0% | No |
 | **Phase 13** | Acceptance Scenarios, Hardening & Production Launch | All services, Staging & Prod | ⚪ NOT STARTED | 0% | No |
 
@@ -293,7 +293,7 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 | **02** | Checkout Request Idempotency | `order-service` | API Integration Test | Phase 7 & 13 | [x] |
 | **03** | Webhook HMAC Signature Validation | `payment-service` | Security / Unit Test | Phase 8 & 13 | [x] |
 | **04** | Delayed Payment Callback Reconciliation | `payment-service` / `order-service` | E2E Integration Test | Phase 8 & 13 | [x] |
-| **05** | Customer Cross-Tenant Data Isolation | `api-gateway` / `order-service` | Authorization Test | Phase 4 & 13 | [ ] |
+| **05** | Customer Cross-Tenant Data Isolation | `api-gateway` / `order-service` | Authorization Test | Phase 4 & 13 | [x] |
 | **06** | Expired Reservation Safe Release | `inventory-service` | Worker Integration Test | Phase 6 & 13 | [x] |
 | **07** | Stock Movement & Balance Atomicity | `inventory-service` | Transaction / DB Test | Phase 6 & 13 | [x] |
 | **08** | WhatsApp Message Deduplication | `whatsapp-adapter` | Integration Test | Phase 10 & 13 | [x] |
@@ -302,8 +302,8 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 | **11** | Message Broker Outbox Recovery | Outbox Publisher Worker | Fault Injection Test | Phase 6 & 13 | [ ] |
 | **12** | Dead-Letter Queue (DLQ) Fallback | Event Consumer Workers | Consumer Test | Phase 2 & 13 | [ ] |
 | **13** | Migration Failure Rollback & Gate | Database Migrations | CI Deployment Test | Phase 3 & 13 | [ ] |
-| **14** | Invoice Object Storage Privacy & Signatures | `invoice-service` | Security Integration Test | Phase 9 & 13 | [ ] |
-| **15** | Forecast Non-Authoritative Guarantee | `analytics-service` | Contract / Schema Test | Phase 11 & 13 | [ ] |
+| **14** | Invoice Object Storage Privacy & Signatures | `invoice-service` | Security Integration Test | Phase 9 & 13 | [x] |
+| **15** | Forecast Non-Authoritative Guarantee | `analytics-service` | Contract / Schema Test | Phase 11 & 13 | [x] |
 | **16** | Database Backup Restoration Drill | Supabase Operations | Disaster Recovery Drill | Phase 3 & 13 | [ ] |
 
 ---

@@ -12,6 +12,12 @@
     { "path": "./services/inventory-service" },
     { "path": "./services/order-service" },
     { "path": "./services/whatsapp-adapter" },
-    { "path": "./services/payment-service" }
+    { "path": "./services/payment-service" },
+    { "path": "./services/identity-service" },
+    { "path": "./services/api-gateway" },
+    { "path": "./services/fulfillment-service" },
+    { "path": "./services/invoice-service" },
+    { "path": "./services/notification-service" },
+    { "path": "./services/analytics-service" }
   ]
 }
