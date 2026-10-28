@@ -158,8 +158,17 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right Action Icons: Invoices/Orders + Cart Drawer */}
-        <div className="flex items-center gap-3">
+        {/* Right Action Icons: Invoices/Orders + Seller Hub + Cart Drawer */}
+        <div className="flex items-center gap-2.5">
+          <a
+            href="http://localhost:5174"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors border border-slate-200"
+          >
+            <span>Seller Hub</span>
+          </a>
+
           <button
             onClick={onOpenOrders}
             className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200"
@@ -170,12 +179,12 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={onOpenCart}
-            className="relative flex items-center gap-2.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition-colors"
+            className="relative flex items-center gap-2.5 px-3.5 py-2 rounded-md bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs shadow-xs transition-colors"
           >
             <ShoppingBag className="w-4 h-4" />
             <span>₹{cartTotal.toFixed(2)}</span>
             {cartCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-emerald-900 text-white text-[10px] font-bold">
+              <span className="px-1.5 py-0.5 rounded-full bg-emerald-950 text-white text-[10px] font-bold">
                 {cartCount}
               </span>
             )}
