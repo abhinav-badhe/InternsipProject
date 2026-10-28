@@ -83,7 +83,7 @@ export function createApp(): express.Application {
   // Request Signed Download URL (Scenario 14: Protected by User Ownership / Staff Role)
   app.get('/api/v1/invoices/:invoiceId/signed-url', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { invoiceId } = req.params;
+      const invoiceId = req.params.invoiceId as string;
       const correlationId = getRequestContext()?.correlationId || 'unknown';
       const requestingUserId = req.headers['x-user-id'] as string;
       const requestingUserRole = (req.headers['x-user-role'] as string) || 'CUSTOMER';
@@ -112,7 +112,7 @@ export function createApp(): express.Application {
 
   // Acceptance Scenario 14: Download Invoice PDF (Requires valid signed token)
   app.get('/api/v1/invoices/:invoiceId/download', (req: Request, res: Response) => {
-    const { invoiceId } = req.params;
+    const invoiceId = req.params.invoiceId as string;
     const token = req.query.token as string;
     const correlationId = getRequestContext()?.correlationId || 'unknown';
 

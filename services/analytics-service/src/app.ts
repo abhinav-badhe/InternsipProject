@@ -52,7 +52,7 @@ export function createApp(): express.Application {
   // Demand Forecast (Scenario 15: Tags model version and data freshness)
   app.get('/api/v1/analytics/forecast/:sku', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { sku } = req.params;
+      const sku = req.params.sku as string;
       const horizonDays = Number(req.query.horizonDays || 7);
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 

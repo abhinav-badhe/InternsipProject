@@ -105,7 +105,7 @@ export function createApp(): express.Application {
   // Record Customer Decision on Substitution Proposal
   app.post('/api/v1/fulfillment/substitutions/:proposalId/decision', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { proposalId } = req.params;
+      const proposalId = req.params.proposalId as string;
       const { approved, decisionNotes } = req.body;
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
