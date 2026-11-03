@@ -200,7 +200,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@grocery.local"
+                      placeholder="adminshopkepper@gmail.com"
                       className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55]"
                     />
                   </div>
@@ -223,17 +223,36 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                   </div>
                 </div>
 
-                <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 text-[11px] text-gray-600 space-y-1">
-                  <div className="font-semibold text-gray-700">Default Credentials:</div>
-                  <div className="flex justify-between">
-                    <span>Email: <code className="text-gray-800 font-mono">admin@grocery.local</code></span>
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-[11px] text-gray-600 space-y-2">
+                  <div className="font-semibold text-gray-700">Quick Login Presets:</div>
+                  <div className="flex items-center justify-between bg-white px-2 py-1.5 rounded border border-gray-200">
+                    <div>
+                      <span className="font-medium text-emerald-800">Shopkeeper:</span>{' '}
+                      <code className="text-gray-800 font-mono text-[10px]">adminshopkepper@gmail.com</code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmail('adminshopkepper@gmail.com');
+                        setPassword('Shopkeeper@123');
+                      }}
+                      className="text-[#007a55] hover:underline font-semibold text-xs ml-2"
+                    >
+                      Fill
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between bg-white px-2 py-1.5 rounded border border-gray-200">
+                    <div>
+                      <span className="font-medium text-gray-700">Default Admin:</span>{' '}
+                      <code className="text-gray-800 font-mono text-[10px]">admin@grocery.local</code>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
                         setEmail('admin@grocery.local');
                         setPassword('adminpassword123');
                       }}
-                      className="text-[#007a55] hover:underline font-semibold"
+                      className="text-gray-600 hover:underline font-semibold text-xs ml-2"
                     >
                       Fill
                     </button>
