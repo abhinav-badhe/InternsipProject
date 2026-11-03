@@ -226,6 +226,184 @@ export function createApp(): express.Application {
     res.status(200).json(okResponse(claims, correlationId));
   });
 
+  // ====================================================================
+  // FEATURE 12: MULTI-ADDRESS MANAGEMENT & SAVED ADDRESSES
+  // ====================================================================
+
+  // Ensure customer_addresses table exists
+  Database.query(`
+    CREATE TABLE IF NOT EXISTS customer_addresses (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      customer_id VARCHAR(64) NOT NULL,
+      label VARCHAR(32) NOT NULL DEFAULT 'HOME',
+      recipient_name VARCHAR(128) NOT NULL,
+      phone VARCHAR(32) NOT NULL,
+      flat_number VARCHAR(128),
+      street VARCHAR(255) NOT NULL,
+      landmark VARCHAR(255),
+      city VARCHAR(64) NOT NULL DEFAULT 'Bengaluru',
+      pincode VARCHAR(16) NOT NULL,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_customer_addresses_cid ON customer_addresses(customer_id);
+  `).catch((err: any) => {
+    logger.warn('customer_addresses table init notice', { error: err.message });
+  });
+
+  // 1. Get Saved Addresses for Customer
+  app.get('/api/v1/auth/customer/addresses', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      let customerId = (req.query.customerId as string) || '';
+
+      // Extract from Authorization header if present
+      if (!customerId && req.headers.authorization) {
+        const token = req.headers.authorization.replace(/^Bearer\s+/i, '');
+        const claims = authService.verifyToken(token);
+        if (claims?.userId) {
+          customerId = claims.userId;
+        }
+      }
+
+      if (!customerId) {
+        customerId = 'cust_default';
+      }
+
+      const result = await Database.query(`
+        SELECT 
+          id,
+          customer_id as "customerId",
+          label,
+          recipient_name as "recipientName",
+          phone,
+          flat_number as "flatNumber",
+          street,
+          landmark,
+          city,
+          pincode,
+          is_default as "isDefault",
+          created_at as "createdAt"
+        FROM customer_addresses
+        WHERE customer_id = $1
+        ORDER BY is_default DESC, created_at DESC
+      `, [customerId]);
+
+      res.status(200).json(okResponse(result.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2. Add New Saved Address
+  app.post('/api/v1/auth/customer/addresses', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      let {
+        customerId,
+        label,
+        recipientName,
+        phone,
+        flatNumber,
+        street,
+        landmark,
+        city,
+        pincode,
+        isDefault,
+      } = req.body;
+
+      if (!customerId && req.headers.authorization) {
+        const token = req.headers.authorization.replace(/^Bearer\s+/i, '');
+        const claims = authService.verifyToken(token);
+        if (claims?.userId) customerId = claims.userId;
+      }
+
+      if (!customerId) customerId = 'cust_default';
+
+      if (!street || !pincode || !recipientName) {
+        return res
+          .status(400)
+          .json(errorResponse('VALIDATION_ERROR', 'recipientName, street, and pincode are required', correlationId));
+      }
+
+      // If marked default, unset existing default
+      if (isDefault) {
+        await Database.query(`
+          UPDATE customer_addresses SET is_default = FALSE WHERE customer_id = $1
+        `, [customerId]).catch(() => {});
+      }
+
+      const insertRes = await Database.query(`
+        INSERT INTO customer_addresses (
+          customer_id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING 
+          id,
+          customer_id as "customerId",
+          label,
+          recipient_name as "recipientName",
+          phone,
+          flat_number as "flatNumber",
+          street,
+          landmark,
+          city,
+          pincode,
+          is_default as "isDefault",
+          created_at as "createdAt"
+      `, [
+        customerId,
+        label || 'HOME',
+        recipientName,
+        phone || '+917774094369',
+        flatNumber || '',
+        street,
+        landmark || '',
+        city || 'Bengaluru',
+        pincode,
+        Boolean(isDefault),
+      ]);
+
+      res.status(201).json(okResponse(insertRes.rows[0], correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 3. Delete Saved Address
+  app.delete('/api/v1/auth/customer/addresses/:id', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const addressId = req.params.id;
+
+      await Database.query(`DELETE FROM customer_addresses WHERE id = $1`, [addressId]);
+      res.status(200).json(okResponse({ id: addressId, deleted: true }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 4. Set Default Address
+  app.put('/api/v1/auth/customer/addresses/:id/default', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const addressId = req.params.id;
+
+      const addrRes = await Database.query(`SELECT customer_id FROM customer_addresses WHERE id = $1`, [addressId]);
+      if (addrRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('NOT_FOUND', 'Address not found', correlationId));
+      }
+
+      const customerId = addrRes.rows[0].customer_id;
+      await Database.query(`UPDATE customer_addresses SET is_default = FALSE WHERE customer_id = $1`, [customerId]);
+      await Database.query(`UPDATE customer_addresses SET is_default = TRUE WHERE id = $1`, [addressId]);
+
+      res.status(200).json(okResponse({ id: addressId, isDefault: true }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Global Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';

@@ -335,4 +335,61 @@ export class WhatsAppCloudApiClient {
   private formatPhone(phone: string): string {
     return phone.replace(/[^0-9]/g, '');
   }
+
+  /**
+   * Retrieves temporary direct download URL for audio/image media from Meta Graph API
+   */
+  public async getMediaUrl(mediaId: string): Promise<string | null> {
+    if (!this.accessToken) {
+      logger.info('Meta API token not configured; returning mock media URL', { mediaId });
+      return `https://mock.meta.media/${mediaId}`;
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/${mediaId}`, {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        logger.warn('Failed to resolve Meta media URL', { mediaId, status: res.status });
+        return null;
+      }
+
+      const json = await res.json() as any;
+      return json.url || null;
+    } catch (err: any) {
+      logger.error('Error fetching Meta media metadata', { mediaId, error: err.message });
+      return null;
+    }
+  }
+
+  /**
+   * Downloads raw binary buffer of an audio or image file from Meta Content Delivery Network
+   */
+  public async downloadMediaBuffer(mediaUrl: string): Promise<Buffer | null> {
+    if (!mediaUrl || mediaUrl.startsWith('https://mock')) {
+      return Buffer.from('mock_audio_content_test');
+    }
+
+    try {
+      const res = await fetch(mediaUrl, {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        logger.warn('Failed to download Meta media binary', { status: res.status });
+        return null;
+      }
+
+      const arrayBuf = await res.arrayBuffer();
+      return Buffer.from(arrayBuf);
+    } catch (err: any) {
+      logger.error('Error downloading Meta media binary', { error: err.message });
+      return null;
+    }
+  }
 }

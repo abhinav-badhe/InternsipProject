@@ -1,6 +1,21 @@
-import React, { useState } from 'react';
-import { X, Trash2, Plus, Minus, Tag, Check, Truck, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  Trash2,
+  Plus,
+  Minus,
+  Tag,
+  Check,
+  Truck,
+  ShieldCheck,
+  MapPin,
+  Home,
+  Briefcase,
+  ChevronRight,
+} from 'lucide-react';
 import { Product, ProductVariant } from '../data/catalog';
+import { CustomerSavedAddress, fetchCustomerAddresses } from '../api/client';
+import { AddressSelectorModal } from './AddressSelectorModal';
 
 export interface CartItem {
   variant: ProductVariant;
@@ -14,7 +29,11 @@ interface CartDrawerProps {
   items: CartItem[];
   onUpdateQuantity: (sku: string, delta: number) => void;
   onRemoveItem: (sku: string) => void;
-  onCheckout: (deliverySlot: string, couponCode?: string) => Promise<void>;
+  onCheckout: (
+    deliverySlot: string,
+    couponCode?: string,
+    deliveryAddress?: CustomerSavedAddress
+  ) => Promise<void>;
   isCheckingOut: boolean;
 }
 
@@ -30,6 +49,16 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState('EXPRESS_30');
+  const [selectedAddress, setSelectedAddress] = useState<CustomerSavedAddress | null>(null);
+  const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+
+  useEffect(() => {
+    fetchCustomerAddresses().then((list) => {
+      if (list.length > 0 && !selectedAddress) {
+        setSelectedAddress(list[0]);
+      }
+    });
+  }, []);
 
   if (!isOpen) return null;
 
@@ -190,6 +219,56 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
             )}
 
+            {/* Delivery Address Selector (Feature 12) */}
+            {items.length > 0 && (
+              <div className="pt-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-slate-800 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-[#007a55]" />
+                    <span>Delivering To</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddressModalOpen(true)}
+                    className="text-[11px] font-bold text-[#007a55] hover:underline cursor-pointer"
+                  >
+                    Change
+                  </button>
+                </div>
+
+                <div
+                  onClick={() => setIsAddressModalOpen(true)}
+                  className="p-3 bg-emerald-50/50 border border-emerald-200/80 rounded-xl cursor-pointer hover:bg-emerald-50 transition-colors flex items-center justify-between"
+                >
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-100 text-[#007a55] flex items-center justify-center shrink-0 mt-0.5">
+                      {selectedAddress?.label === 'WORK' ? (
+                        <Briefcase className="w-3.5 h-3.5" />
+                      ) : (
+                        <Home className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-900">
+                          {selectedAddress?.label || 'HOME'}
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          • {selectedAddress?.recipientName || 'Valued Customer'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 line-clamp-1">
+                        {selectedAddress
+                          ? `${selectedAddress.flatNumber ? `${selectedAddress.flatNumber}, ` : ''}${selectedAddress.street}, ${selectedAddress.city} ${selectedAddress.pincode}`
+                          : '12th Main Road, HSR Sector 2, Bengaluru'}
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                </div>
+              </div>
+            )}
+
             {/* Delivery Slot Selector */}
             {items.length > 0 && (
               <div className="pt-2">
@@ -303,9 +382,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
               {/* Checkout Button */}
               <button
-                onClick={() => onCheckout(selectedSlot, appliedCoupon || undefined)}
+                onClick={() =>
+                  onCheckout(
+                    selectedSlot,
+                    appliedCoupon || undefined,
+                    selectedAddress || undefined
+                  )
+                }
                 disabled={isCheckingOut}
-                className="w-full py-2.5 rounded-lg bg-[#007a55] hover:bg-[#006345] disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-2xs flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-[#007a55] hover:bg-[#006345] disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>
@@ -316,6 +401,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           )}
         </div>
       </div>
+
+      {/* Address Selector & Management Modal */}
+      <AddressSelectorModal
+        isOpen={isAddressModalOpen}
+        onClose={() => setIsAddressModalOpen(false)}
+        selectedAddress={selectedAddress}
+        onSelectAddress={(addr) => setSelectedAddress(addr)}
+      />
     </div>
   );
 };

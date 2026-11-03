@@ -1240,6 +1240,12 @@ export class WhatsAppBot {
       return commaItems;
     }
 
+    // 4. Check for spoken voice note conjunctions ("and", "aur", "+")
+    const conjunctionItems = text.split(/\s+(?:and|aur|\+)\s+/i).map((s) => s.trim()).filter(Boolean);
+    if (conjunctionItems.length >= 2 && conjunctionItems.some((c) => groceryKeywords.test(c))) {
+      return conjunctionItems;
+    }
+
     return [];
   }
 
@@ -1399,7 +1405,9 @@ export class WhatsAppBot {
     await this.saveSession(session);
 
     // Build rich, clear WhatsApp Markdown response
-    let responseText = `🛒 *FreshCart Order Breakdown & Live Inventory Check*\n`;
+    let responseText = msg.isVoiceNote
+      ? `🎙️ *Voice Note Received & Understood!*\n_\"${msg.text}\"_\n\n🛒 *FreshCart Order Breakdown:*\n`
+      : `🛒 *FreshCart Order Breakdown & Live Inventory Check*\n`;
     responseText += `We verified all ${itemLines.length} items from your list against our live store stock:\n\n`;
 
     if (inStockAdded.length > 0) {

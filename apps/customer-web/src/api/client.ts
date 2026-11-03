@@ -330,13 +330,121 @@ export async function fetchLiveCustomerOrders(): Promise<CustomerOrder[]> {
   }
 }
 
+export interface CustomerSavedAddress {
+  id?: string;
+  label: 'HOME' | 'WORK' | 'OTHER';
+  recipientName: string;
+  phone: string;
+  flatNumber?: string;
+  street: string;
+  landmark?: string;
+  city: string;
+  pincode: string;
+  isDefault?: boolean;
+}
+
+export async function fetchCustomerAddresses(): Promise<CustomerSavedAddress[]> {
+  try {
+    const session = getStoredCustomerSession();
+    const token = session?.token;
+    const res = await fetch('/api/v1/auth/customer/addresses', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+      return json.data;
+    }
+  } catch (e) {
+    // Fallback to localStorage
+  }
+
+  const local = localStorage.getItem('freshcart_saved_addresses');
+  if (local) {
+    try {
+      return JSON.parse(local);
+    } catch {}
+  }
+
+  // Default address
+  return [
+    {
+      id: 'addr_default_home',
+      label: 'HOME',
+      recipientName: 'Valued Customer',
+      phone: '+917774094369',
+      flatNumber: 'Flat 402, Lotus Residency',
+      street: '12th Main Road, HSR Sector 2',
+      landmark: 'Near Green Park Metro',
+      city: 'Bengaluru',
+      pincode: '560102',
+      isDefault: true,
+    },
+  ];
+}
+
+export async function saveCustomerAddress(address: CustomerSavedAddress): Promise<CustomerSavedAddress> {
+  const session = getStoredCustomerSession();
+  const token = session?.token;
+
+  let saved = address;
+  try {
+    const res = await fetch('/api/v1/auth/customer/addresses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(address),
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      saved = json.data;
+    }
+  } catch (e) {
+    // Save locally
+  }
+
+  // Update localStorage
+  const existing = await fetchCustomerAddresses();
+  const updated = [saved, ...existing.filter((a) => a.id !== saved.id)];
+  localStorage.setItem('freshcart_saved_addresses', JSON.stringify(updated));
+
+  return saved;
+}
+
+export async function deleteCustomerAddress(id: string): Promise<void> {
+  try {
+    const session = getStoredCustomerSession();
+    const token = session?.token;
+    await fetch(`/api/v1/auth/customer/addresses/${id}`, {
+      method: 'DELETE',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch (e) {}
+
+  const existing = await fetchCustomerAddresses();
+  const updated = existing.filter((a) => a.id !== id);
+  localStorage.setItem('freshcart_saved_addresses', JSON.stringify(updated));
+}
+
 export async function executeRealCheckout(params: {
   items: Array<{ sku: string; quantity: number }>;
   deliverySlot: string;
   couponCode?: string;
+  deliveryAddress?: CustomerSavedAddress;
 }): Promise<any> {
   const session = await getCustomerSession();
   const idempotencyKey = `idemp_web_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+  const addr = params.deliveryAddress || {
+    label: 'HOME' as const,
+    recipientName: session.user.fullName || 'Valued Customer',
+    phone: session.user.phone || '+917774094369',
+    flatNumber: 'Flat 402',
+    street: '12th Main Road, HSR Sector 2',
+    city: 'Bengaluru',
+    pincode: '560102',
+  };
 
   const res = await fetch('/api/v1/orders/checkout', {
     method: 'POST',
@@ -349,11 +457,12 @@ export async function executeRealCheckout(params: {
       customerId: session.user.userId,
       channel: 'WEB',
       deliveryAddress: {
-        recipientName: session.user.fullName || 'Valued Customer',
-        phone: session.user.phone || '+917774094369',
-        street: '12th Main Road, HSR Sector 2',
-        city: 'Bengaluru',
-        pincode: '560102',
+        recipientName: addr.recipientName,
+        phone: addr.phone,
+        street: `${addr.flatNumber ? `${addr.flatNumber}, ` : ''}${addr.street}${addr.landmark ? ` (Near ${addr.landmark})` : ''}`,
+        city: addr.city,
+        pincode: addr.pincode,
+        label: addr.label,
         slot: params.deliverySlot,
       },
       items: params.items,

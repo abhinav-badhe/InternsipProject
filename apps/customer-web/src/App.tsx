@@ -151,7 +151,11 @@ export const App: React.FC = () => {
   };
 
   // Real Checkout Saga Execution
-  const handleCheckout = async (deliverySlot: string, couponCode?: string) => {
+  const handleCheckout = async (
+    deliverySlot: string,
+    couponCode?: string,
+    deliveryAddress?: any
+  ) => {
     if (cartItems.length === 0) return;
     setIsCheckingOut(true);
 
@@ -165,6 +169,7 @@ export const App: React.FC = () => {
         items: checkoutItems,
         deliverySlot,
         couponCode,
+        deliveryAddress,
       });
 
       const newOrder: CustomerOrder = {

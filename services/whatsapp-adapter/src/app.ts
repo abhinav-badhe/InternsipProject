@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { WhatsAppBot, CatalogClient, PricingClient, OrderClient } from './whatsapp.bot.js';
 import { WhatsAppCloudApiClient } from './meta.client.js';
 import { SignatureVerifier } from './signature.verifier.js';
+import { AudioTranscriptionService } from './transcription.service.js';
 import { Database } from './db.js';
 import {
   createLogger,
@@ -114,6 +115,8 @@ export function createApp(deps?: {
 
   const metaClient: WhatsAppCloudApiClient = deps?.metaClient || new WhatsAppCloudApiClient();
 
+  const transcriptionService = new AudioTranscriptionService();
+
   const bot = new WhatsAppBot(catalogClient, pricingClient, orderClient, metaClient);
 
   // Correlation ID middleware
@@ -219,9 +222,14 @@ export function createApp(deps?: {
         const fromPhone = message.from;
         const messageId = message.id;
 
+        // Check for Audio / Voice Note message (Feature 1)
+        const isAudio = message.type === 'audio' || message.type === 'voice' || Boolean(message.audio);
+        let isVoiceNote = false;
+        let audioTranscript: string | undefined = undefined;
+
         // Extract message content across all Meta payload variations:
         // text, interactive button reply, interactive list reply, quick reply button
-        const text =
+        let text =
           message.text?.body ||
           message.interactive?.button_reply?.id ||
           message.interactive?.button_reply?.title ||
@@ -231,6 +239,22 @@ export function createApp(deps?: {
           message.button?.text ||
           '';
 
+        if (isAudio && (message.audio?.id || message.voice?.id)) {
+          isVoiceNote = true;
+          const mediaId = message.audio?.id || message.voice?.id;
+          const mediaUrl = await metaClient.getMediaUrl(mediaId);
+          const buf = mediaUrl ? await metaClient.downloadMediaBuffer(mediaUrl) : null;
+          const transcribed = await transcriptionService.transcribeAudio({
+            audioBuffer: buf || undefined,
+            mimeType: message.audio?.mime_type || message.voice?.mime_type,
+            mediaId,
+          });
+          if (transcribed) {
+            text = transcribed;
+            audioTranscript = transcribed;
+          }
+        }
+
         // Mark incoming message as read in Meta
         await metaClient.markMessageAsRead(messageId).catch(() => {});
 
@@ -239,6 +263,9 @@ export function createApp(deps?: {
           messageId,
           fromPhoneNumber: fromPhone,
           text,
+          messageType: isVoiceNote ? 'audio' : 'text',
+          isVoiceNote,
+          audioTranscript,
           timestamp: message.timestamp || Math.floor(Date.now() / 1000).toString(),
         });
 
@@ -265,15 +292,28 @@ export function createApp(deps?: {
   // Direct Interactive Chat Endpoint (for Store Simulator & E2E verification)
   const chatHandler = async (req: Request, res: Response) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';
-    const message = req.body?.message ?? req.body?.text ?? '';
+    let message = req.body?.message ?? req.body?.text ?? '';
     const phoneNumber = req.body?.phoneNumber || req.body?.fromPhone || req.body?.fromPhoneNumber || '+919876543210';
     const messageId = req.body?.messageId || `sim_msg_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const isVoiceNote = Boolean(req.body?.isVoiceNote || req.body?.messageType === 'audio');
+    let audioTranscript: string | undefined = undefined;
 
     try {
+      if (isVoiceNote) {
+        const transcribed = await transcriptionService.transcribeAudio({
+          simulatedTranscript: req.body?.voiceTranscript || message,
+        });
+        message = transcribed || message;
+        audioTranscript = message;
+      }
+
       const reply = await bot.handleInboundMessage({
         messageId,
         fromPhoneNumber: phoneNumber,
         text: message,
+        messageType: isVoiceNote ? 'audio' : 'text',
+        isVoiceNote,
+        audioTranscript,
         timestamp: Math.floor(Date.now() / 1000).toString(),
       });
 
@@ -286,6 +326,8 @@ export function createApp(deps?: {
             reply: reply?.bodyText || null,
             outboundMessage: reply,
             session,
+            isVoiceNote,
+            audioTranscript,
           },
           correlationId
         )

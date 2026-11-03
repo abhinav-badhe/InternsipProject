@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Bike,
   Navigation,
@@ -16,6 +16,9 @@ import {
   Truck,
   DollarSign,
   Compass,
+  PenTool,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 interface AvailableOrder {
@@ -167,25 +170,93 @@ export const RiderFleetView: React.FC = () => {
     } catch (err: any) {}
   };
 
-  // 4. Complete Delivery Handover
-  const handleCompleteDelivery = async (delivery: ActiveDelivery) => {
+  // Feature 8: Proof of Delivery (Digital Signature & OTP Verification)
+  const [podModalDelivery, setPodModalDelivery] = useState<ActiveDelivery | null>(null);
+  const [podOtp, setPodOtp] = useState('7409');
+  const [podHandoverType, setPodHandoverType] = useState('Handed to customer in person');
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const [isSubmittingPod, setIsSubmittingPod] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    setIsDrawing(true);
+    setHasSignature(true);
+    const rect = canvas.getBoundingClientRect();
+    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#0f172a';
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+  };
+
+  // 4. Open Proof of Delivery Handover
+  const handleOpenPodModal = (delivery: ActiveDelivery) => {
+    setPodModalDelivery(delivery);
+    setHasSignature(false);
+  };
+
+  const handleConfirmProofOfDelivery = async () => {
+    if (!podModalDelivery) return;
+    setIsSubmittingPod(true);
+
     try {
-      const res = await fetch(`/api/v1/fulfillment/deliveries/${delivery.orderId}/complete`, {
+      const canvas = canvasRef.current;
+      const signatureData = canvas && hasSignature ? canvas.toDataURL('image/png') : `sig_signed_${podModalDelivery.orderNumber}`;
+      const notes = `${podHandoverType}${podOtp ? ` (Customer OTP: ${podOtp})` : ''}`;
+
+      const res = await fetch(`/api/v1/fulfillment/deliveries/${podModalDelivery.orderId}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          proofSignature: `sig_${riderProfile.id}_${Date.now()}`,
-          proofNotes: 'Customer accepted doorstep package in person.',
+          proofSignature: signatureData,
+          proofNotes: notes,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        showNotification(`Order #${delivery.orderNumber} DELIVERED successfully! Earned ₹60.`);
+        showNotification(`Order #${podModalDelivery.orderNumber} DELIVERED with digital signature! Earned ₹60.`);
+        setPodModalDelivery(null);
+        clearSignature();
         await fetchDeliveries();
         setPwaTab('completed');
       }
     } catch (err: any) {
       showNotification(`Failed to complete delivery: ${err.message}`);
+    } finally {
+      setIsSubmittingPod(false);
     }
   };
 
@@ -486,11 +557,11 @@ export const RiderFleetView: React.FC = () => {
                               </button>
 
                               <button
-                                onClick={() => handleCompleteDelivery(del)}
+                                onClick={() => handleOpenPodModal(del)}
                                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
                               >
                                 <CheckCircle2 className="w-4 h-4" />
-                                <span>Doorstep Handover & Mark Delivered</span>
+                                <span>Doorstep Handover (Proof of Delivery)</span>
                               </button>
                             </div>
                           )}
@@ -608,10 +679,10 @@ export const RiderFleetView: React.FC = () => {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <button
-                            onClick={() => handleCompleteDelivery(del)}
+                            onClick={() => handleOpenPodModal(del)}
                             className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-xs font-semibold cursor-pointer"
                           >
-                            Mark Delivered
+                            Mark Delivered (POD)
                           </button>
                         </td>
                       </tr>
@@ -623,6 +694,129 @@ export const RiderFleetView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Feature 8: Proof of Delivery (Digital Signature & OTP Verification) Modal */}
+      {podModalDelivery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="relative bg-white rounded-2xl border border-slate-200 max-w-md w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#007a55]" />
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Proof of Delivery (POD)</h3>
+                  <p className="text-xs text-slate-500">Order #{podModalDelivery.orderNumber}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPodModalDelivery(null)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-4">
+              {/* Handover type */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Handover Type
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    'Handed to customer in person',
+                    'Left with security / neighbor',
+                  ].map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setPodHandoverType(type)}
+                      className={`p-2 rounded-lg border text-[11px] font-semibold text-left transition-colors cursor-pointer ${
+                        podHandoverType === type
+                          ? 'border-[#007a55] bg-emerald-50 text-[#007a55]'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Customer OTP */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Delivery Verification PIN / OTP
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="e.g. 7409"
+                  value={podOtp}
+                  onChange={(e) => setPodOtp(e.target.value)}
+                  className="w-full px-3 py-2 text-sm font-mono tracking-widest text-center border border-slate-200 rounded-lg focus:outline-none focus:border-[#007a55]"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  Customer received this PIN on WhatsApp order confirmation.
+                </span>
+              </div>
+
+              {/* Digital Signature Pad (Canvas) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                    <PenTool className="w-3.5 h-3.5 text-[#007a55]" />
+                    <span>Customer Digital Signature (Touch / Stylus)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={clearSignature}
+                    className="text-[11px] text-slate-400 hover:text-rose-600 font-semibold cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="relative border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 overflow-hidden">
+                  <canvas
+                    ref={canvasRef}
+                    width={380}
+                    height={160}
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseLeave={stopDrawing}
+                    onTouchStart={startDrawing}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDrawing}
+                    className="w-full h-36 bg-white cursor-crosshair touch-none"
+                  />
+                  {!hasSignature && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs italic">
+                      Sign here on screen
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  disabled={isSubmittingPod}
+                  onClick={handleConfirmProofOfDelivery}
+                  className="w-full py-2.5 bg-[#007a55] hover:bg-[#006345] text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isSubmittingPod ? 'Recording Proof...' : 'Confirm POD & Mark Delivered'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

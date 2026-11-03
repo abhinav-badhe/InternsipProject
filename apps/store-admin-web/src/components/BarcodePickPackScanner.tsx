@@ -569,3 +569,4 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
     </div>
   );
 };
+

@@ -30,3 +30,4 @@ CREATE TABLE IF NOT EXISTS delivery_assignments (
 CREATE INDEX IF NOT EXISTS idx_delivery_order ON delivery_assignments(order_id);
 CREATE INDEX IF NOT EXISTS idx_delivery_rider ON delivery_assignments(rider_id);
 CREATE INDEX IF NOT EXISTS idx_delivery_status ON delivery_assignments(status);
+

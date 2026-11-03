@@ -48,6 +48,8 @@ import {
   Sparkles,
   Printer,
   Send,
+  Mic,
+  MicOff,
   Eye,
   Filter,
   PackagePlus,
@@ -1626,13 +1628,17 @@ export const App: React.FC = () => {
   };
 
   // 10. WhatsApp Chat Simulator Send (Connected to live whatsapp-adapter backend)
-  const handleSendChatMessage = async (textToSend?: string) => {
+  const handleSendChatMessage = async (textToSend?: string, isVoice = false) => {
     const txt = textToSend || chatInput;
     if (!txt.trim()) return;
 
     const newMsgs = [
       ...chatMessages,
-      { sender: 'user' as const, text: txt, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+      {
+        sender: 'user' as const,
+        text: isVoice ? `🎙️ Voice Note: "${txt}"` : txt,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
     ];
     setChatMessages(newMsgs);
     setChatInput('');
@@ -1644,6 +1650,8 @@ export const App: React.FC = () => {
         body: JSON.stringify({
           message: txt,
           phoneNumber: '+919876543210',
+          isVoiceNote: isVoice,
+          voiceTranscript: isVoice ? txt : undefined,
         }),
       });
       const json = await res.json();
@@ -3394,19 +3402,56 @@ export const App: React.FC = () => {
                   ))}
                 </div>
 
+                {/* Voice Note Simulation Quick Chips */}
+                <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mr-1 flex items-center gap-1">
+                    <Mic className="w-3 h-3 text-amber-500" />
+                    <span>Voice Note Presets:</span>
+                  </span>
+                  {[
+                    '2 Amul butter and 1 Britannia bread',
+                    '5kg Aashirvaad atta, milk aur sugar',
+                    'Do packet Dettol soap aur Surf excel',
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSendChatMessage(preset, true)}
+                      className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer"
+                    >
+                      🎙️ {preset}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Chat Input */}
-                <div className="p-3.5 bg-white border-t border-gray-200 flex items-center gap-2">
+                <div className="p-3 bg-white border-t border-gray-200 flex items-center gap-2">
                   <input
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
-                    placeholder="Type message (e.g. soap, 1, ADD DOVE, Confirm)..."
+                    placeholder="Type message or click Voice Note to simulate audio ordering..."
                     className="flex-1 px-3.5 py-2 border border-gray-200 rounded-md text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
                   />
                   <button
+                    type="button"
+                    title="Send Simulated Voice Note"
+                    onClick={() =>
+                      handleSendChatMessage(
+                        chatInput.trim() || '2 Amul butter and 1 Britannia bread',
+                        true
+                      )
+                    }
+                    className="p-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold shadow-xs shrink-0"
+                  >
+                    <Mic className="w-4 h-4" />
+                    <span className="hidden sm:inline">Voice Note</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleSendChatMessage()}
-                    className="p-2.5 rounded-md bg-[#007a55] text-white hover:bg-[#006345] transition-colors"
+                    className="p-2 rounded-md bg-[#007a55] text-white hover:bg-[#006345] transition-colors cursor-pointer shadow-xs shrink-0"
                   >
                     <Send className="w-4 h-4" />
                   </button>

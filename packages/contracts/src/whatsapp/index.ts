@@ -16,6 +16,11 @@ export interface WhatsAppInboundMessage {
   senderName?: string;
   text: string;
   timestamp: string;
+  messageType?: 'text' | 'audio' | 'image' | 'location' | 'interactive';
+  isVoiceNote?: boolean;
+  mediaId?: string;
+  audioTranscript?: string;
+  location?: { latitude: number; longitude: number; name?: string; address?: string };
 }
 
 export interface InteractiveOption {

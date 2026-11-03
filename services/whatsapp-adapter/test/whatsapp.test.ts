@@ -223,4 +223,79 @@ describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () =
     assert.equal(res.mock, true);
     assert.ok(res.messageId.startsWith('wamid.'));
   });
+
+  it('Feature 1: Transcribes voice notes and normalizes Hindi/Hinglish grocery terms', async () => {
+    const { AudioTranscriptionService } = await import('../src/transcription.service.js');
+    const service = new AudioTranscriptionService();
+
+    // 1. Test Hinglish term normalization
+    const normalized = service.normalizeHinglishGroceryTerms('Do packet doodh aur ek kilo makhan de do');
+    assert.ok(normalized.includes('2 packet milk'));
+    assert.ok(normalized.includes('1 kg butter'));
+
+    // 2. Test audio transcription service
+    const transcript = await service.transcribeAudio({
+      simulatedTranscript: '2 Amul butter and 1 Britannia bread',
+    });
+    assert.equal(transcript, '2 Amul butter and 1 Britannia bread');
+
+    // 3. Test Bot handling voice note
+    const originalQuery = Database.query;
+    Database.query = async (sql: string, params?: any[]) => {
+      if (sql.includes('FROM products') || sql.includes('FROM product_variants')) {
+        return {
+          rows: [
+            {
+              id: 'p1',
+              name: 'Amul Butter',
+              product_name: 'Amul Butter',
+              brand_name: 'Amul',
+              sku: 'DAI-AMU-BUT-500',
+              variant_name: '500g',
+              selling_price: '275.00',
+              available_stock: '40',
+              isDirectMatch: true,
+            },
+            {
+              id: 'p2',
+              name: 'Britannia White Bread',
+              product_name: 'Britannia White Bread',
+              brand_name: 'Britannia',
+              sku: 'BAK-BRI-BRD-400',
+              variant_name: '400g',
+              selling_price: '50.00',
+              available_stock: '30',
+              isDirectMatch: true,
+            },
+          ],
+        } as any;
+      }
+      return { rows: [] } as any;
+    };
+
+    try {
+      const mockCatalog = {
+        disambiguate: async () => ({ isAmbiguous: false, query: 'test', matchingCategories: [] }),
+        searchProducts: async () => ({ items: [] }),
+        getSimilarAlternatives: async () => null,
+      };
+      const mockPricing = { calculateQuote: async () => ({} as any) };
+      const mockOrder = { checkout: async () => ({} as any) };
+
+      const bot = new WhatsAppBot(mockCatalog, mockPricing, mockOrder);
+      const reply = await bot.handleInboundMessage({
+        messageId: `wamid.voice_${Date.now()}`,
+        fromPhoneNumber: '+919988776655',
+        text: transcript,
+        messageType: 'audio',
+        isVoiceNote: true,
+        timestamp: '1698480000',
+      });
+
+      assert.ok(reply !== null);
+      assert.ok(reply.bodyText.includes('Voice Note Received'));
+    } finally {
+      Database.query = originalQuery;
+    }
+  });
 });

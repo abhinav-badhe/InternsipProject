@@ -255,3 +255,4 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
     </div>
   );
 };
+
