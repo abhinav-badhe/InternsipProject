@@ -25,11 +25,16 @@ import {
   cancelOrderInDb,
 } from './api/adminClient';
 import { AdminAuthModal } from './AdminAuthModal';
+import { RiderFleetView } from './components/RiderFleetView';
+import { BarcodePickPackScanner } from './components/BarcodePickPackScanner';
+import { SupplierPurchaseOrdersView } from './components/SupplierPurchaseOrdersView';
 import {
   LayoutGrid,
   Boxes,
   ShoppingCart,
   Truck,
+  Bike,
+  Building2,
   Receipt,
   TrendingUp,
   MessageSquare,
@@ -729,9 +734,9 @@ const INITIAL_FORECASTS: DemandForecast[] = [
 // ==========================================
 
 export const App: React.FC = () => {
-  // Navigation strictly matching our 7 real backend microservices
+  // Navigation strictly matching our backend microservices & fleet operations
   const [activeNav, setActiveNav] = useState<
-    'catalog' | 'inventory' | 'orders' | 'fulfillment' | 'invoices' | 'analytics' | 'whatsapp'
+    'catalog' | 'inventory' | 'orders' | 'fulfillment' | 'invoices' | 'analytics' | 'whatsapp' | 'deliveries' | 'suppliers'
   >('inventory');
 
   // Core domain state
@@ -755,6 +760,7 @@ export const App: React.FC = () => {
 
   // Inventory view mode: Visual Cards vs Batches vs Holds vs Audit Ledger
   const [inventoryViewMode, setInventoryViewMode] = useState<'cards' | 'batches' | 'holds' | 'ledger'>('cards');
+  const [fulfillmentViewMode, setFulfillmentViewMode] = useState<'table' | 'scanner'>('scanner');
   const [searchQuery, setSearchQuery] = useState('');
   const [stockFilter, setStockFilter] = useState<'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK'>('ALL');
   const [cardQuantities, setCardQuantities] = useState<Record<string, number>>({});
@@ -1872,6 +1878,40 @@ export const App: React.FC = () => {
               </div>
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             </button>
+
+            <button
+              onClick={() => setActiveNav('deliveries')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+                activeNav === 'deliveries'
+                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Bike className={`w-4 h-4 ${activeNav === 'deliveries' ? 'text-gray-900' : 'text-gray-500'}`} />
+                <span>Rider Fleet & Delivery</span>
+              </div>
+              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
+                Live
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('suppliers')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+                activeNav === 'suppliers'
+                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Building2 className={`w-4 h-4 ${activeNav === 'suppliers' ? 'text-gray-900' : 'text-gray-500'}`} />
+                <span>Suppliers & POs</span>
+              </div>
+              <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded">
+                ML Auto
+              </span>
+            </button>
           </nav>
         </aside>
 
@@ -2669,86 +2709,137 @@ export const App: React.FC = () => {
           {/* ========================================================= */}
           {activeNav === 'fulfillment' && (
             <div className="space-y-6 max-w-7xl mx-auto">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Order Fulfillment & Pick Lists</h1>
-                <p className="text-gray-500 text-xs mt-1">
-                  Organized by dark store shelf zones with customer substitution approval flow.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Order Fulfillment & Pick Lists</h1>
+                  <p className="text-gray-500 text-xs mt-1">
+                    Dark store warehouse picking, live barcode verification, and shelf zone management.
+                  </p>
+                </div>
+
+                {/* Sub-view switcher: Barcode Scanner vs Pick Table */}
+                <div className="flex items-center gap-1.5 p-1 bg-gray-100 rounded-lg border border-gray-200 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentViewMode('scanner')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      fulfillmentViewMode === 'scanner'
+                        ? 'bg-white text-gray-900 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <span>📷 Barcode / QR Scanner</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentViewMode('table')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      fulfillmentViewMode === 'table'
+                        ? 'bg-white text-gray-900 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <span>📋 Pick List Table</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold uppercase tracking-wider">
-                    <tr>
-                      <th className="py-3 px-4">Order #</th>
-                      <th className="py-3 px-4">Item to Pick</th>
-                      <th className="py-3 px-4">Shelf Zone</th>
-                      <th className="py-3 px-4">Qty</th>
-                      <th className="py-3 px-4">Status & Substitutions</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {pickTasks.map((t) => (
-                      <tr key={t.id} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="py-3.5 px-4 font-semibold text-gray-900">{t.orderNumber}</td>
-                        <td className="py-3.5 px-4">
-                          <div className="font-medium text-gray-900">{t.productName}</div>
-                          <div className="text-[11px] text-gray-400 font-mono mt-0.5">{t.sku}</div>
-                        </td>
-                        <td className="py-3.5 px-4 text-gray-600 font-mono">{t.zone}</td>
-                        <td className="py-3.5 px-4 font-bold text-gray-900">{t.quantity}</td>
-                        <td className="py-3.5 px-4">
-                          {t.status === 'SUBSTITUTION_PROPOSED' ? (
-                            <div>
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/80 uppercase tracking-wide">
-                                Substitute Proposed: {t.substituteName}
-                              </span>
-                              <div className="text-[10px] text-gray-400 mt-1">Awaiting customer approval</div>
-                            </div>
-                          ) : (
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                                t.status === 'PICKED'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
-                                  : 'bg-gray-100 text-gray-700'
-                              }`}
-                            >
-                              {t.status}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          {t.status === 'PENDING' && (
-                            <button
-                              onClick={() => handleMarkTaskPicked(t.id)}
-                              className="px-3 py-1 rounded-md bg-[#007a55] hover:bg-[#006345] text-white text-[11px] font-medium shadow-xs transition-colors cursor-pointer"
-                            >
-                              Mark Picked
-                            </button>
-                          )}
-                          {t.status === 'SUBSTITUTION_PROPOSED' && t.substituteDecision === 'PENDING' && (
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleRespondSubstitution(t.id, 'ACCEPTED')}
-                                className="px-3 py-1 rounded-md bg-[#007a55] hover:bg-[#006345] text-white text-[11px] font-medium shadow-xs transition-colors"
-                              >
-                                Accept
-                              </button>
-                              <button
-                                onClick={() => handleRespondSubstitution(t.id, 'REJECTED')}
-                                className="px-3 py-1 rounded-md bg-white border border-gray-200 text-rose-700 hover:bg-rose-50 text-[11px] font-medium shadow-2xs transition-colors"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          )}
-                        </td>
+              {/* View 1: Real-time Barcode & QR Code Pick-Pack Scanner */}
+              {fulfillmentViewMode === 'scanner' && (
+                <BarcodePickPackScanner
+                  ordersInPicking={(() => {
+                    const fromTasks = Array.from(new Set(pickTasks.map((t) => t.orderNumber))).map((num) => ({
+                      orderNumber: num,
+                    }));
+                    if (fromTasks.length > 0) return fromTasks;
+                    return orders
+                      .filter((o) => o.status !== 'CANCELLED' && o.status !== 'DELIVERED')
+                      .map((o) => ({ orderNumber: o.orderNumber }));
+                  })()}
+                  onOrderCompleted={(orderNumber) => {
+                    // Refresh fulfillment tasks
+                    fetchLiveFulfillmentTasks().then((tasks) => setPickTasks(tasks));
+                  }}
+                  onSwitchToFleet={() => setActiveNav('deliveries')}
+                />
+              )}
+
+              {/* View 2: Classic Pick Tasks Table */}
+              {fulfillmentViewMode === 'table' && (
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold uppercase tracking-wider">
+                      <tr>
+                        <th className="py-3 px-4">Order #</th>
+                        <th className="py-3 px-4">Item to Pick</th>
+                        <th className="py-3 px-4">Shelf Zone</th>
+                        <th className="py-3 px-4">Qty</th>
+                        <th className="py-3 px-4">Status & Substitutions</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {pickTasks.map((t) => (
+                        <tr key={t.id} className="hover:bg-gray-50/60 transition-colors">
+                          <td className="py-3.5 px-4 font-semibold text-gray-900">{t.orderNumber}</td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-medium text-gray-900">{t.productName}</div>
+                            <div className="text-[11px] text-gray-400 font-mono mt-0.5">{t.sku}</div>
+                          </td>
+                          <td className="py-3.5 px-4 text-gray-600 font-mono">{t.zone}</td>
+                          <td className="py-3.5 px-4 font-bold text-gray-900">{t.quantity}</td>
+                          <td className="py-3.5 px-4">
+                            {t.status === 'SUBSTITUTION_PROPOSED' ? (
+                              <div>
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/80 uppercase tracking-wide">
+                                  Substitute Proposed: {t.substituteName}
+                                </span>
+                                <div className="text-[10px] text-gray-400 mt-1">Awaiting customer approval</div>
+                              </div>
+                            ) : (
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                                  t.status === 'PICKED'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                                    : 'bg-gray-100 text-gray-700'
+                                }`}
+                              >
+                                {t.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            {t.status === 'PENDING' && (
+                              <button
+                                onClick={() => handleMarkTaskPicked(t.id)}
+                                className="px-3 py-1 rounded-md bg-[#007a55] hover:bg-[#006345] text-white text-[11px] font-medium shadow-xs transition-colors cursor-pointer"
+                              >
+                                Mark Picked
+                              </button>
+                            )}
+                            {t.status === 'SUBSTITUTION_PROPOSED' && t.substituteDecision === 'PENDING' && (
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleRespondSubstitution(t.id, 'ACCEPTED')}
+                                  className="px-3 py-1 rounded-md bg-[#007a55] hover:bg-[#006345] text-white text-[11px] font-medium shadow-xs transition-colors"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  onClick={() => handleRespondSubstitution(t.id, 'REJECTED')}
+                                  className="px-3 py-1 rounded-md bg-white border border-gray-200 text-rose-700 hover:bg-rose-50 text-[11px] font-medium shadow-2xs transition-colors"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -3323,6 +3414,16 @@ export const App: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* ========================================================= */}
+          {/* 8. RIDER FLEET & DELIVERY MODULE (Feature 6 & 7)          */}
+          {/* ========================================================= */}
+          {activeNav === 'deliveries' && <RiderFleetView />}
+
+          {/* ========================================================= */}
+          {/* 9. SUPPLIERS & AUTOMATED PURCHASE ORDERS (Feature 11)     */}
+          {/* ========================================================= */}
+          {activeNav === 'suppliers' && <SupplierPurchaseOrdersView />}
         </main>
       </div>
 

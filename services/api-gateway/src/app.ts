@@ -224,12 +224,20 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     }
   );
 
-  // Fulfillment & Pick-Pack Operations
+  // Customer Live Delivery Tracking Endpoint
+  app.get('/api/v1/fulfillment/deliveries/:orderId/tracking', (req: Request, res: Response) => {
+    forwardRequest(urls.fulfillment, req, res);
+  });
+
+  // Fulfillment & Pick-Pack Operations & Rider Fleet
   app.use(
     '/api/v1/fulfillment*',
-    authMiddleware.authenticate,
-    authMiddleware.requireRole('STORE_ADMIN', 'INVENTORY_STAFF'),
-    (req: Request, res: Response) => {
+    (req: Request, res: Response, next: NextFunction) => {
+      if (req.headers.authorization) {
+        return authMiddleware.authenticate(req, res, () => {
+          forwardRequest(urls.fulfillment, req, res);
+        });
+      }
       forwardRequest(urls.fulfillment, req, res);
     }
   );

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { X, FileText, Download, CheckCircle2, Clock, PackageCheck, Truck, Search, Phone, CreditCard, Smartphone, Check } from 'lucide-react';
+import { X, FileText, Download, CheckCircle2, Clock, PackageCheck, Truck, Search, Phone, CreditCard, Smartphone, Check, Bike } from 'lucide-react';
+import { LiveTrackingModal } from './LiveTrackingModal';
 
 export interface CustomerOrder {
   id: string;
@@ -35,6 +36,7 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [viewInvoiceOrder, setViewInvoiceOrder] = useState<CustomerOrder | null>(null);
   const [payModalOrder, setPayModalOrder] = useState<CustomerOrder | null>(null);
+  const [trackingOrder, setTrackingOrder] = useState<CustomerOrder | null>(null);
   const [payMethod, setPayMethod] = useState<'UPI' | 'CARD' | 'COD'>('UPI');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [lookupQuery, setLookupQuery] = useState('');
@@ -298,6 +300,15 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
                       >
                         <CreditCard className="w-3.5 h-3.5" />
                         <span>Pay ₹{ord.grandTotal.toFixed(2)}</span>
+                      </button>
+                    )}
+                    {ord.status !== 'CANCELLED' && ord.status !== 'AWAITING_PAYMENT' && (
+                      <button
+                        onClick={() => setTrackingOrder(ord)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Bike className="w-3 h-3" />
+                        <span>Track Live</span>
                       </button>
                     )}
                     {(ord.status === 'CONFIRMED' || ord.status === 'PENDING_CONFIRMATION') && (
@@ -568,6 +579,15 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Real-Time Delivery Rider GPS Tracking Modal */}
+      {trackingOrder && (
+        <LiveTrackingModal
+          order={trackingOrder}
+          isOpen={true}
+          onClose={() => setTrackingOrder(null)}
+        />
       )}
     </div>
   );

@@ -282,6 +282,45 @@ export async function updateFulfillmentTaskStatus(taskId: string, status: string
   return json.data;
 }
 
+export async function scanPickItemBarcode(params: {
+  barcode: string;
+  orderNumber?: string;
+  taskId?: string;
+}): Promise<{
+  success: boolean;
+  data?: any;
+  error?: string;
+}> {
+  try {
+    const res = await authFetch('/api/v1/fulfillment/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      return {
+        success: false,
+        error: json.error?.message || json.message || 'Scanned barcode does not match pending order items',
+      };
+    }
+    return { success: true, data: json.data };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error scanning barcode' };
+  }
+}
+
+export async function fetchOrderPickList(orderNumber: string): Promise<any> {
+  try {
+    const res = await authFetch(`/api/v1/fulfillment/orders/${orderNumber}/pick-list`);
+    const json = await res.json();
+    return json.success ? json.data : null;
+  } catch (err) {
+    console.error('Failed to fetch order pick list', err);
+    return null;
+  }
+}
+
 export async function fetchLiveInvoices(): Promise<any[]> {
   try {
     const res = await authFetch('/api/v1/invoices');
@@ -429,6 +468,73 @@ export async function cancelOrderInDb(orderId: string, reason?: string): Promise
   const json = await res.json();
   if (!json.success) {
     throw new Error(json.error?.message || 'Failed to cancel order');
+  }
+  return json.data;
+}
+
+// ====================================================================
+// FEATURE 11: AUTOMATED PURCHASE ORDERS & SUPPLIER PORTAL CLIENT
+// ====================================================================
+
+export async function fetchLiveSuppliers(): Promise<any[]> {
+  try {
+    const res = await authFetch('/api/v1/inventory/suppliers');
+    const json = await res.json();
+    return json.success && Array.isArray(json.data) ? json.data : [];
+  } catch (err) {
+    console.error('Failed to fetch suppliers', err);
+    return [];
+  }
+}
+
+export async function fetchLivePurchaseOrders(): Promise<any[]> {
+  try {
+    const res = await authFetch('/api/v1/inventory/purchase-orders');
+    const json = await res.json();
+    return json.success && Array.isArray(json.data) ? json.data : [];
+  } catch (err) {
+    console.error('Failed to fetch purchase orders', err);
+    return [];
+  }
+}
+
+export async function autoGeneratePurchaseOrder(params?: {
+  items?: any[];
+  supplierId?: string;
+  notes?: string;
+}): Promise<any> {
+  const res = await authFetch('/api/v1/inventory/purchase-orders/auto-generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params || {}),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to auto-generate purchase order');
+  }
+  return json.data;
+}
+
+export async function issuePurchaseOrder(poId: string): Promise<any> {
+  const res = await authFetch(`/api/v1/inventory/purchase-orders/${poId}/issue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to issue purchase order');
+  }
+  return json.data;
+}
+
+export async function receivePurchaseOrder(poId: string): Promise<any> {
+  const res = await authFetch(`/api/v1/inventory/purchase-orders/${poId}/receive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to inward purchase order goods');
   }
   return json.data;
 }
