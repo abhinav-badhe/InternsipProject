@@ -325,6 +325,19 @@ export class AuthService {
 
     logger.info('Customer OTP generated', { phone: cleanPhone, userId: userRow.id, ticket });
 
+    // 3. Dispatch OTP via WhatsApp Cloud API if WhatsApp adapter is running
+    const whatsappUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+    fetch(`${whatsappUrl}/api/v1/whatsapp/dispatch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toPhone: cleanPhone,
+        bodyText: `🔐 *FreshCart Login Verification*\n\nYour OTP code is: *${otpCode}*\n\n⏱️ Valid for 10 minutes.\n⚠️ Please do not share this code with anyone.`,
+      }),
+    }).catch((dispatchErr: any) => {
+      logger.warn('WhatsApp OTP dispatch notice', { phone: cleanPhone, error: dispatchErr.message });
+    });
+
     return {
       ticket,
       destination: cleanPhone,
