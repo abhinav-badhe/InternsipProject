@@ -48,7 +48,7 @@ export function createApp(deps?: {
         }
       );
       const json: any = await res.json();
-      return json.data;
+      return json.data || json.error?.details || json;
     },
     releaseReservation: async (reservationId, reason) => {
       const res = await fetch(
@@ -86,7 +86,7 @@ export function createApp(deps?: {
   });
 
   // Health checks
-  app.get('/health/live', (_req: Request, res: Response) => {
+  app.get(['/health', '/health/live'], (_req: Request, res: Response) => {
     res.status(200).json({ status: 'live', timestamp: new Date().toISOString() });
   });
 
@@ -99,19 +99,50 @@ export function createApp(deps?: {
     }
   });
 
-  // Checkout Saga Execution (Used by Storefront and WhatsApp)
-  app.post('/api/v1/orders/checkout', async (req: Request, res: Response, next: NextFunction) => {
+  // Checkout Saga Execution (Used by Storefront, REST callers, and WhatsApp)
+  app.post(['/api/v1/orders/checkout', '/api/v1/orders'], async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.body as CreateOrderRequest;
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
-      if (!body.idempotencyKey || !body.customerId || !body.items || body.items.length === 0) {
+      // Auto-assign headers / defaults if omitted by caller
+      if (!body.customerId) {
+        body.customerId = (req.headers['x-user-id'] as string) || 'cust_anonymous';
+      }
+      if (!body.idempotencyKey) {
+        body.idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      }
+      if (!body.channel) {
+        body.channel = 'WEB';
+      }
+      if (!body.deliveryAddress) {
+        body.deliveryAddress = {
+          recipientName: 'Valued Customer',
+          phone: '+91 98765 43210',
+          addressLine1: 'Main Market Road',
+          city: 'Bengaluru',
+          postalCode: '560001',
+        };
+      } else {
+        const anyAddr = body.deliveryAddress as any;
+        if (!anyAddr.addressLine1 && anyAddr.street) {
+          anyAddr.addressLine1 = anyAddr.street;
+        }
+        if (!anyAddr.recipientName) {
+          anyAddr.recipientName = 'Valued Customer';
+        }
+        if (!anyAddr.phone) {
+          anyAddr.phone = '+91 98765 43210';
+        }
+      }
+
+      if (!body.items || body.items.length === 0) {
         return res
           .status(400)
           .json(
             errorResponse(
               'INVALID_PARAM',
-              'idempotencyKey, customerId, deliveryAddress, and items are required',
+              'items are required to create an order',
               correlationId
             )
           );
@@ -202,24 +233,327 @@ export function createApp(deps?: {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
       const requestingUserId = req.headers['x-user-id'] as string;
       const requestingUserRole = req.headers['x-user-role'] as string;
+      const phoneFilter = req.query.phone as string | undefined;
+      const orderNumFilter = req.query.orderNumber as string | undefined;
 
-      let queryText = `SELECT id, order_number, customer_id, channel, status, grand_total, created_at FROM orders`;
+      const conditions: string[] = [];
       const queryParams: any[] = [];
 
       if (requestingUserRole !== 'STORE_ADMIN') {
-        if (!requestingUserId) {
-          return res
-            .status(401)
-            .json(errorResponse('UNAUTHORIZED', 'Authentication required to list customer orders', correlationId));
+        if (orderNumFilter) {
+          queryParams.push(orderNumFilter.toUpperCase().trim());
+          conditions.push(`o.order_number = $${queryParams.length}`);
+        } else if (phoneFilter) {
+          const cleanPhone = phoneFilter.replace(/[^0-9]/g, '');
+          queryParams.push(`%${cleanPhone}%`);
+          conditions.push(`(o.customer_id ILIKE $${queryParams.length} OR o.delivery_address->>'phone' ILIKE $${queryParams.length})`);
+        } else if (requestingUserId) {
+          queryParams.push(requestingUserId);
+          conditions.push(`o.customer_id = $${queryParams.length}`);
         }
-        queryText += ` WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50`;
-        queryParams.push(requestingUserId);
-      } else {
-        queryText += ` ORDER BY created_at DESC LIMIT 100`;
       }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const queryText = `
+        SELECT 
+          o.id, o.order_number, o.customer_id, o.channel, o.status, 
+          o.subtotal, o.tax_total, o.delivery_fee, o.grand_total, 
+          o.delivery_address, o.created_at,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', oi.id,
+                'sku', oi.sku,
+                'productName', oi.product_name,
+                'variantName', oi.variant_name,
+                'quantity', oi.quantity,
+                'unitPrice', oi.unit_price,
+                'netAmount', oi.net_amount
+              )
+            ) FILTER (WHERE oi.id IS NOT NULL), '[]'
+          ) as items
+        FROM orders o
+        LEFT JOIN order_items oi ON o.id = oi.order_id
+        ${whereClause}
+        GROUP BY o.id, o.order_number, o.customer_id, o.channel, o.status, 
+                 o.subtotal, o.tax_total, o.delivery_fee, o.grand_total, 
+                 o.delivery_address, o.created_at
+        ORDER BY o.created_at DESC
+        LIMIT 100
+      `;
 
       const ordersRes = await Database.query(queryText, queryParams);
       res.status(200).json(okResponse(ordersRes.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Update Order Status (e.g. PACKED, DISPATCHED, DELIVERED, CANCELLED)
+  app.patch('/api/v1/orders/:orderId/status', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      let { status, reason } = req.body;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      // Map alias status strings to DB enum
+      if (status === 'OUT_FOR_DELIVERY') status = 'DISPATCHED';
+
+      const validStatuses = [
+        'PENDING_CONFIRMATION',
+        'AWAITING_PAYMENT',
+        'CONFIRMED',
+        'PICKING',
+        'PACKED',
+        'DISPATCHED',
+        'DELIVERED',
+        'CANCELLED',
+      ];
+
+      if (!validStatuses.includes(status)) {
+        return res
+          .status(400)
+          .json(errorResponse('INVALID_STATUS', `Status must be one of: ${validStatuses.join(', ')}`, correlationId));
+      }
+
+      // Check existing order
+      const existingRes = await Database.query(
+        `SELECT id, order_number, status, reservation_id, customer_id FROM orders WHERE id::text = $1 OR order_number = $1`,
+        [orderId]
+      );
+
+      if (existingRes.rows.length === 0) {
+        return res
+          .status(404)
+          .json(errorResponse('ORDER_NOT_FOUND', `Order ${orderId} not found`, correlationId));
+      }
+
+      const order = existingRes.rows[0];
+
+      // Update order status in PostgreSQL
+      await Database.query(
+        `UPDATE orders
+         SET status = $1, cancellation_reason = COALESCE($2, cancellation_reason), updated_at = NOW()
+         WHERE id = $3`,
+        [status, reason || null, order.id]
+      );
+
+      // If cancelling, release any active stock reservation hold
+      if (status === 'CANCELLED' && order.reservation_id) {
+        try {
+          const invUrl = process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003';
+          await fetch(`${invUrl}/api/v1/inventory/reservations/${order.reservation_id}/release`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+          });
+          logger.info(`Released stock reservation ${order.reservation_id} for cancelled order ${order.order_number}`);
+        } catch (invErr: any) {
+          logger.warn(`Failed to release reservation on cancel: ${invErr.message}`);
+        }
+      }
+
+      // Record in saga audit log
+      await Database.query(
+        `INSERT INTO order_saga_log (id, order_id, step, status, details)
+         VALUES ($1, $2, 'STATUS_UPDATE', 'COMPLETED', $3)`,
+        [crypto.randomUUID(), order.id, JSON.stringify({ from: order.status, to: status, reason })]
+      );
+
+      res.status(200).json(
+        okResponse(
+          {
+            orderId: order.id,
+            orderNumber: order.order_number,
+            status,
+            previousStatus: order.status,
+            updatedAt: new Date().toISOString(),
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Customer or Staff Cancel Order Endpoint
+  app.post('/api/v1/orders/:orderId/cancel', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { reason } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const existingRes = await Database.query(
+        `SELECT id, order_number, status, reservation_id FROM orders WHERE id::text = $1 OR order_number = $1`,
+        [orderId]
+      );
+
+      if (existingRes.rows.length === 0) {
+        return res
+          .status(404)
+          .json(errorResponse('ORDER_NOT_FOUND', `Order ${orderId} not found`, correlationId));
+      }
+
+      const order = existingRes.rows[0];
+
+      if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
+        return res
+          .status(400)
+          .json(
+            errorResponse('INVALID_STATE', `Cannot cancel order in status ${order.status}`, correlationId)
+          );
+      }
+
+      // Update to CANCELLED
+      await Database.query(
+        `UPDATE orders SET status = 'CANCELLED', cancellation_reason = $1, updated_at = NOW() WHERE id = $2`,
+        [reason || 'Cancelled by user', order.id]
+      );
+
+      // Record outbox event for cancelled order
+      try {
+        await Database.query(
+          `INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload)
+           VALUES ('Order', $1, 'order.cancelled', $2)`,
+          [order.id, JSON.stringify({ orderId: order.id, orderNumber: order.order_number, reason })]
+        );
+      } catch {}
+
+      // Release stock hold
+      if (order.reservation_id) {
+        try {
+          const invUrl = process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003';
+          await fetch(`${invUrl}/api/v1/inventory/reservations/${order.reservation_id}/release`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+          });
+        } catch (invErr: any) {
+          logger.warn(`Failed to release reservation on cancel: ${invErr.message}`);
+        }
+      }
+
+      res.status(200).json(
+        okResponse(
+          {
+            orderId: order.id,
+            orderNumber: order.order_number,
+            status: 'CANCELLED',
+            reason: reason || 'Cancelled by user',
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Payment Confirmation Endpoint (Called by Payment Service on Webhook/Settlement)
+  app.post('/api/v1/orders/:orderId/confirm-payment', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { paymentId } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const existingRes = await Database.query(
+        `SELECT id, order_number, status, reservation_id, customer_id, grand_total, delivery_address
+         FROM orders WHERE id::text = $1 OR order_number = $1`,
+        [orderId]
+      );
+
+      if (existingRes.rows.length === 0) {
+        return res
+          .status(404)
+          .json(errorResponse('ORDER_NOT_FOUND', `Order ${orderId} not found`, correlationId));
+      }
+
+      const order = existingRes.rows[0];
+
+      if (order.status === 'CANCELLED') {
+        return res
+          .status(400)
+          .json(errorResponse('ORDER_CANCELLED', 'Cannot confirm payment on cancelled order', correlationId));
+      }
+
+      // Transition status to CONFIRMED and record paymentId
+      await Database.query(
+        `UPDATE orders 
+         SET status = 'CONFIRMED', payment_intent_id = COALESCE($1, payment_intent_id), updated_at = NOW()
+         WHERE id = $2`,
+        [paymentId || null, order.id]
+      );
+
+      // Permanently lock in the reserved inventory by consuming the hold
+      if (order.reservation_id) {
+        try {
+          const invUrl = process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003';
+          await fetch(`${invUrl}/api/v1/inventory/reservations/${order.reservation_id}/consume`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+            body: JSON.stringify({ orderId: order.id }),
+          });
+          logger.info(`Consumed stock reservation ${order.reservation_id} for paid order ${order.order_number}`);
+        } catch (invErr: any) {
+          logger.warn(`Failed to consume reservation on payment: ${invErr.message}`);
+        }
+      }
+
+      // Record in saga log
+      await Database.query(
+        `INSERT INTO order_saga_log (id, order_id, step, status, details)
+         VALUES ($1, $2, 'PAYMENT_CONFIRMED', 'COMPLETED', $3)`,
+        [crypto.randomUUID(), order.id, JSON.stringify({ paymentId, grandTotal: order.grand_total })]
+      );
+
+      // Persist domain event to transactional outbox
+      try {
+        await Database.query(
+          `INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload)
+           VALUES ('Order', $1, 'order.confirmed', $2)`,
+          [
+            order.id,
+            JSON.stringify({
+              orderId: order.id,
+              orderNumber: order.order_number,
+              customerId: order.customer_id,
+              paymentId,
+              grandTotal: order.grand_total,
+            }),
+          ]
+        );
+      } catch {}
+
+      // Multi-channel notification trigger
+      try {
+        const notifUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3011';
+        const phone = (order.delivery_address as any)?.phone;
+        if (phone) {
+          await fetch(`${notifUrl}/api/v1/notifications/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+            body: JSON.stringify({
+              recipientId: order.customer_id,
+              recipientAddress: phone,
+              channel: 'WHATSAPP',
+              templateCode: 'ORDER_CONFIRMED',
+              payload: { orderNumber: order.order_number, total: order.grand_total },
+            }),
+          });
+        }
+      } catch {}
+
+      res.status(200).json(
+        okResponse(
+          {
+            orderId: order.id,
+            orderNumber: order.order_number,
+            status: 'CONFIRMED',
+            paymentId,
+          },
+          correlationId
+        )
+      );
     } catch (err) {
       next(err);
     }

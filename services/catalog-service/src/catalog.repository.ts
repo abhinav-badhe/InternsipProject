@@ -71,6 +71,18 @@ export class CatalogRepository {
     };
   }
 
+  // In-memory catalog cache for high-throughput storefront browsing
+  private static catalogCache: { timestamp: number; data: { items: any[]; total: number } } | null = null;
+  private static CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+  public static invalidateCache() {
+    CatalogRepository.catalogCache = null;
+  }
+
+  public static setCachedData(items: any[]) {
+    CatalogRepository.catalogCache = { timestamp: Date.now(), data: { items, total: items.length } };
+  }
+
   /**
    * Search active products and variants by keyword, category, or brand
    */
@@ -81,7 +93,46 @@ export class CatalogRepository {
     limit?: number;
     offset?: number;
   }): Promise<{ items: ProductDetail[]; total: number }> {
-    const limit = Math.min(params.limit || 20, 50);
+    // If memory cache is available, serve directly from memory in < 1ms
+    if (
+      CatalogRepository.catalogCache &&
+      Date.now() - CatalogRepository.catalogCache.timestamp < CatalogRepository.CACHE_TTL_MS
+    ) {
+      let filtered = CatalogRepository.catalogCache.data.items;
+      if (params.categoryId && params.categoryId !== 'ALL') {
+        filtered = filtered.filter(
+          (p) => p.primaryCategoryId === params.categoryId || p.category?.id === params.categoryId
+        );
+      }
+      if (params.brandId) {
+        filtered = filtered.filter(
+          (p) => p.brandId === params.brandId || p.brand?.id === params.brandId
+        );
+      }
+      if (params.query && params.query.trim().length > 0) {
+        const q = params.query.trim().toLowerCase();
+        filtered = filtered.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.slug.toLowerCase().includes(q) ||
+            (p.brand?.name && p.brand.name.toLowerCase().includes(q)) ||
+            (p.category?.name && p.category.name.toLowerCase().includes(q)) ||
+            p.variants?.some(
+              (v: any) =>
+                v.sku.toLowerCase().includes(q) ||
+                (v.variantName && v.variantName.toLowerCase().includes(q))
+            )
+        );
+      }
+      const offset = params.offset || 0;
+      const limit = Math.min(params.limit || 50, 5000);
+      return {
+        items: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+      };
+    }
+
+    const limit = Math.min(params.limit || 50, 5000);
     const offset = params.offset || 0;
     const conditions: string[] = ['p.is_active = TRUE'];
     const values: any[] = [];
@@ -132,71 +183,103 @@ export class CatalogRepository {
     values.push(limit, offset);
     const res = await Database.query(sql, values);
 
-    // Fetch variants for each product
-    const items: ProductDetail[] = await Promise.all(
-      res.rows.map(async (row) => {
-        const variantsRes = await Database.query(
-          `SELECT id, product_id, sku, barcode, variant_name, net_weight_value, measurement_unit, image_urls, status, created_at, updated_at
-           FROM product_variants
-           WHERE product_id = $1 AND status = 'active'
-           ORDER BY net_weight_value ASC`,
-          [row.id]
-        );
+    if (res.rows.length === 0) {
+      return { items: [], total: 0 };
+    }
 
-        return {
-          id: row.id,
-          brandId: row.brand_id,
-          primaryCategoryId: row.primary_category_id,
-          name: row.name,
-          slug: row.slug,
-          description: row.description,
-          isPerishable: row.is_perishable,
-          storageType: row.storage_type,
-          shelfLifeDays: row.shelf_life_days,
-          isVeg: row.is_veg,
-          tags: row.tags || [],
-          isActive: row.is_active,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          brand: row.brand_id
-            ? {
-                id: row.brand_id,
-                name: row.brand_name,
-                slug: row.brand_slug,
-                logoUrl: row.brand_logo_url,
-                isActive: true,
-                createdAt: row.created_at,
-              }
-            : undefined,
-          category: {
-            id: row.primary_category_id,
-            parentId: null,
-            name: row.category_name,
-            slug: row.category_slug,
-            aliases: [],
-            displayOrder: 0,
-            isActive: true,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
-          },
-          variants: variantsRes.rows.map((v) => ({
-            id: v.id,
-            productId: v.product_id,
-            sku: v.sku,
-            barcode: v.barcode,
-            variantName: v.variant_name,
-            netWeightValue: parseFloat(v.net_weight_value),
-            measurementUnit: v.measurement_unit,
-            imageUrls: v.image_urls || [],
-            status: v.status,
-            createdAt: v.created_at,
-            updatedAt: v.updated_at,
-          })),
-        };
-      })
+    // High performance bulk fetch: single query for all product variants
+    const productIds = res.rows.map((r) => r.id);
+    const variantsRes = await Database.query(
+      `SELECT pv.id, pv.product_id, pv.sku, pv.barcode, pv.variant_name, pv.net_weight_value, pv.measurement_unit, pv.image_urls, pv.status, pv.created_at, pv.updated_at,
+              COALESCE(bp.amount, 0) as price,
+              COALESCE(sb.on_hand_qty, 0) as stock,
+              COALESCE(sb.reserved_qty, 0) as reserved
+       FROM product_variants pv
+       LEFT JOIN base_prices bp ON pv.sku = bp.sku AND bp.is_active = TRUE
+       LEFT JOIN stock_balances sb ON pv.sku = sb.sku
+       WHERE pv.product_id = ANY($1::uuid[]) AND pv.status = 'active'
+       ORDER BY pv.net_weight_value ASC`,
+      [productIds]
     );
 
-    return { items, total: items.length };
+    const variantsByProductId = new Map<string, any[]>();
+    for (const v of variantsRes.rows) {
+      let list = variantsByProductId.get(v.product_id);
+      if (!list) {
+        list = [];
+        variantsByProductId.set(v.product_id, list);
+      }
+      list.push({
+        id: v.id,
+        productId: v.product_id,
+        sku: v.sku,
+        barcode: v.barcode,
+        variantName: v.variant_name,
+        netWeightValue: parseFloat(v.net_weight_value) || 0,
+        measurementUnit: v.measurement_unit,
+        imageUrls: v.image_urls || [],
+        status: v.status,
+        price: parseFloat(v.price) || 0,
+        stock: parseFloat(v.stock) || 0,
+        reserved: parseFloat(v.reserved) || 0,
+        createdAt: v.created_at,
+        updatedAt: v.updated_at,
+      });
+    }
+
+    const items: any[] = res.rows.map((row) => ({
+      id: row.id,
+      brandId: row.brand_id,
+      primaryCategoryId: row.primary_category_id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      isPerishable: row.is_perishable,
+      storageType: row.storage_type,
+      shelfLifeDays: row.shelf_life_days,
+      isVeg: row.is_veg,
+      tags: row.tags || [],
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      brand: row.brand_id
+        ? {
+            id: row.brand_id,
+            name: row.brand_name,
+            slug: row.brand_slug,
+            logoUrl: row.brand_logo_url,
+            isActive: true,
+            createdAt: row.created_at,
+          }
+        : undefined,
+      category: {
+        id: row.primary_category_id,
+        parentId: null,
+        name: row.category_name,
+        slug: row.category_slug,
+        aliases: [],
+        displayOrder: 0,
+        isActive: true,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      },
+      variants: variantsByProductId.get(row.id) || [],
+    }));
+
+    const isFullCatalogRequest =
+      !params.query &&
+      !params.categoryId &&
+      !params.brandId &&
+      (!params.offset || params.offset === 0) &&
+      (params.limit || 50) >= 500;
+
+    const result = { items, total: items.length };
+
+    if (isFullCatalogRequest) {
+      CatalogRepository.catalogCache = { timestamp: Date.now(), data: result };
+    }
+
+    return result;
   }
 
   /**
@@ -286,9 +369,9 @@ export class CatalogRepository {
   }
 
   /**
-   * Create a new product and initial variant conforming to 001_initial_catalog_schema
+   * Create a new product and multiple variants (or single variant) conforming to 001_initial_catalog_schema
    */
-  public async createProductWithVariant(data: {
+  public async createProductWithVariants(data: {
     name: string;
     brandName?: string;
     categoryId: string;
@@ -298,14 +381,28 @@ export class CatalogRepository {
     isVeg?: boolean;
     isPerishable?: boolean;
     tags?: string[];
-    variant: {
+    variant?: {
       sku: string;
       variantName: string;
-      netWeightValue: number;
-      measurementUnit: 'g' | 'kg' | 'ml' | 'l' | 'each' | 'pack';
+      netWeightValue?: number;
+      measurementUnit?: 'g' | 'kg' | 'ml' | 'l' | 'each' | 'pack';
       barcode?: string;
       imageUrls?: string[];
+      sellingPrice?: number;
+      mrp?: number;
+      initialStock?: number;
     };
+    variants?: Array<{
+      sku: string;
+      variantName: string;
+      netWeightValue?: number;
+      measurementUnit?: 'g' | 'kg' | 'ml' | 'l' | 'each' | 'pack';
+      barcode?: string;
+      imageUrls?: string[];
+      sellingPrice?: number;
+      mrp?: number;
+      initialStock?: number;
+    }>;
   }): Promise<any> {
     const slug =
       data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') +
@@ -324,55 +421,117 @@ export class CatalogRepository {
         );
         brandId = bRes.rows[0]?.id;
       } catch {
-        // Fallback if db is mock/unavailable
         brandId = `brand-${Date.now()}`;
       }
     }
 
+    let product: any = null;
     try {
-      const pRes = await Database.query(
-        `INSERT INTO products (
-          brand_id, primary_category_id, name, slug, description,
-          is_perishable, storage_type, shelf_life_days, is_veg, tags, is_active
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
-        RETURNING id, name, slug, primary_category_id, brand_id, created_at`,
-        [
-          brandId,
-          data.categoryId,
-          data.name,
-          slug,
-          data.description || null,
-          Boolean(data.isPerishable),
-          data.storageType || 'ambient',
-          data.shelfLifeDays || 365,
-          data.isVeg !== false,
-          data.tags || [],
-        ]
+      const existingProductRes = await Database.query(
+        `SELECT id, name, slug, primary_category_id, brand_id, created_at
+         FROM products
+         WHERE (name ILIKE $1) AND (brand_id = $2 OR (brand_id IS NULL AND $2 IS NULL))
+         LIMIT 1`,
+        [data.name, brandId]
       );
-      const product = pRes.rows[0];
 
-      const v = data.variant;
-      const vRes = await Database.query(
-        `INSERT INTO product_variants (
-          product_id, sku, barcode, variant_name, net_weight_value, measurement_unit, image_urls, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
-        RETURNING id, product_id, sku, barcode, variant_name, net_weight_value, measurement_unit, image_urls, status, created_at`,
-        [
-          product.id,
-          v.sku,
-          v.barcode || null,
-          v.variantName,
-          v.netWeightValue,
-          v.measurementUnit,
-          v.imageUrls || [],
-        ]
-      );
-      const variant = vRes.rows[0];
+      if (existingProductRes.rows.length > 0) {
+        product = existingProductRes.rows[0];
+      } else {
+        const pRes = await Database.query(
+          `INSERT INTO products (
+            brand_id, primary_category_id, name, slug, description,
+            is_perishable, storage_type, shelf_life_days, is_veg, tags, is_active
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+          RETURNING id, name, slug, primary_category_id, brand_id, created_at`,
+          [
+            brandId,
+            data.categoryId,
+            data.name,
+            slug,
+            data.description || null,
+            Boolean(data.isPerishable),
+            data.storageType || 'ambient',
+            data.shelfLifeDays || 365,
+            data.isVeg !== false,
+            data.tags || [],
+          ]
+        );
+        product = pRes.rows[0];
+      }
 
-      return { product, variant };
+      // Collect all variants to insert (support both variants array and single variant)
+      const variantsList: any[] = [];
+      if (Array.isArray(data.variants) && data.variants.length > 0) {
+        variantsList.push(...data.variants);
+      } else if (data.variant) {
+        variantsList.push(data.variant);
+      }
+
+      const createdVariants: any[] = [];
+
+      for (const v of variantsList) {
+        const vRes = await Database.query(
+          `INSERT INTO product_variants (
+            product_id, sku, barcode, variant_name, net_weight_value, measurement_unit, image_urls, status
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
+          ON CONFLICT (sku) DO UPDATE SET
+            product_id = EXCLUDED.product_id,
+            variant_name = EXCLUDED.variant_name,
+            net_weight_value = EXCLUDED.net_weight_value,
+            measurement_unit = EXCLUDED.measurement_unit,
+            barcode = COALESCE(EXCLUDED.barcode, product_variants.barcode),
+            status = 'active'
+          RETURNING id, product_id, sku, barcode, variant_name, net_weight_value, measurement_unit, image_urls, status, created_at`,
+          [
+            product.id,
+            v.sku,
+            v.barcode || null,
+            v.variantName,
+            v.netWeightValue || 1,
+            v.measurementUnit || 'pack',
+            v.imageUrls || [],
+          ]
+        );
+        const savedVariant = vRes.rows[0];
+
+        // Save price in base_prices
+        if (v.sellingPrice !== undefined && v.sellingPrice !== null) {
+          await Database.query(`UPDATE base_prices SET is_active = FALSE WHERE sku = $1`, [v.sku]);
+          await Database.query(
+            `INSERT INTO base_prices (sku, amount, currency, is_active)
+             VALUES ($1, $2, 'INR', TRUE)`,
+            [v.sku, Number(v.sellingPrice)]
+          );
+        }
+
+        // Save initial stock in stock_balances
+        const initialStock = Number(v.initialStock || 0);
+        if (initialStock > 0) {
+          await Database.query(
+            `INSERT INTO stock_balances (location_id, sku, on_hand_qty, reserved_qty)
+             VALUES ('80000000-0000-0000-0000-000000000001', $1, $2, 0)
+             ON CONFLICT (location_id, sku) DO UPDATE SET
+               on_hand_qty = GREATEST(stock_balances.on_hand_qty, EXCLUDED.on_hand_qty)`,
+            [v.sku, initialStock]
+          );
+        }
+
+        createdVariants.push({
+          ...savedVariant,
+          price: Number(v.sellingPrice || 0),
+          stock: initialStock,
+        });
+      }
+
+      return {
+        product,
+        variant: createdVariants[0] || null,
+        variants: createdVariants,
+      };
     } catch (err: any) {
-      // In-memory fallback if standalone without active postgres connection
       const dummyProductId = `prod-${Date.now()}`;
+      const firstV = data.variants?.[0] || data.variant || { sku: 'SKU-TEMP', variantName: 'Default' };
       return {
         product: {
           id: dummyProductId,
@@ -386,16 +545,99 @@ export class CatalogRepository {
         variant: {
           id: `var-${Date.now()}`,
           productId: dummyProductId,
-          sku: data.variant.sku,
-          variantName: data.variant.variantName,
-          netWeightValue: data.variant.netWeightValue,
-          measurementUnit: data.variant.measurementUnit,
-          barcode: data.variant.barcode,
-          imageUrls: data.variant.imageUrls || [],
+          sku: firstV.sku,
+          variantName: firstV.variantName,
           status: 'active',
           createdAt: new Date().toISOString(),
         },
+        variants: [
+          {
+            id: `var-${Date.now()}`,
+            productId: dummyProductId,
+            sku: firstV.sku,
+            variantName: firstV.variantName,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+          },
+        ],
       };
     }
+  }
+
+  /**
+   * Backwards compatible single variant creation
+   */
+  public async createProductWithVariant(data: any): Promise<any> {
+    return this.createProductWithVariants(data);
+  }
+
+  /**
+   * Add a new variant with individual price and stock to an existing product
+   */
+  public async addVariantToProduct(
+    productId: string,
+    v: {
+      sku: string;
+      variantName: string;
+      netWeightValue?: number;
+      measurementUnit?: 'g' | 'kg' | 'ml' | 'l' | 'each' | 'pack';
+      barcode?: string;
+      imageUrls?: string[];
+      sellingPrice?: number;
+      mrp?: number;
+      initialStock?: number;
+    }
+  ): Promise<any> {
+    const vRes = await Database.query(
+      `INSERT INTO product_variants (
+        product_id, sku, barcode, variant_name, net_weight_value, measurement_unit, image_urls, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
+      ON CONFLICT (sku) DO UPDATE SET
+        product_id = EXCLUDED.product_id,
+        variant_name = EXCLUDED.variant_name,
+        net_weight_value = EXCLUDED.net_weight_value,
+        measurement_unit = EXCLUDED.measurement_unit,
+        barcode = COALESCE(EXCLUDED.barcode, product_variants.barcode),
+        status = 'active'
+      RETURNING id, product_id, sku, barcode, variant_name, net_weight_value, measurement_unit, image_urls, status, created_at`,
+      [
+        productId,
+        v.sku,
+        v.barcode || null,
+        v.variantName,
+        v.netWeightValue || 1,
+        v.measurementUnit || 'pack',
+        v.imageUrls || [],
+      ]
+    );
+    const variant = vRes.rows[0];
+
+    // Save price in base_prices
+    if (v.sellingPrice !== undefined && v.sellingPrice !== null) {
+      await Database.query(`UPDATE base_prices SET is_active = FALSE WHERE sku = $1`, [v.sku]);
+      await Database.query(
+        `INSERT INTO base_prices (sku, amount, currency, is_active)
+         VALUES ($1, $2, 'INR', TRUE)`,
+        [v.sku, Number(v.sellingPrice)]
+      );
+    }
+
+    // Save initial stock in stock_balances
+    const initialStock = Number(v.initialStock || 0);
+    if (initialStock > 0) {
+      await Database.query(
+        `INSERT INTO stock_balances (location_id, sku, on_hand_qty, reserved_qty)
+         VALUES ('80000000-0000-0000-0000-000000000001', $1, $2, 0)
+         ON CONFLICT (location_id, sku) DO UPDATE SET
+           on_hand_qty = GREATEST(stock_balances.on_hand_qty, EXCLUDED.on_hand_qty)`,
+        [v.sku, initialStock]
+      );
+    }
+
+    return {
+      ...variant,
+      price: Number(v.sellingPrice || 0),
+      stock: initialStock,
+    };
   }
 }

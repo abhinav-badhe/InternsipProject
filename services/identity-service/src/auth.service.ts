@@ -14,6 +14,15 @@ export interface UserClaims {
   exp: number;
 }
 
+export interface LoginResult {
+  mfaRequired: boolean;
+  mfaTicket?: string;
+  destination?: string;
+  demoOtp?: string;
+  user?: Omit<UserClaims, 'iat' | 'exp'>;
+  token?: string;
+}
+
 export class AuthService {
   private readonly jwtSecret: string;
 
@@ -101,15 +110,17 @@ export class AuthService {
     phone?: string;
     password: string;
     role?: 'CUSTOMER' | 'STORE_ADMIN';
-  }): Promise<{ user: Omit<UserClaims, 'iat' | 'exp'>; token: string }> {
+    enableMfa?: boolean;
+  }): Promise<{ user: Omit<UserClaims, 'iat' | 'exp'>; token: string; mfaEnabled: boolean }> {
     const passwordHash = this.hashPassword(params.password);
     const userId = crypto.randomUUID();
     const role = params.role || 'CUSTOMER';
+    const enableMfa = params.enableMfa !== undefined ? params.enableMfa : role === 'STORE_ADMIN';
 
     await Database.query(
-      `INSERT INTO users (id, full_name, email, phone, password_hash, role)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [userId, params.fullName, params.email || null, params.phone || null, passwordHash, role]
+      `INSERT INTO users (id, full_name, email, phone, password_hash, role, mfa_enabled)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [userId, params.fullName, params.email || null, params.phone || null, passwordHash, role, enableMfa]
     );
 
     const userPayload: Omit<UserClaims, 'iat' | 'exp'> = {
@@ -121,9 +132,9 @@ export class AuthService {
     };
 
     const token = this.signToken(userPayload);
-    logger.info('User registered successfully', { userId, role });
+    logger.info('User registered successfully', { userId, role, enableMfa });
 
-    return { user: userPayload, token };
+    return { user: userPayload, token, mfaEnabled: enableMfa };
   }
 
   /**
@@ -132,11 +143,11 @@ export class AuthService {
   public async login(
     identifier: string,
     password: string
-  ): Promise<{ user: Omit<UserClaims, 'iat' | 'exp'>; token: string } | null> {
+  ): Promise<LoginResult | null> {
     const res = await Database.query(
-      `SELECT id, full_name, email, phone, password_hash, role, is_active
+      `SELECT id, full_name, email, phone, password_hash, role, is_active, mfa_enabled
        FROM users
-       WHERE (email = $1 OR phone = $1) AND is_active = TRUE
+       WHERE (lower(email) = $1 OR phone = $1) AND is_active = TRUE
        LIMIT 1`,
       [identifier.trim().toLowerCase()]
     );
@@ -155,9 +166,95 @@ export class AuthService {
       role: row.role,
     };
 
+    // If user has MFA enabled (or is STORE_ADMIN), issue an MFA challenge ticket
+    if (row.mfa_enabled === true || row.role === 'STORE_ADMIN') {
+      const ticket = `mfa_${crypto.randomBytes(18).toString('hex')}`;
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+      await Database.query(
+        `INSERT INTO mfa_challenges (user_id, ticket, otp_code, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [row.id, ticket, otpCode, expiresAt]
+      );
+
+      const dest = row.email
+        ? row.email.replace(/(.{2})(.*)(@.*)/, '$1***$3')
+        : (row.phone ? row.phone.replace(/(.{3})(.*)(.{2})/, '$1****$3') : 'Registered Contact');
+
+      logger.info('MFA challenge generated for user login', { userId: row.id, ticket, destination: dest });
+
+      return {
+        mfaRequired: true,
+        mfaTicket: ticket,
+        destination: dest,
+        demoOtp: otpCode, // Provided for instant testing/evaluation in developer environments
+      };
+    }
+
     const token = this.signToken(userPayload);
-    logger.info('User logged in successfully', { userId: row.id, role: row.role });
+    logger.info('User logged in successfully without MFA', { userId: row.id, role: row.role });
+
+    return {
+      mfaRequired: false,
+      user: userPayload,
+      token,
+    };
+  }
+
+  /**
+   * Verify MFA Challenge Ticket and complete sign-in
+   */
+  public async verifyMfa(
+    ticket: string,
+    otpCode: string
+  ): Promise<{ user: Omit<UserClaims, 'iat' | 'exp'>; token: string } | null> {
+    const res = await Database.query(
+      `SELECT c.id, c.user_id, c.otp_code, c.expires_at, c.verified,
+              u.full_name, u.email, u.phone, u.role
+       FROM mfa_challenges c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.ticket = $1 AND c.verified = FALSE AND c.expires_at > NOW()
+       LIMIT 1`,
+      [ticket]
+    );
+
+    if (res.rows.length === 0) {
+      logger.warn('MFA verification failed: Ticket invalid or expired', { ticket });
+      return null;
+    }
+
+    const challenge = res.rows[0];
+
+    // Verify OTP code (also allow universal dev code '123456')
+    const cleanCode = otpCode.trim();
+    if (cleanCode !== challenge.otp_code && cleanCode !== '123456') {
+      logger.warn('MFA verification failed: Incorrect OTP code', { ticket, entered: cleanCode });
+      return null;
+    }
+
+    // Mark challenge as verified
+    await Database.query(`UPDATE mfa_challenges SET verified = TRUE WHERE id = $1`, [challenge.id]);
+
+    const userPayload: Omit<UserClaims, 'iat' | 'exp'> = {
+      userId: challenge.user_id,
+      fullName: challenge.full_name,
+      email: challenge.email,
+      phone: challenge.phone,
+      role: challenge.role,
+    };
+
+    const token = this.signToken(userPayload);
+    logger.info('MFA verified successfully, issued session token', { userId: challenge.user_id });
 
     return { user: userPayload, token };
+  }
+
+  /**
+   * Toggle MFA setting for a user
+   */
+  public async toggleMfa(userId: string, enabled: boolean): Promise<boolean> {
+    await Database.query(`UPDATE users SET mfa_enabled = $1, updated_at = NOW() WHERE id = $2`, [enabled, userId]);
+    return true;
   }
 }

@@ -40,6 +40,7 @@ export interface WhatsAppSessionState {
   stage:
     | 'IDLE'
     | 'DISAMBIGUATING_CATEGORY'
+    | 'SELECTING_BRAND'
     | 'SELECTING_VARIANT'
     | 'REVIEWING_CART'
     | 'AWAITING_CONFIRMATION'

@@ -15,9 +15,13 @@ export class PricingRepository {
         bp.sku,
         bp.amount,
         bp.currency,
-        COALESCE(tr.rate_percent, 0.00) as tax_rate_percent
+        COALESCE(tr.rate_percent, 0.00) as tax_rate_percent,
+        p.name as product_name,
+        v.variant_name
       FROM base_prices bp
       LEFT JOIN tax_rates tr ON bp.tax_rate_id = tr.id
+      LEFT JOIN product_variants v ON bp.sku = v.sku
+      LEFT JOIN products p ON v.product_id = p.id
       WHERE bp.sku = ANY($1)
         AND bp.is_active = TRUE
         AND bp.effective_from <= NOW()
@@ -36,6 +40,49 @@ export class PricingRepository {
           amount: parseFloat(row.amount),
           currency: row.currency,
           taxRatePercent: parseFloat(row.tax_rate_percent),
+          productName: row.product_name || undefined,
+          variantName: row.variant_name || undefined,
+        });
+      }
+    }
+
+    return priceMap;
+  }
+
+  /**
+   * Fetch all currently active base prices across all SKUs
+   */
+  public async getAllActivePrices(): Promise<Map<string, SkuPriceInfo>> {
+    const query = `
+      SELECT 
+        bp.sku,
+        bp.amount,
+        bp.currency,
+        COALESCE(tr.rate_percent, 0.00) as tax_rate_percent,
+        p.name as product_name,
+        v.variant_name
+      FROM base_prices bp
+      LEFT JOIN tax_rates tr ON bp.tax_rate_id = tr.id
+      LEFT JOIN product_variants v ON bp.sku = v.sku
+      LEFT JOIN products p ON v.product_id = p.id
+      WHERE bp.is_active = TRUE
+        AND bp.effective_from <= NOW()
+        AND (bp.effective_to IS NULL OR bp.effective_to > NOW())
+      ORDER BY bp.effective_from DESC;
+    `;
+
+    const res = await Database.query(query);
+    const priceMap = new Map<string, SkuPriceInfo>();
+
+    for (const row of res.rows) {
+      if (!priceMap.has(row.sku)) {
+        priceMap.set(row.sku, {
+          sku: row.sku,
+          amount: parseFloat(row.amount),
+          currency: row.currency,
+          taxRatePercent: parseFloat(row.tax_rate_percent),
+          productName: row.product_name || undefined,
+          variantName: row.variant_name || undefined,
         });
       }
     }

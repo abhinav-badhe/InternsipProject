@@ -49,7 +49,56 @@ export function createApp(): express.Application {
     }
   });
 
-  // Demand Forecast (Scenario 15: Tags model version and data freshness)
+  // 1. Train ML Model Tournament & Choose Best Suitable Model
+  app.post('/api/v1/analytics/train-model', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const trainingResult = await forecaster.trainAndSelectBestModel();
+      res.status(200).json(okResponse(trainingResult, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2. Get Active Model Information & Evaluation Diagnostics
+  app.get('/api/v1/analytics/model-info', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      let info = forecaster.getModelInfo();
+      if (!info) {
+        info = await forecaster.trainAndSelectBestModel();
+      }
+      res.status(200).json(okResponse(info, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 3. Generate Storewide Demand Forecasts & Stockout Reorder Alerts
+  app.post('/api/v1/analytics/generate-forecasts', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const horizonDays = Number(req.body?.horizonDays || 7);
+      const result = await forecaster.generateStorewideForecasts(horizonDays);
+      res.status(200).json(okResponse(result, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 4. Retrieve Current Forecasts & Alerts List
+  app.get('/api/v1/analytics/forecasts', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const horizonDays = Number(req.query?.horizonDays || 7);
+      const result = await forecaster.generateStorewideForecasts(horizonDays);
+      res.status(200).json(okResponse(result, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Demand Forecast for Single SKU (Scenario 15: Tags model version and data freshness)
   app.get('/api/v1/analytics/forecast/:sku', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const sku = req.params.sku as string;

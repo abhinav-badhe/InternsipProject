@@ -128,7 +128,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </p>
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 rounded text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white hover:bg-[#006345] transition-colors"
                 >
                   Start Shopping
                 </button>
@@ -305,7 +305,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <button
                 onClick={() => onCheckout(selectedSlot, appliedCoupon || undefined)}
                 disabled={isCheckingOut}
-                className="w-full py-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-sm flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-[#007a55] hover:bg-[#006345] disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-2xs flex items-center justify-center gap-2"
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>

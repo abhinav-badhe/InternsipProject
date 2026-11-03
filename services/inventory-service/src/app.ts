@@ -110,6 +110,29 @@ export function createApp(): express.Application {
     }
   });
 
+  // Get all stock balances
+  app.get('/api/v1/inventory/balances', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const balances = await inventoryRepo.getAllBalances();
+      res.json(okResponse(balances, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Get stock movement ledger
+  app.get('/api/v1/inventory/movements', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+      const movements = await inventoryRepo.getMovements(limit);
+      res.json(okResponse(movements, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Get balance for SKU
   app.get('/api/v1/inventory/balances/:sku', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -124,6 +147,47 @@ export function createApp(): express.Application {
       }
 
       res.json(okResponse(balance, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Adjust stock balance with reason code
+  app.post('/api/v1/inventory/adjust', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sku, delta, reason, referenceId, locationZone } = req.body;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      if (!sku || delta === undefined) {
+        return res
+          .status(400)
+          .json(errorResponse('INVALID_PARAM', 'sku and delta are required', correlationId));
+      }
+
+      const result = await inventoryRepo.adjustStock({
+        sku,
+        delta: Number(delta),
+        reason: reason || 'RECEIPT',
+        referenceId,
+        locationZone,
+      });
+
+      // Notify WhatsApp adapter of restocked item for waiting customers
+      if (Number(delta) > 0 && result.sellableQuantity > 0) {
+        const adapterUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+        fetch(`${adapterUrl}/api/v1/whatsapp/restock-notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sku,
+            availableStock: result.sellableQuantity,
+          }),
+        }).catch((notifyErr: any) => {
+          logger.warn('Failed to notify whatsapp-adapter of restock', { sku, error: notifyErr.message });
+        });
+      }
+
+      res.status(200).json(okResponse(result, correlationId));
     } catch (err) {
       next(err);
     }

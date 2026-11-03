@@ -5,6 +5,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -b",
+    "start": "node dist/src/worker.runner.js",
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {

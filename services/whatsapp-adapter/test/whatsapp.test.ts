@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { WhatsAppBot } from '../src/whatsapp.bot.js';
+import { WhatsAppCloudApiClient } from '../src/meta.client.js';
 import { SignatureVerifier } from '../src/signature.verifier.js';
 import { Database } from '../src/db.js';
 import crypto from 'node:crypto';
@@ -63,7 +64,7 @@ describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () =
     }
   });
 
-  it('Scenario 9: Ambiguous Product Request asks for Category Clarification (e.g. "soap")', async () => {
+  it('Scenario 9: Ambiguous Product Request asks for Category Clarification with Interactive Buttons', async () => {
     const originalQuery = Database.query;
     Database.query = async (sql: string) => {
       if (sql.includes('INSERT INTO whatsapp_processed_messages')) return { rows: [] } as any;
@@ -104,18 +105,19 @@ describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () =
       });
 
       assert.ok(reply);
-      // Confirms clarification dialog presents all 3 categories with brands
+      // Confirms interactive button options are populated
+      assert.equal(reply?.type, 'buttons');
+      assert.equal(reply?.options?.length, 3);
+      assert.equal(reply?.options?.[0].id, 'cat_1');
       assert.ok(reply?.bodyText.includes('Bathing Soaps'));
       assert.ok(reply?.bodyText.includes('Washing Soaps'));
       assert.ok(reply?.bodyText.includes('Dishwashing & Utensil Soaps'));
-      assert.ok(reply?.bodyText.includes('Dove, Dettol'));
-      assert.ok(reply?.bodyText.includes('Vim, Exo'));
     } finally {
       Database.query = originalQuery;
     }
   });
 
-  it('Scenario 10: Explicit Customer Confirmation Required for Substitutions', async () => {
+  it('Scenario 10: Explicit Customer Confirmation Required for Substitutions via Interactive Buttons', async () => {
     let sessionStage = 'AWAITING_SUBSTITUTION_APPROVAL';
     let pendingSub: any = {
       orderId: 'ORD-8921',
@@ -162,11 +164,11 @@ describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () =
     try {
       const bot = new WhatsAppBot(mockCatalog, mockPricing, mockOrder);
 
-      // Customer sends explicit acceptance
+      // Customer sends button click with id 'sub_accept'
       const reply = await bot.handleInboundMessage({
         messageId: 'wamid.sub.accept.001',
         fromPhoneNumber: '+919876543210',
-        text: 'Accept',
+        text: 'sub_accept',
         timestamp: '1700000002',
       });
 
@@ -201,5 +203,24 @@ describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () =
 
     // Verify missing signature fails
     assert.equal(SignatureVerifier.verifyMetaSignature(payload, undefined, appSecret), false);
+  });
+
+  it('Meta WhatsApp Cloud API Client dispatches formatted interactive buttons and text', async () => {
+    const client = new WhatsAppCloudApiClient({
+      accessToken: 'test_token',
+      phoneNumberId: '1000999888',
+    });
+    assert.equal(client.isConfigured(), true);
+
+    // Test unconfigured mock mode
+    const mockClient = new WhatsAppCloudApiClient();
+    const res = await mockClient.sendInteractiveButtons('+919876543210', 'Choose Soap', [
+      { id: 'btn_1', title: 'Bathing Soap' },
+      { id: 'btn_2', title: 'Detergent' },
+    ]);
+
+    assert.equal(res.success, true);
+    assert.equal(res.mock, true);
+    assert.ok(res.messageId.startsWith('wamid.'));
   });
 });

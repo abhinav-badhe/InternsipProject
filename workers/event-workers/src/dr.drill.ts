@@ -84,7 +84,7 @@ export class DisasterRecoveryDrillRunner {
         : `DR drill failed: RTO passed = ${rtoPassed}, RPO passed = ${rpoPassed}, Tables intact = ${tableIntegrityPassed}`,
     };
 
-    logger.info('Disaster Recovery drill completed', result);
+    logger.info('Disaster Recovery drill completed', result as any);
     return result;
   }
 }

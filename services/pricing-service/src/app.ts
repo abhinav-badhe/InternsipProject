@@ -107,6 +107,18 @@ export function createApp(): express.Application {
     }
   });
 
+  // All active base prices
+  app.get('/api/v1/pricing/prices', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const priceMap = await pricingRepo.getAllActivePrices();
+      const prices = Array.from(priceMap.values());
+      res.json(okResponse(prices, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Single SKU price inquiry
   app.get('/api/v1/pricing/prices/:sku', async (req: Request, res: Response, next: NextFunction) => {
     try {

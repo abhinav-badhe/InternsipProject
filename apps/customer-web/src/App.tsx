@@ -1,19 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { CategoryNav } from './components/CategoryNav';
 import { ProductCard } from './components/ProductCard';
 import { CartDrawer, CartItem } from './components/CartDrawer';
 import { AlternativesModal } from './components/AlternativesModal';
 import { OrderHistoryModal, CustomerOrder } from './components/OrderHistoryModal';
-import { PRODUCTS, Product, ProductVariant } from './data/catalog';
-import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles } from 'lucide-react';
+import { AuthModal } from './components/AuthModal';
+import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
+import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
+import {
+  fetchLiveCategories,
+  fetchLiveProducts,
+  fetchLiveCustomerOrders,
+  executeRealCheckout,
+  getCustomerSession,
+  getStoredCustomerSession,
+  signOutCustomer,
+  AuthSession,
+} from './api/client';
 
 export const App: React.FC = () => {
+  const [viewMode, setViewMode] = useState<'home' | 'browse'>('home');
   const [selectedCategoryId, setSelectedCategoryId] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [browseSearchInput, setBrowseSearchInput] = useState('');
+  const [sortBy, setSortBy] = useState<'relevance' | 'price_asc' | 'price_desc' | 'rating' | 'name_asc'>('relevance');
+  const [inStockOnly, setInStockOnly] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
+  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
+  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
 
   // Alternatives Modal State
   const [isAlternativesOpen, setIsAlternativesOpen] = useState(false);
@@ -21,26 +39,73 @@ export const App: React.FC = () => {
   const [altVariant, setAltVariant] = useState<ProductVariant | null>(null);
 
   // Orders History State
-  const [orders, setOrders] = useState<CustomerOrder[]>([
-    {
-      id: 'ord-initial-mock-1',
-      orderNumber: 'ORD-889814-409',
-      createdAt: new Date().toISOString(),
-      status: 'CONFIRMED',
-      grandTotal: 345.5,
-      channel: 'WHATSAPP',
-      itemsSummary: 'Dettol Original Bar (75g) x 2, Vim Lemon Bar (200g) x 1',
-      invoiceId: 'inv-mock-1',
-    },
-  ]);
-
+  const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Authentication & MFA State
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [userSession, setUserSession] = useState<AuthSession | null>(getStoredCustomerSession());
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
   };
+
+  const handleSignOut = () => {
+    signOutCustomer();
+    setUserSession(null);
+    showToast('Signed out successfully.');
+  };
+
+  // REAL LIVE DATA FETCHING FROM POSTGRESQL ON MOUNT
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Fetch live categories immediately (Public, fast)
+    fetchLiveCategories()
+      .then((liveCats) => {
+        if (isMounted && liveCats.length > 0) {
+          setCategories(liveCats);
+        }
+      })
+      .catch((err) => console.warn('[Storefront] Category fetch notice:', err));
+
+    // 2. Fetch live products immediately (Public, fast)
+    fetchLiveProducts()
+      .then((liveProds) => {
+        if (isMounted && liveProds.length > 0) {
+          setProducts(liveProds);
+          setIsBackendConnected(true);
+          console.log(`[Storefront] Loaded ${liveProds.length} live products from database.`);
+        }
+      })
+      .catch((err) => {
+        console.warn('[Storefront] Falling back to offline catalog snapshot:', err);
+      });
+
+    // 3. User session & orders fetched gracefully in background
+    getCustomerSession()
+      .then((session) => {
+        if (isMounted && session) {
+          setUserSession(session);
+          fetchLiveCustomerOrders()
+            .then((liveOrders) => {
+              if (isMounted && liveOrders.length > 0) {
+                setOrders(liveOrders);
+              }
+            })
+            .catch(() => {});
+        }
+      })
+      .catch((err) => {
+        console.info('[Storefront] Guest browsing active:', err?.message || err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Cart Management
   const handleAddToCart = (variant: ProductVariant, product: Product) => {
@@ -77,63 +142,40 @@ export const App: React.FC = () => {
     showToast('Item removed from cart');
   };
 
-  // Checkout Saga Execution (Scenario 02: Idempotent order creation)
+  // Real Checkout Saga Execution
   const handleCheckout = async (deliverySlot: string, couponCode?: string) => {
+    if (cartItems.length === 0) return;
     setIsCheckingOut(true);
-    const idempotencyKey = `idemp_web_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     try {
-      const subtotal = cartItems.reduce((acc, item) => acc + item.variant.price * item.quantity, 0);
-      const deliveryFee = subtotal >= 499 || couponCode === 'FREESHIP' ? 0 : 40.0;
-      const discount = couponCode === 'SAVE10' && subtotal >= 300 ? Number((subtotal * 0.1).toFixed(2)) : 0;
-      const tax = Number(((subtotal - discount) * 0.12).toFixed(2));
-      const grandTotal = Number((subtotal - discount + deliveryFee + tax).toFixed(2));
+      const checkoutItems = cartItems.map((item) => ({
+        sku: item.variant.sku,
+        quantity: item.quantity,
+      }));
 
-      // Simulate call to API Gateway -> order-service /api/v1/orders/checkout
-      const response = await fetch('/api/v1/orders/checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': 'cust-current-session-user',
-          'x-user-role': 'CUSTOMER',
-        },
-        body: JSON.stringify({
-          idempotencyKey,
-          customerId: 'cust-current-session-user',
-          channel: 'WEB',
-          deliveryAddress: {
-            street: '12th Main Road, HSR Sector 2',
-            city: 'Bengaluru',
-            pincode: '560102',
-            slot: deliverySlot,
-          },
-          items: cartItems.map((item) => ({
-            sku: item.variant.sku,
-            quantity: item.quantity,
-          })),
-          promoCode: couponCode,
-        }),
-      }).catch(() => null);
+      const orderData = await executeRealCheckout({
+        items: checkoutItems,
+        deliverySlot,
+        couponCode,
+      });
 
-      const orderNumber = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      // Record in local state
       const newOrder: CustomerOrder = {
-        id: `ord-${Date.now()}`,
-        orderNumber,
-        createdAt: new Date().toISOString(),
-        status: 'CONFIRMED',
-        grandTotal,
-        channel: 'WEB',
+        id: orderData.orderId,
+        orderNumber: orderData.orderNumber,
+        createdAt: orderData.createdAt || new Date().toISOString(),
+        status: orderData.status,
+        grandTotal: orderData.grandTotal,
+        channel: orderData.channel,
         itemsSummary: cartItems.map((i) => `${i.product.name} x ${i.quantity}`).join(', '),
+        invoiceId: `inv-${orderData.orderId}`,
       };
 
       setOrders((prev) => [newOrder, ...prev]);
       setCartItems([]);
       setIsCartOpen(false);
-      showToast(`Order #${orderNumber} placed! Stock reserved atomically.`);
-    } catch {
-      showToast('Order confirmed and inventory hold reserved.');
+      showToast(`Order #${orderData.orderNumber} successfully placed! Reserved in database.`);
+    } catch (err: any) {
+      showToast(`Checkout Error: ${err.message}`);
     } finally {
       setIsCheckingOut(false);
     }
@@ -146,131 +188,350 @@ export const App: React.FC = () => {
     setIsAlternativesOpen(true);
   };
 
-  // Filter products by Category & Search query
-  const filteredProducts = PRODUCTS.filter((p) => {
-    const matchesCategory = selectedCategoryId === 'ALL' || p.categoryId === selectedCategoryId;
-    const matchesSearch =
-      searchQuery.trim() === '' ||
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // Filter & sort products by Category, Search query, and Stock Status (Live PostgreSQL Data)
+  const filteredProducts = products
+    .filter((p) => {
+      const selectedCat = categories.find((c) => c.id === selectedCategoryId);
+      const matchesCategory =
+        selectedCategoryId === 'ALL' ||
+        p.categoryId === selectedCategoryId ||
+        (selectedCat && p.categoryName && p.categoryName.toLowerCase() === selectedCat.name.toLowerCase());
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        q === '' ||
+        p.name.toLowerCase().includes(q) ||
+        p.brand.toLowerCase().includes(q) ||
+        p.categoryName.toLowerCase().includes(q) ||
+        p.variants.some(
+          (v) =>
+            v.sku.toLowerCase().includes(q) ||
+            v.name.toLowerCase().includes(q) ||
+            v.packSize.toLowerCase().includes(q)
+        );
+
+      const matchesStock = !inStockOnly || p.variants.some((v) => v.availableStock > 0);
+
+      return matchesCategory && matchesSearch && matchesStock;
+    })
+    .sort((a, b) => {
+      const getMinPrice = (prod: Product) => {
+        if (!prod.variants || prod.variants.length === 0) return 0;
+        const prices = prod.variants.map((v) => Number(v.price) || 0).filter((p) => p > 0);
+        return prices.length > 0 ? Math.min(...prices) : 0;
+      };
+
+      if (sortBy === 'price_asc') {
+        return getMinPrice(a) - getMinPrice(b);
+      }
+      if (sortBy === 'price_desc') {
+        return getMinPrice(b) - getMinPrice(a);
+      }
+      if (sortBy === 'rating') {
+        return (b.rating || 0) - (a.rating || 0);
+      }
+      if (sortBy === 'name_asc') {
+        return a.name.localeCompare(b.name);
+      }
+      return 0; // relevance
+    });
+
+  // Category product counts for filter sidebar
+  const categoryCounts = categories.reduce<Record<string, number>>((acc, cat) => {
+    acc[cat.id] = products.filter(
+      (p) =>
+        p.categoryId === cat.id ||
+        (cat.name && p.categoryName && p.categoryName.toLowerCase() === cat.name.toLowerCase())
+    ).length;
+    return acc;
+  }, {});
 
   const cartTotal = cartItems.reduce((acc, item) => acc + item.variant.price * item.quantity, 0);
   const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
 
+  const handleBrowseSearchSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSearchQuery(browseSearchInput);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
-      {/* Header */}
+    <div className="min-h-screen flex flex-col bg-[#fafafb] font-sans">
+      {/* 1. Top Header with Browse Products Button */}
       <Header
         cartCount={cartCount}
         cartTotal={cartTotal}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenOrders={() => setIsOrdersOpen(true)}
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        onSelectCategory={setSelectedCategoryId}
-      />
-
-      {/* Category Navigation Strip */}
-      <CategoryNav
-        selectedCategoryId={selectedCategoryId}
+        onSearchChange={(q) => {
+          setSearchQuery(q);
+          setBrowseSearchInput(q);
+        }}
         onSelectCategory={(id) => {
           setSelectedCategoryId(id);
-          setSearchQuery('');
+          setViewMode('browse');
         }}
+        isBrowseMode={viewMode === 'browse'}
+        onToggleBrowse={(mode) => {
+          if (mode) setViewMode(mode);
+          else setViewMode((prev) => (prev === 'browse' ? 'home' : 'browse'));
+        }}
+        userSession={userSession}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onSignOut={handleSignOut}
       />
 
-      {/* Hero Strip / Value Props */}
-      <div className="bg-white border-b border-slate-200 py-3">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-slate-600">
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>
-                <strong className="text-slate-900">30-Min Delivery</strong> to your doorstep
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>
-                <strong className="text-slate-900">Strict FEFO Rotation</strong> & Fresh Batches
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>
-                <strong className="text-slate-900">Atomic Stock Holds</strong> — zero overselling
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <PhoneCall className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>
-                <strong className="text-slate-900">WhatsApp Sync</strong> — order your way
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* 2. Top Slider Category Strip (Visible on Home view) */}
+      {viewMode === 'home' && (
+        <CategoryNav
+          categories={categories}
+          selectedCategoryId={selectedCategoryId}
+          onSelectCategory={(id) => {
+            setSelectedCategoryId(id);
+            setSearchQuery('');
+            setBrowseSearchInput('');
+          }}
+        />
+      )}
 
-      {/* Main Catalog View */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
-        {/* Results Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-lg font-bold text-slate-900">
-              {searchQuery
-                ? `Results for "${searchQuery}"`
-                : selectedCategoryId === 'ALL'
-                ? 'All Daily Essentials'
-                : PRODUCTS.find((p) => p.categoryId === selectedCategoryId)?.categoryName}
-            </h1>
-            <p className="text-xs text-slate-500">
-              Showing {filteredProducts.length} verified products available in your zone
-            </p>
-          </div>
-        </div>
+      {/* 3. Main Views */}
+      {viewMode === 'browse' ? (
+        /* DEDICATED SEARCH & FILTER BROWSE PAGE MATCHING REFERENCE IMAGE */
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+          {/* Page Title */}
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight mb-4">
+            Search products
+          </h1>
 
-        {/* Product Grid */}
-        {filteredProducts.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-md border border-slate-200">
-            <p className="text-sm font-semibold text-slate-700 mb-1">No products match your criteria</p>
-            <p className="text-xs text-slate-500 mb-4">
-              Try searching for soap, detergent, milk, or whole wheat atta
-            </p>
+          {/* Search Bar matching image */}
+          <form
+            onSubmit={handleBrowseSearchSubmit}
+            className="flex items-center gap-2 max-w-2xl mb-6"
+          >
+            <input
+              type="text"
+              placeholder="Search by title, brand, category, or SKU"
+              value={browseSearchInput}
+              onChange={(e) => {
+                setBrowseSearchInput(e.target.value);
+                setSearchQuery(e.target.value); // Real-time live search filter!
+              }}
+              className="flex-1 px-3.5 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55] transition-all placeholder:text-gray-400 shadow-2xs"
+            />
+            <button
+              type="submit"
+              className="px-5 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white hover:bg-[#006345] transition-colors shadow-2xs cursor-pointer shrink-0"
+            >
+              Search
+            </button>
+          </form>
+
+          {/* Two-Column Responsive Flex Layout (Prevents Overflow & Squeezing) */}
+          <div className="flex flex-col md:flex-row gap-6 items-start">
+            {/* Left Filter Sidebar */}
+            <aside className="w-full md:w-64 lg:w-72 shrink-0 space-y-4">
+              {/* Card 1: Sort by & Stock Filter */}
+              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-900 mb-1.5">
+                    Sort by
+                  </label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="w-full px-2.5 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55] text-gray-800 cursor-pointer font-medium"
+                  >
+                    <option value="relevance">Relevance</option>
+                    <option value="price_asc">Price: Low to High</option>
+                    <option value="price_desc">Price: High to Low</option>
+                    <option value="rating">Rating</option>
+                    <option value="name_asc">Name: A to Z</option>
+                  </select>
+                </div>
+
+                <div className="pt-2.5 border-t border-gray-100">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={inStockOnly}
+                      onChange={(e) => setInStockOnly(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-[#007a55] focus:ring-[#007a55] cursor-pointer"
+                    />
+                    <span className="text-xs text-gray-700 font-medium">In stock only</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Card 2: Categories List */}
+              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs">
+                <h3 className="text-xs font-semibold text-gray-900 mb-2">Categories</h3>
+                <div className="space-y-0.5 text-xs max-h-[460px] overflow-y-auto pr-1">
+                  <button
+                    onClick={() => setSelectedCategoryId('ALL')}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
+                      selectedCategoryId === 'ALL'
+                        ? 'text-[#007a55] font-bold bg-emerald-50'
+                        : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span>All categories</span>
+                    <span className="text-gray-400 font-normal">({products.length})</span>
+                  </button>
+
+                  {categories
+                    .filter((cat) => cat.id.toUpperCase() !== 'ALL' && cat.name.toLowerCase() !== 'all products')
+                    .map((cat) => {
+                      const count = categoryCounts[cat.id] ?? 0;
+                      const isActive = selectedCategoryId === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setSelectedCategoryId(cat.id)}
+                          className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
+                            isActive
+                              ? 'text-[#007a55] font-bold bg-emerald-50'
+                              : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="truncate pr-2 font-medium">{cat.name}</span>
+                          <span className="text-gray-400 font-normal shrink-0">({count})</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            </aside>
+
+            {/* Right Product Grid Area */}
+            <section className="flex-1 min-w-0 w-full">
+              <div className="flex items-center justify-between mb-3 text-xs text-gray-500 font-medium">
+                <span>
+                  Showing {filteredProducts.length} of {products.length} products
+                </span>
+                {(selectedCategoryId !== 'ALL' || searchQuery || inStockOnly || sortBy !== 'relevance') && (
+                  <button
+                    onClick={() => {
+                      setSelectedCategoryId('ALL');
+                      setSearchQuery('');
+                      setBrowseSearchInput('');
+                      setInStockOnly(false);
+                      setSortBy('relevance');
+                    }}
+                    className="text-xs text-[#007a55] font-semibold hover:underline cursor-pointer"
+                  >
+                    Reset all filters
+                  </button>
+                )}
+              </div>
+
+              {filteredProducts.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-xl border border-gray-200 shadow-2xs">
+                  <p className="text-sm font-semibold text-gray-700 mb-1">
+                    No products match your criteria
+                  </p>
+                  <p className="text-xs text-gray-500 mb-4">
+                    Try searching for butter, soap, toothpaste, bread, or salt
+                  </p>
+                  <button
+                    onClick={() => {
+                      setSelectedCategoryId('ALL');
+                      setSearchQuery('');
+                      setBrowseSearchInput('');
+                      setInStockOnly(false);
+                    }}
+                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white shadow-2xs hover:bg-[#006345] transition-colors cursor-pointer"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              ) : (
+                /* 3-Column Product Grid matching reference image */
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredProducts.map((product) => {
+                    const itemInCart = cartItems.find((i) =>
+                      product.variants.some((v) => v.sku === i.variant.sku)
+                    );
+                    const qty = itemInCart ? itemInCart.quantity : 0;
+
+                    return (
+                      <ProductCard
+                        key={product.id}
+                        product={product}
+                        cartQuantity={qty}
+                        onAddToCart={handleAddToCart}
+                        onUpdateQuantity={handleUpdateQuantity}
+                        onOpenAlternatives={handleOpenAlternatives}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        </main>
+      ) : (
+        /* HOME CATALOG VIEW */
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">
+          {/* Results / Available Now Section Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-base font-bold text-gray-900 tracking-tight">
+                {searchQuery ? `Results for "${searchQuery}"` : 'Available now'}
+              </h2>
+            </div>
             <button
               onClick={() => {
-                setSelectedCategoryId('ALL');
-                setSearchQuery('');
+                setViewMode('browse');
               }}
-              className="px-4 py-2 rounded text-xs font-semibold bg-emerald-600 text-white"
+              className="text-xs font-semibold text-[#007a55] hover:text-[#006345] transition-colors flex items-center gap-1 cursor-pointer"
             >
-              Reset Filters
+              <span>Browse & Filter ({filteredProducts.length})</span>
+              <span>&rarr;</span>
             </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
-            {filteredProducts.map((product) => {
-              const itemInCart = cartItems.find((i) =>
-                product.variants.some((v) => v.sku === i.variant.sku)
-              );
-              const qty = itemInCart ? itemInCart.quantity : 0;
 
-              return (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  cartQuantity={qty}
-                  onAddToCart={handleAddToCart}
-                  onUpdateQuantity={handleUpdateQuantity}
-                  onOpenAlternatives={handleOpenAlternatives}
-                />
-              );
-            })}
-          </div>
-        )}
-      </main>
+          {/* 4-Column Product Grid for Home */}
+          {filteredProducts.length === 0 ? (
+            <div className="text-center py-16 bg-white rounded-xl border border-gray-200 shadow-2xs">
+              <p className="text-sm font-semibold text-gray-700 mb-1">
+                No products match your criteria
+              </p>
+              <p className="text-xs text-gray-500 mb-4">
+                Try searching for butter, soap, toothpaste, bread, or salt
+              </p>
+              <button
+                onClick={() => {
+                  setSelectedCategoryId('ALL');
+                  setSearchQuery('');
+                  setBrowseSearchInput('');
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white shadow-2xs hover:bg-[#006345] transition-colors"
+              >
+                Reset Filters
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {filteredProducts.map((product) => {
+                const itemInCart = cartItems.find((i) =>
+                  product.variants.some((v) => v.sku === i.variant.sku)
+                );
+                const qty = itemInCart ? itemInCart.quantity : 0;
+
+                return (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    cartQuantity={qty}
+                    onAddToCart={handleAddToCart}
+                    onUpdateQuantity={handleUpdateQuantity}
+                    onOpenAlternatives={handleOpenAlternatives}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </main>
+      )}
 
       {/* Cart Drawer */}
       <CartDrawer
@@ -297,6 +558,16 @@ export const App: React.FC = () => {
         isOpen={isOrdersOpen}
         onClose={() => setIsOrdersOpen(false)}
         orders={orders}
+      />
+
+      {/* Sign In / Register / MFA Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onSuccess={(session) => {
+          setUserSession(session);
+          showToast(`Welcome back, ${session.user.fullName}!`);
+        }}
       />
 
       {/* Toast Notification */}

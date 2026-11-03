@@ -30,11 +30,17 @@ export interface Category {
 
 export const CATEGORIES: Category[] = [
   { id: 'ALL', name: 'All Products', shortLabel: 'All', slug: 'all', iconName: 'LayoutGrid' },
-  { id: 'BATH_SOAP', name: 'Bathing Soaps & Body Wash', shortLabel: 'Bathing', slug: 'bathing', iconName: 'Sparkles' },
-  { id: 'WASH_SOAP', name: 'Laundry Bars & Detergents', shortLabel: 'Laundry', slug: 'laundry', iconName: 'Shirt' },
-  { id: 'UTENSIL_SOAP', name: 'Dishwash Bars & Liquids', shortLabel: 'Dishwash', slug: 'dishwash', iconName: 'Utensils' },
-  { id: 'DAIRY_BAKERY', name: 'Dairy, Bread & Eggs', shortLabel: 'Dairy', slug: 'dairy', iconName: 'Milk' },
-  { id: 'STAPLES', name: 'Atta, Rice & Grains', shortLabel: 'Staples', slug: 'staples', iconName: 'Wheat' },
+  { id: 'fruits-vegetables', name: 'Fresh Fruits & Vegetables', shortLabel: 'Fruits & Veg', slug: 'fruits-vegetables', iconName: 'Apple' },
+  { id: 'dairy-bread-eggs', name: 'Dairy, Bread & Eggs', shortLabel: 'Dairy & Bread', slug: 'dairy-bread-eggs', iconName: 'Milk' },
+  { id: 'staples-flours-rice', name: 'Staples, Atta, Rice & Dals', shortLabel: 'Staples', slug: 'staples-flours-rice', iconName: 'Wheat' },
+  { id: 'masalas-spices-dryfruits', name: 'Masalas, Spices & Dry Fruits', shortLabel: 'Masalas & Spices', slug: 'masalas-spices-dryfruits', iconName: 'Flame' },
+  { id: 'snacks-biscuits', name: 'Snacks, Biscuits & Munchies', shortLabel: 'Snacks', slug: 'snacks-biscuits', iconName: 'Cookie' },
+  { id: 'beverages-drinks', name: 'Beverages & Soft Drinks', shortLabel: 'Beverages', slug: 'beverages-drinks', iconName: 'Coffee' },
+  { id: 'instant-frozen-foods', name: 'Instant, Canned & Frozen Food', shortLabel: 'Instant Foods', slug: 'instant-frozen-foods', iconName: 'Package' },
+  { id: 'chocolates-sweets-desserts', name: 'Chocolates, Sweets & Spreads', shortLabel: 'Chocolates & Sweets', slug: 'chocolates-sweets-desserts', iconName: 'Heart' },
+  { id: 'personal-care-hygiene', name: 'Personal Care, Soaps & Hygiene', shortLabel: 'Personal Care', slug: 'personal-care-hygiene', iconName: 'Sparkles' },
+  { id: 'cleaning-household', name: 'Cleaning & Household Essentials', shortLabel: 'Household', slug: 'cleaning-household', iconName: 'Shirt' },
+  { id: 'baby-pet-care', name: 'Baby Care & Pet Supplies', shortLabel: 'Baby & Pet', slug: 'baby-pet-care', iconName: 'Smile' },
 ];
 
 export const PRODUCTS: Product[] = [

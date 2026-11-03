@@ -11,11 +11,17 @@ export class Database {
       const connectionString =
         process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/pricing_db';
 
+      const isRemote =
+        connectionString.includes('supabase.co') ||
+        connectionString.includes('supabase.com') ||
+        process.env.DB_SSL === 'true';
+
       this.pool = new Pool({
         connectionString,
+        ssl: isRemote ? { rejectUnauthorized: false } : undefined,
         max: parseInt(process.env.DB_POOL_MAX || '10', 10),
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
       });
 
       this.pool.on('error', (err) => {

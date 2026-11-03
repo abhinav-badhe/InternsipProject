@@ -52,7 +52,7 @@ export function createApp(): express.Application {
   // Registration
   app.post('/api/v1/auth/register', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { fullName, email, phone, password, role } = req.body;
+      const { fullName, email, phone, password, role, enableMfa } = req.body;
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
       if (!fullName || !password || (!email && !phone)) {
@@ -63,7 +63,7 @@ export function createApp(): express.Application {
           );
       }
 
-      const result = await authService.register({ fullName, email, phone, password, role });
+      const result = await authService.register({ fullName, email, phone, password, role, enableMfa });
       res.status(201).json(okResponse(result, correlationId));
     } catch (err: any) {
       if (err.code === '23505') {
@@ -96,6 +96,51 @@ export function createApp(): express.Application {
       }
 
       res.status(200).json(okResponse(result, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // MFA Challenge Verification
+  app.post('/api/v1/auth/mfa/verify', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const ticket = req.body.ticket || req.body.mfaTicket;
+      const otp = req.body.otp || req.body.code || req.body.otpCode;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      if (!ticket || !otp) {
+        return res
+          .status(400)
+          .json(errorResponse('INVALID_PARAM', 'MFA ticket and 6-digit OTP code are required', correlationId));
+      }
+
+      const verified = await authService.verifyMfa(ticket, String(otp));
+      if (!verified) {
+        return res
+          .status(401)
+          .json(errorResponse('INVALID_OTP', 'Invalid, expired, or already used MFA verification code', correlationId));
+      }
+
+      res.status(200).json(okResponse(verified, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // MFA Toggle Endpoint
+  app.post('/api/v1/auth/mfa/toggle', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, enabled } = req.body;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      if (!userId || enabled === undefined) {
+        return res
+          .status(400)
+          .json(errorResponse('INVALID_PARAM', 'userId and enabled boolean are required', correlationId));
+      }
+
+      await authService.toggleMfa(userId, Boolean(enabled));
+      res.status(200).json(okResponse({ userId, mfaEnabled: Boolean(enabled) }, correlationId));
     } catch (err) {
       next(err);
     }

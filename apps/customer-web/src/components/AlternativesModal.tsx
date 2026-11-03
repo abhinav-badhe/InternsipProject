@@ -66,7 +66,7 @@ export const AlternativesModal: React.FC<AlternativesModalProps> = ({
                 className="w-12 h-12 object-cover rounded border border-slate-200 shrink-0"
               />
               <div className="flex-1 min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#007a55] block">
                   {altProd.brand}
                 </span>
                 <h4 className="text-xs font-semibold text-slate-900 line-clamp-1">
@@ -86,7 +86,7 @@ export const AlternativesModal: React.FC<AlternativesModalProps> = ({
                     onSelectAlternative(altProd.variants[0], altProd);
                     onClose();
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#007a55] hover:bg-[#006345] text-white transition-colors cursor-pointer shadow-2xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Choose</span>

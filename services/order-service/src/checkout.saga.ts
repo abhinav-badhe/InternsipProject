@@ -109,11 +109,86 @@ export class CheckoutSagaOrchestrator {
         );
       }
 
+      // Automatically create Pick List and Pick Items for warehouse fulfillment & packaging
+      try {
+        const pickListId = crypto.randomUUID();
+        await client.query(
+          `INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
+           VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
+           ON CONFLICT DO NOTHING`,
+          [pickListId, orderId, orderNumber, req.customerId]
+        );
+
+        for (const item of quote.items) {
+          const itemId = crypto.randomUUID();
+          await client.query(
+            `INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, status)
+             VALUES ($1, $2, $3, $4, $5, 'PENDING')
+             ON CONFLICT DO NOTHING`,
+            [itemId, pickListId, item.sku, item.productName, Math.round(Number(item.quantity) || 1)]
+          );
+        }
+      } catch (plErr: any) {
+        logger.warn('Fulfillment pick list auto-creation skipped', { error: plErr.message });
+      }
+
+      // Automatically generate Tax Invoice for accounting & billing
+      try {
+        const invoiceId = crypto.randomUUID();
+        const invoiceNumber = `INV-${new Date().getUTCFullYear()}-${orderNumber.slice(-6)}`;
+        const customerName = (req.deliveryAddress as any)?.recipientName || 'Verified Customer';
+        const halfTax = Number((quote.taxTotal / 2).toFixed(4));
+
+        await client.query(
+          `INSERT INTO invoices (
+            id, invoice_number, order_id, order_number, customer_id, customer_name,
+            currency, subtotal, discount_total, cgst_total, sgst_total, delivery_fee, grand_total, pdf_storage_key
+          ) VALUES ($1, $2, $3, $4, $5, $6, 'INR', $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT DO NOTHING`,
+          [
+            invoiceId,
+            invoiceNumber,
+            orderId,
+            orderNumber,
+            req.customerId,
+            customerName,
+            quote.subtotal,
+            quote.discountTotal || 0,
+            halfTax,
+            halfTax,
+            quote.deliveryFee || 0,
+            quote.grandTotal,
+            `private/invoices/${invoiceNumber}.pdf`,
+          ]
+        );
+      } catch (invErr: any) {
+        logger.warn('Tax invoice auto-generation skipped', { error: invErr.message });
+      }
+
       // Log saga step
       await client.query(
         `INSERT INTO order_saga_log (order_id, step, status, details)
          VALUES ($1, 'ORDER_CREATED', 'COMPLETED', $2)`,
         [orderId, JSON.stringify({ reservationId, grandTotal: quote.grandTotal })]
+      );
+
+      // Transactional Outbox Pattern: Persist domain event within the same ACID transaction
+      await client.query(
+        `INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload)
+         VALUES ('Order', $1, 'order.created', $2)`,
+        [
+          orderId,
+          JSON.stringify({
+            orderId,
+            orderNumber,
+            customerId: req.customerId,
+            grandTotal: quote.grandTotal,
+            reservationId,
+            channel: req.channel,
+            items: quote.items.map((i) => ({ sku: i.sku, quantity: i.quantity, price: i.unitPrice })),
+            deliveryAddress: req.deliveryAddress,
+          }),
+        ]
       );
 
       await client.query('COMMIT');

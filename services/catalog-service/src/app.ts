@@ -61,6 +61,17 @@ export function createApp(): express.Application {
     }
   });
 
+  // Get All Active Categories
+  app.get('/api/v1/catalog/categories', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const categories = await catalogRepo.getCategories();
+      res.json(okResponse(categories, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Category Disambiguation (Used by WhatsApp Adapter to resolve terms like "soap")
   app.get('/api/v1/catalog/disambiguate', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -119,25 +130,74 @@ export function createApp(): express.Application {
     }
   });
 
-  // Create Product & Variant (Conforms to 001_initial_catalog_schema)
+  // Create Product with Multiple Variants (Supports Store Admin Console)
   app.post('/api/v1/catalog/products', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, categoryId, variant } = req.body;
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
-      if (!name || !categoryId || !variant || !variant.sku || !variant.variantName) {
+      const name = req.body.name || req.body.productName;
+      const categoryId = req.body.categoryId || req.body.primaryCategoryId;
+      const brandName = req.body.brandName;
+
+      // Extract variants array if provided, otherwise fallback to single variant or flat fields
+      let variantsList: any[] = [];
+      if (Array.isArray(req.body.variants) && req.body.variants.length > 0) {
+        variantsList = req.body.variants.map((v: any) => ({
+          sku: v.sku?.toUpperCase()?.trim(),
+          variantName: v.variantName || v.packSize,
+          barcode: v.barcode || null,
+          sellingPrice: v.sellingPrice ?? v.price,
+          mrp: v.mrp ?? (v.sellingPrice ? Math.round(v.sellingPrice * 1.15) : undefined),
+          initialStock: v.initialStock ?? v.stock ?? 50,
+          imageUrls: v.imageUrl ? [v.imageUrl] : v.imageUrls || [],
+          netWeightValue: v.netWeightValue || 1,
+          measurementUnit: v.measurementUnit || 'pack',
+        }));
+      } else {
+        const singleV = req.body.variant || {
+          sku: req.body.sku,
+          variantName: req.body.variantName || req.body.packSize,
+          barcode: req.body.barcode,
+          sellingPrice: req.body.sellingPrice ?? req.body.price,
+          mrp: req.body.mrp,
+          initialStock: req.body.initialStock ?? req.body.stock ?? 50,
+          imageUrls: req.body.imageUrl ? [req.body.imageUrl] : req.body.imageUrls || [],
+          netWeightValue: req.body.netWeightValue || 1,
+          measurementUnit: req.body.measurementUnit || 'pack',
+        };
+        if (singleV.sku && singleV.variantName) {
+          variantsList.push(singleV);
+        }
+      }
+
+      if (!name || !categoryId || variantsList.length === 0) {
         return res
           .status(400)
           .json(
             errorResponse(
               'INVALID_PARAM',
-              'name, categoryId, and variant with sku and variantName are required',
+              'name, categoryId, and at least one variant with sku and variantName are required',
               correlationId
             )
           );
       }
 
-      const result = await catalogRepo.createProductWithVariant(req.body);
+      const result = await catalogRepo.createProductWithVariants({
+        name,
+        categoryId,
+        brandName,
+        description: req.body.description,
+        storageType: req.body.storageType,
+        shelfLifeDays: req.body.shelfLifeDays,
+        isVeg: req.body.isVeg,
+        isPerishable: req.body.isPerishable,
+        tags: req.body.tags,
+        variants: variantsList,
+      });
+
+      // Instantly invalidate in-memory catalog cache so new product is immediately visible
+      CatalogRepository.invalidateCache();
+
       res.status(201).json(okResponse(result, correlationId));
     } catch (err: any) {
       if (err.code === '23505') {
@@ -151,6 +211,47 @@ export function createApp(): express.Application {
               correlationId
             )
           );
+      }
+      next(err);
+    }
+  });
+
+  // Add Variant to Existing Product
+  app.post('/api/v1/catalog/products/:productId/variants', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const productId = req.params.productId as string;
+
+      const sku = req.body.sku?.toUpperCase()?.trim();
+      const variantName = req.body.variantName || req.body.packSize;
+      if (!sku || !variantName) {
+        return res
+          .status(400)
+          .json(errorResponse('INVALID_PARAM', 'sku and variantName are required', correlationId));
+      }
+
+      const variant = await catalogRepo.addVariantToProduct(productId, {
+        sku,
+        variantName,
+        barcode: req.body.barcode,
+        sellingPrice: req.body.sellingPrice ?? req.body.price,
+        mrp: req.body.mrp,
+        initialStock: req.body.initialStock ?? req.body.stock ?? 50,
+        imageUrls: req.body.imageUrl ? [req.body.imageUrl] : req.body.imageUrls || [],
+        netWeightValue: req.body.netWeightValue || 1,
+        measurementUnit: req.body.measurementUnit || 'pack',
+      });
+
+      // Instantly invalidate in-memory catalog cache so new variant is immediately visible
+      CatalogRepository.invalidateCache();
+
+      res.status(201).json(okResponse(variant, correlationId));
+    } catch (err: any) {
+      if (err.code === '23505') {
+        const correlationId = getRequestContext()?.correlationId || 'unknown';
+        return res
+          .status(409)
+          .json(errorResponse('DUPLICATE_KEY', `Variant with this SKU already exists: ${err.detail || err.message}`, correlationId));
       }
       next(err);
     }
