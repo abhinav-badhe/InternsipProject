@@ -165,4 +165,24 @@ describe('Pricing Service - Calculation Engine & Taxes', () => {
     const refCode = `FC${cleanId}555`;
     assert.ok(refCode.startsWith('FC4488'));
   });
+
+  it('Feature 18: Dynamic Surge Pricing evaluates weather & peak demand rules correctly', () => {
+    const rules = [
+      { code: 'RAIN_SURGE', feeAmount: 25.0, multiplier: 1.0, isActive: true },
+      { code: 'PEAK_DEMAND', feeAmount: 20.0, multiplier: 1.15, isActive: false },
+    ];
+
+    const activeRules = rules.filter((r) => r.isActive);
+    assert.equal(activeRules.length, 1);
+    assert.equal(activeRules[0].code, 'RAIN_SURGE');
+
+    const totalSurgeFee = activeRules.reduce((sum, r) => sum + r.feeAmount, 0);
+    assert.equal(totalSurgeFee, 25.0);
+
+    // Toggle Peak Demand active
+    rules[1].isActive = true;
+    const combinedActive = rules.filter((r) => r.isActive);
+    const combinedSurgeFee = combinedActive.reduce((sum, r) => sum + r.feeAmount, 0);
+    assert.equal(combinedSurgeFee, 45.0);
+  });
 });

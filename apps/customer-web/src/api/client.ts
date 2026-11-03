@@ -1011,3 +1011,73 @@ export async function confirmSplitPayment(params: {
   }
   return json.data;
 }
+
+// ====================================================================
+// Feature 18: Dynamic / Surge Pricing Engine
+// ====================================================================
+
+export interface SurgePricingStatus {
+  isSurgeActive: boolean;
+  totalSurgeFee: number;
+  multiplier: number;
+  reasons: string[];
+  activeRules: Array<{
+    code: string;
+    name: string;
+    surgeType: string;
+    feeAmount: number;
+    multiplier: number;
+    description: string;
+  }>;
+}
+
+export async function fetchSurgePricingStatus(): Promise<SurgePricingStatus> {
+  try {
+    const res = await fetch('/api/v1/pricing/surge/status');
+    const json = await res.json();
+    if (json.success && json.data) {
+      return json.data;
+    }
+  } catch {}
+  return {
+    isSurgeActive: false,
+    totalSurgeFee: 0,
+    multiplier: 1.0,
+    reasons: [],
+    activeRules: [],
+  };
+}
+
+export async function toggleSurgeRule(code: string, isActive: boolean): Promise<void> {
+  await fetch('/api/v1/pricing/surge/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, isActive }),
+  });
+}
+
+// ====================================================================
+// Feature 19: AI-Powered Product Recommendations
+// ====================================================================
+
+export interface ProductRecommendation {
+  product: Product;
+  recommendedVariant: ProductVariant;
+  affinityReason: string;
+  affinityScore: number;
+}
+
+export async function fetchProductRecommendations(
+  cartSkus: string[]
+): Promise<ProductRecommendation[]> {
+  try {
+    const skuParam = cartSkus.filter(Boolean).join(',');
+    const url = `/api/v1/catalog/recommendations${skuParam ? `?cartSkus=${encodeURIComponent(skuParam)}` : ''}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json.success && json.data?.recommendations) {
+      return json.data.recommendations;
+    }
+  } catch {}
+  return [];
+}

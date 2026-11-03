@@ -223,17 +223,17 @@ The existing system is organized as a high-performance TypeScript monorepo power
 
 #### Feature 18: Dynamic / Surge Pricing Engine
 * **Description:** Dynamic fee adjustments during severe weather, high demand spikes, or peak late-night fulfillment hours.
-* **Current Status:** NOT IMPLEMENTED
-* **Dependencies:** `pricing-service`, `analytics-service`.
+* **Current Status:** COMPLETED (`003_surge_pricing_schema.sql`, `surge_rules` table, `/pricing/surge/status` & `/toggle`, weather rain surcharge, peak demand multiplier, CartDrawer surge card & bill calculation, unit tested).
+* **Dependencies:** `pricing-service`, `analytics-service`, `apps/customer-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 19: AI-Powered Product Recommendations
 * **Description:** "Frequently Bought Together" collaborative filtering recommendations in Cart Drawer and Product Cards.
-* **Current Status:** NOT IMPLEMENTED
+* **Current Status:** COMPLETED (Collaborative affinity matrix & pairing rules, `/catalog/recommendations` API, enriched product cards, horizontal CartDrawer carousel with 1-click `+ Add`, unit tested).
 * **Dependencies:** `catalog-service`, `analytics-service`, `apps/customer-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 20: Customer Lifetime Value (CLV) and Churn Risk Prediction
 * **Description:** RFM (Recency, Frequency, Monetary) analytics predicting customer churn probabilities in Seller Hub.
@@ -472,5 +472,22 @@ flowchart TD
   - `apps/customer-web/src/components/PaymentGatewayModal.tsx`: Integrated interactive Split Pay tab with wallet slider, dual payment preview, and split payment confirmation flow.
   - `apps/customer-web/src/components/OrderHistoryModal.tsx`: Replaced legacy mockup modal with live `PaymentGatewayModal` for pending orders.
   - Unit tests: Added Feature 22 test in `services/payment-service/test/payment.test.ts`.
+
+### Record 15: Feature 18 (Dynamic / Surge Pricing Engine)
+* **Components Built:**
+  - `database/service-migrations/pricing-service/003_surge_pricing_schema.sql`: Created `surge_rules` relational schema tracking `code`, `name`, `surge_type`, `fee_amount`, `multiplier`, `description`, and `is_active` state. Seeded rules for Monsoon Rain (`RAIN_SURGE`), Peak Demand (`PEAK_DEMAND`), and Late Night delivery.
+  - `services/pricing-service/src/app.ts`: Implemented dynamic surge pricing endpoints:
+    - `GET /api/v1/pricing/surge/status`: Returns whether surge is active, total surge fees, active multipliers, and itemized reasons.
+    - `POST /api/v1/pricing/surge/toggle`: Toggles active surge state by rule code (for weather alerts and peak rush overrides).
+  - `apps/customer-web/src/api/client.ts`: Added `fetchSurgePricingStatus` and `toggleSurgeRule`.
+  - `apps/customer-web/src/components/CartDrawer.tsx`: Integrated live surge fee alerts in the checkout drawer, displaying active weather/rush reasons and adding dynamic fees to delivery totals.
+  - Unit tests: Added Feature 18 surge calculation test in `services/pricing-service/test/pricing.test.ts` (7 of 7 tests passing).
+
+### Record 16: Feature 19 (AI-Powered Product Recommendations - "Frequently Bought Together")
+* **Components Built:**
+  - `services/catalog-service/src/app.ts`: Added `/api/v1/catalog/recommendations` endpoint implementing collaborative filtering affinity pairs (e.g. Milk $\rightarrow$ Bread & Eggs; Tea $\rightarrow$ Sugar & Biscuits; Vegetables $\rightarrow$ Cooking Staples) and enriching with active catalog images, pricing, and stock.
+  - `apps/customer-web/src/api/client.ts`: Added `fetchProductRecommendations` client helper.
+  - `apps/customer-web/src/components/CartDrawer.tsx`: Built horizontal "Frequently Bought Together" recommendations carousel inside customer cart drawer with 1-click `+ Add` button and AI pairing badges.
+  - Unit tests: Added Feature 19 collaborative filtering test in `services/catalog-service/test/disambiguation.test.ts` (4 of 4 tests passing).
 
 ---

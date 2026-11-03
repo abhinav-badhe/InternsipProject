@@ -91,6 +91,27 @@ export function createApp(): express.Application {
         );
         CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON customer_referrals(referrer_customer_id);
         CREATE INDEX IF NOT EXISTS idx_referrals_code ON customer_referrals(referral_code);
+
+        CREATE TABLE IF NOT EXISTS surge_rules (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          code VARCHAR(64) NOT NULL UNIQUE,
+          name VARCHAR(128) NOT NULL,
+          surge_type VARCHAR(32) NOT NULL,
+          fee_amount NUMERIC(10, 2) NOT NULL DEFAULT 20.00,
+          multiplier NUMERIC(4, 2) NOT NULL DEFAULT 1.00,
+          description TEXT,
+          is_active BOOLEAN NOT NULL DEFAULT FALSE,
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_surge_rules_active ON surge_rules(is_active);
+
+        INSERT INTO surge_rules (code, name, surge_type, fee_amount, multiplier, description, is_active)
+        VALUES
+          ('RAIN_SURGE', 'Monsoon / Heavy Rain Surcharge', 'WEATHER', 25.00, 1.00, 'Rain fee passed 100% to delivery riders braving adverse weather.', FALSE),
+          ('PEAK_DEMAND', 'Peak Evening Order Rush', 'HIGH_DEMAND', 20.00, 1.15, 'High fulfillment demand surge to balance dark store picking capacity.', FALSE),
+          ('LATE_NIGHT', 'Midnight Delivery Surcharge', 'LATE_NIGHT', 30.00, 1.00, 'Late night rider safety and operational shift surcharge.', FALSE)
+        ON CONFLICT (code) DO NOTHING;
       `);
     } catch (err: any) {
       logger.warn('Coupons and referrals bootstrap notice', { message: err.message });
@@ -322,6 +343,91 @@ export function createApp(): express.Application {
             referralCode: codeClean,
             rewardAmount: 100.0,
             message: '🎉 Referral code applied! ₹100 welcome reward unlocked for your account.',
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // =========================================================
+  // Feature 18: Dynamic / Surge Pricing Engine APIs
+  // =========================================================
+
+  // Live Surge Status (Weather, Peak Demand, Late Night)
+  app.get('/api/v1/pricing/surge/status', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const activeRes = await Database.query(
+        `SELECT code, name, surge_type, fee_amount, multiplier, description, is_active
+         FROM surge_rules
+         ORDER BY fee_amount DESC`
+      );
+
+      const allRules = activeRes.rows.map((r) => ({
+        code: r.code,
+        name: r.name,
+        surgeType: r.surge_type,
+        feeAmount: parseFloat(r.fee_amount),
+        multiplier: parseFloat(r.multiplier),
+        description: r.description,
+        isActive: Boolean(r.is_active),
+      }));
+
+      const activeRules = allRules.filter((r) => r.isActive);
+      const isSurgeActive = activeRules.length > 0;
+      const totalSurgeFee = activeRules.reduce((sum, r) => sum + r.feeAmount, 0);
+      const maxMultiplier = activeRules.reduce((max, r) => Math.max(max, r.multiplier), 1.0);
+      const reasons = activeRules.map((r) => r.name);
+
+      res.status(200).json(
+        okResponse(
+          {
+            isSurgeActive,
+            totalSurgeFee,
+            multiplier: maxMultiplier,
+            reasons,
+            activeRules,
+            allRules,
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Toggle or Override Surge Rule (Staff / Operations / Weather Simulation)
+  app.post('/api/v1/pricing/surge/toggle', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { code, isActive } = req.body;
+
+      if (!code || typeof isActive !== 'boolean') {
+        return res
+          .status(400)
+          .json(errorResponse('INVALID_PARAM', 'code and boolean isActive are required', correlationId));
+      }
+
+      await Database.query(
+        `UPDATE surge_rules
+         SET is_active = $1, updated_at = NOW()
+         WHERE UPPER(code) = UPPER($2)`,
+        [isActive, code]
+      );
+
+      logger.info('Surge rule updated', { code, isActive });
+
+      res.status(200).json(
+        okResponse(
+          {
+            success: true,
+            code,
+            isActive,
+            message: `Surge rule ${code} is now ${isActive ? 'ACTIVE' : 'INACTIVE'}`,
           },
           correlationId
         )

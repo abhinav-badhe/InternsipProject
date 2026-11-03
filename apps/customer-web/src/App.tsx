@@ -589,6 +589,7 @@ export const App: React.FC = () => {
         onRemoveItem={handleRemoveItem}
         onCheckout={handleCheckout}
         isCheckingOut={isCheckingOut}
+        onAddToCart={handleAddToCart}
       />
 
       {/* Out-of-Stock Alternatives Modal */}

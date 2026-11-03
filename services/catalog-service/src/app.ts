@@ -130,6 +130,87 @@ export function createApp(): express.Application {
     }
   });
 
+  // =========================================================
+  // Feature 19: AI-Powered Product Recommendations
+  // ("Frequently Bought Together" & Collaborative Affinity)
+  // =========================================================
+  app.get('/api/v1/catalog/recommendations', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const cartSkusParam = (req.query.cartSkus as string) || '';
+      const inputSkus = cartSkusParam
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      const AFFINITY_PAIRS: Record<string, { complementarySkus: string[]; reason: string }> = {
+        'AMUL-TAAZA-1L': { complementarySkus: ['BRD-WHT-400G', 'EGG-WHT-6PK', 'AMUL-BTR-100G'], reason: 'Frequently bought with Fresh Milk' },
+        'BRD-WHT-400G': { complementarySkus: ['AMUL-BTR-100G', 'AMUL-TAAZA-1L', 'EGG-WHT-6PK'], reason: 'Breakfast Morning Combo' },
+        'EGG-WHT-6PK': { complementarySkus: ['BRD-WHT-400G', 'AMUL-BTR-100G'], reason: 'High Protein Essentials' },
+        'TATA-TEA-500G': { complementarySkus: ['SUG-M-1KG', 'AMUL-TAAZA-1L'], reason: 'Chai Time Pairing' },
+        'MAGGI-NOODLE-4PK': { complementarySkus: ['AMUL-CHZ-200G', 'EGG-WHT-6PK'], reason: 'Quick Bites Pair' },
+        'ONION-RED-1KG': { complementarySkus: ['TOMATO-HYB-1KG', 'POTATO-1KG'], reason: 'Daily Fresh Sabzi' },
+        'TOMATO-HYB-1KG': { complementarySkus: ['ONION-RED-1KG', 'POTATO-1KG'], reason: 'Cooking Staples' },
+      };
+
+      const matchedAffinitySkus: Array<{ sku: string; reason: string; score: number }> = [];
+      const seenSkus = new Set<string>(inputSkus);
+
+      for (const sku of inputSkus) {
+        const pair = AFFINITY_PAIRS[sku];
+        if (pair) {
+          for (const cSku of pair.complementarySkus) {
+            if (!seenSkus.has(cSku)) {
+              seenSkus.add(cSku);
+              matchedAffinitySkus.push({ sku: cSku, reason: pair.reason, score: 0.95 });
+            }
+          }
+        }
+      }
+
+      // Fetch active catalog products to enrich recommendations
+      const catalogResult = await catalogRepo.searchProducts({ limit: 50 });
+      const enrichedRecommendations: any[] = [];
+
+      // 1. Add matched affinity items
+      for (const rec of matchedAffinitySkus) {
+        for (const prod of catalogResult.items) {
+          const matchedVariant = prod.variants.find((v) => v.sku.toUpperCase() === rec.sku);
+          if (matchedVariant) {
+            enrichedRecommendations.push({
+              product: prod,
+              recommendedVariant: matchedVariant,
+              affinityReason: rec.reason,
+              affinityScore: rec.score,
+            });
+            break;
+          }
+        }
+      }
+
+      // 2. If fewer than 4 recommendations, top up with popular staples
+      if (enrichedRecommendations.length < 4) {
+        for (const prod of catalogResult.items) {
+          if (enrichedRecommendations.length >= 6) break;
+          const activeVariant = prod.variants.find((v) => !seenSkus.has(v.sku.toUpperCase()) && v.price > 0);
+          if (activeVariant) {
+            seenSkus.add(activeVariant.sku.toUpperCase());
+            enrichedRecommendations.push({
+              product: prod,
+              recommendedVariant: activeVariant,
+              affinityReason: 'Popular staple in your area',
+              affinityScore: 0.85,
+            });
+          }
+        }
+      }
+
+      res.json(okResponse({ recommendations: enrichedRecommendations }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Create Product with Multiple Variants (Supports Store Admin Console)
   app.post('/api/v1/catalog/products', async (req: Request, res: Response, next: NextFunction) => {
     try {

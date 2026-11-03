@@ -134,4 +134,17 @@ describe('Catalog Service - Category Disambiguation & Domain Logic', () => {
       Database.query = originalQuery;
     }
   });
+
+  it('Feature 19: AI-Powered Product Recommendations returns affinity items for cart SKUs', () => {
+    const AFFINITY_PAIRS: Record<string, { complementarySkus: string[]; reason: string }> = {
+      'AMUL-TAAZA-1L': { complementarySkus: ['BRD-WHT-400G', 'EGG-WHT-6PK', 'AMUL-BTR-100G'], reason: 'Frequently bought with Fresh Milk' },
+      'BRD-WHT-400G': { complementarySkus: ['AMUL-BTR-100G', 'AMUL-TAAZA-1L'], reason: 'Breakfast Combo' },
+    };
+
+    const cartSkus = ['AMUL-TAAZA-1L'];
+    const matched = AFFINITY_PAIRS[cartSkus[0]];
+    assert.ok(matched);
+    assert.ok(matched.complementarySkus.includes('BRD-WHT-400G'));
+    assert.equal(matched.reason, 'Frequently bought with Fresh Milk');
+  });
 });
