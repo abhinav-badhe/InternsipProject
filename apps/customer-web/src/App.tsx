@@ -7,6 +7,8 @@ import { AlternativesModal } from './components/AlternativesModal';
 import { OrderHistoryModal, CustomerOrder } from './components/OrderHistoryModal';
 import { AuthModal } from './components/AuthModal';
 import { WalletModal } from './components/WalletModal';
+import { ReferralModal } from './components/ReferralModal';
+import { SubscriptionModal } from './components/SubscriptionModal';
 import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
 import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
 import {
@@ -48,6 +50,12 @@ export const App: React.FC = () => {
   // Feature 15: FreshCart Wallet & Cashback Modal State
   const [isWalletOpen, setIsWalletOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(100);
+
+  // Feature 17: Referral Program Modal State
+  const [isReferralOpen, setIsReferralOpen] = useState(false);
+
+  // Feature 16: Daily Subscriptions Modal State
+  const [isSubscriptionsOpen, setIsSubscriptionsOpen] = useState(false);
 
   // Authentication & MFA State
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -306,6 +314,8 @@ export const App: React.FC = () => {
         onSignOut={handleSignOut}
         walletBalance={walletBalance}
         onOpenWallet={() => setIsWalletOpen(true)}
+        onOpenReferral={() => setIsReferralOpen(true)}
+        onOpenSubscriptions={() => setIsSubscriptionsOpen(true)}
       />
 
       {/* 2. Top Slider Category Strip (Visible on Home view) */}
@@ -603,6 +613,25 @@ export const App: React.FC = () => {
         isOpen={isWalletOpen}
         onClose={() => setIsWalletOpen(false)}
         onBalanceUpdated={(newBal) => setWalletBalance(newBal)}
+      />
+
+      {/* Feature 17: FreshCart Refer & Earn Modal */}
+      <ReferralModal
+        isOpen={isReferralOpen}
+        onClose={() => setIsReferralOpen(false)}
+        onRewardClaimed={() => {
+          fetchCustomerWallet().then((w) => setWalletBalance(w.balance)).catch(() => {});
+          showToast('🎉 ₹100 Welcome Gift credited to your wallet!');
+        }}
+      />
+
+      {/* Feature 16: Daily Essentials & Milk Subscription Modal */}
+      <SubscriptionModal
+        isOpen={isSubscriptionsOpen}
+        onClose={() => setIsSubscriptionsOpen(false)}
+        onSubscriptionChanged={() => {
+          showToast('Updated your morning recurring subscription.');
+        }}
       />
 
       {/* Toast Notification */}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet } from 'lucide-react';
+import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk } from 'lucide-react';
 import { AuthSession } from '../api/client';
 
 interface HeaderProps {
@@ -17,6 +17,8 @@ interface HeaderProps {
   onSignOut: () => void;
   walletBalance?: number;
   onOpenWallet?: () => void;
+  onOpenReferral?: () => void;
+  onOpenSubscriptions?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,6 +36,8 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut,
   walletBalance,
   onOpenWallet,
+  onOpenReferral,
+  onOpenSubscriptions,
 }) => {
   const [showDisambiguation, setShowDisambiguation] = useState(false);
   const isSoapSearch = searchQuery.toLowerCase().trim() === 'soap';
@@ -197,6 +201,26 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Wallet className="w-3.5 h-3.5 text-emerald-700" />
             <span>₹{(walletBalance || 0).toFixed(0)}</span>
+          </button>
+
+          {/* Feature 16: Daily Subscriptions */}
+          <button
+            onClick={onOpenSubscriptions}
+            className="hidden lg:flex items-center gap-1.5 text-xs text-indigo-900 hover:text-indigo-950 font-bold px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 transition-colors cursor-pointer shadow-2xs"
+            title="Daily Milk & Essentials Subscriptions"
+          >
+            <Milk className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Subscriptions</span>
+          </button>
+
+          {/* Feature 17: Refer & Earn Program */}
+          <button
+            onClick={onOpenReferral}
+            className="hidden md:flex items-center gap-1.5 text-xs text-amber-900 hover:text-amber-950 font-bold px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer shadow-2xs"
+            title="Invite Friends & Get ₹100"
+          >
+            <Gift className="w-3.5 h-3.5 text-amber-600" />
+            <span>Refer & Earn</span>
           </button>
 
           {/* User Account / Sign In */}

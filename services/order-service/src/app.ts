@@ -192,6 +192,168 @@ export function createApp(deps?: {
     );
   });
 
+  // Feature 16: Recurring Subscription Deliveries (Milk & Daily Essentials)
+  const initSubscriptionTables = async () => {
+    try {
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS customer_subscriptions (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          subscription_number VARCHAR(32) NOT NULL UNIQUE,
+          customer_id VARCHAR(64) NOT NULL,
+          sku VARCHAR(64) NOT NULL,
+          product_name VARCHAR(255) NOT NULL,
+          variant_name VARCHAR(128) NOT NULL,
+          quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+          unit_price NUMERIC(10, 2) NOT NULL,
+          discount_percent NUMERIC(5, 2) NOT NULL DEFAULT 10.00,
+          frequency VARCHAR(32) NOT NULL DEFAULT 'DAILY',
+          delivery_slot VARCHAR(64) NOT NULL DEFAULT '07:00 AM - 09:00 AM',
+          status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+          start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          next_delivery_date DATE NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '1 day'),
+          delivery_address JSONB NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_subs_cust_id ON customer_subscriptions(customer_id);
+      `);
+    } catch (err: any) {
+      logger.warn('Subscription table bootstrap notice', { message: err.message });
+    }
+  };
+  initSubscriptionTables().catch(() => {});
+
+  // List customer subscriptions
+  app.get('/api/v1/orders/subscriptions', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const customerId =
+        (req.headers['x-user-id'] as string) ||
+        (req.query.customerId as string) ||
+        'cust_demo';
+
+      const resDb = await Database.query(
+        `SELECT id, subscription_number, customer_id, sku, product_name, variant_name,
+                quantity, unit_price, discount_percent, frequency, delivery_slot, status,
+                start_date, next_delivery_date, delivery_address, created_at
+         FROM customer_subscriptions
+         WHERE customer_id = $1
+         ORDER BY created_at DESC`,
+        [customerId]
+      );
+
+      res.status(200).json(okResponse(resDb.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Create new subscription
+  app.post('/api/v1/orders/subscriptions', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const customerId =
+        (req.headers['x-user-id'] as string) ||
+        req.body?.customerId ||
+        'cust_demo';
+
+      const { sku, productName, variantName, quantity, unitPrice, frequency, deliveryAddress } = req.body;
+
+      if (!sku || !productName) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'sku and productName are required', correlationId));
+      }
+
+      const subNum = `SUB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+      const qty = parseInt(quantity || 1, 10);
+      const price = parseFloat(unitPrice || 50.0);
+      const freq = frequency || 'DAILY';
+      const slot = req.body?.deliverySlot || '07:00 AM - 09:00 AM';
+
+      const inserted = await Database.query(
+        `INSERT INTO customer_subscriptions (
+           subscription_number, customer_id, sku, product_name, variant_name,
+           quantity, unit_price, discount_percent, frequency, delivery_slot,
+           status, start_date, next_delivery_date, delivery_address
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 10.00, $8, $9, 'ACTIVE', CURRENT_DATE, CURRENT_DATE + INTERVAL '1 day', $10)
+         RETURNING *`,
+        [
+          subNum,
+          customerId,
+          sku,
+          productName,
+          variantName || 'Standard',
+          qty,
+          price,
+          freq,
+          slot,
+          JSON.stringify(deliveryAddress || { recipientName: 'Valued Customer', city: 'Bengaluru' }),
+        ]
+      );
+
+      res.status(201).json(okResponse(inserted.rows[0], correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Pause subscription
+  app.post('/api/v1/orders/subscriptions/:id/pause', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { id } = req.params;
+
+      await Database.query(
+        `UPDATE customer_subscriptions
+         SET status = 'PAUSED', updated_at = NOW()
+         WHERE id = $1 OR subscription_number = $1`,
+        [id]
+      );
+
+      res.status(200).json(okResponse({ success: true, status: 'PAUSED' }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Resume subscription
+  app.post('/api/v1/orders/subscriptions/:id/resume', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { id } = req.params;
+
+      await Database.query(
+        `UPDATE customer_subscriptions
+         SET status = 'ACTIVE', next_delivery_date = CURRENT_DATE + INTERVAL '1 day', updated_at = NOW()
+         WHERE id = $1 OR subscription_number = $1`,
+        [id]
+      );
+
+      res.status(200).json(okResponse({ success: true, status: 'ACTIVE' }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Cancel subscription
+  app.delete('/api/v1/orders/subscriptions/:id', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { id } = req.params;
+
+      await Database.query(
+        `UPDATE customer_subscriptions
+         SET status = 'CANCELLED', updated_at = NOW()
+         WHERE id = $1 OR subscription_number = $1`,
+        [id]
+      );
+
+      res.status(200).json(okResponse({ success: true, status: 'CANCELLED' }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Checkout Saga Execution (Used by Storefront, REST callers, and WhatsApp)
   app.post(['/api/v1/orders/checkout', '/api/v1/orders'], async (req: Request, res: Response, next: NextFunction) => {
     try {

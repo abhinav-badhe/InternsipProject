@@ -376,4 +376,59 @@ describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () =
       Database.query = originalQuery;
     }
   });
+
+  it('Feature 5: Multilingual WhatsApp Support (Hindi, Hinglish, English)', async () => {
+    const { I18nManager } = await import('../src/i18n.js');
+
+    // 1. Language detection tests
+    assert.equal(I18nManager.detectLanguage('नमस्ते, मुझे दूध चाहिए'), 'hi');
+    assert.equal(I18nManager.detectLanguage('Bhai 2 packet doodh bhejo namaste'), 'hi-Latn');
+    assert.equal(I18nManager.detectLanguage('Please send 2 bread loaves'), 'en');
+
+    // 2. Localized string bundles
+    const hiStrings = I18nManager.getStrings('hi');
+    assert.ok(hiStrings.greeting.includes('फ्रेशकार्ट ग्रोसरी में आपका स्वागत है'));
+
+    const hinglishStrings = I18nManager.getStrings('hi-Latn');
+    assert.ok(hinglishStrings.greeting.includes('FreshCart me aapka swagat hai'));
+
+    // 3. Bot language command processing
+    const originalQuery = Database.query;
+    Database.query = async () => ({ rows: [] } as any);
+
+    try {
+      const mockCatalog = {
+        disambiguate: async () => ({ isAmbiguous: false, query: 'test', matchingCategories: [] }),
+        searchProducts: async () => ({ items: [] }),
+        getSimilarAlternatives: async () => null,
+      };
+      const mockPricing = { calculateQuote: async () => ({} as any) };
+      const mockOrder = { checkout: async () => ({} as any) };
+
+      const bot = new WhatsAppBot(mockCatalog, mockPricing, mockOrder);
+
+      // Trigger language menu
+      const menuReply = await bot.handleInboundMessage({
+        messageId: `wamid.lang_${Date.now()}`,
+        fromPhoneNumber: '+919876543210',
+        text: 'language',
+        timestamp: '1698480000',
+      });
+
+      assert.ok(menuReply !== null);
+      assert.ok(menuReply.bodyText.includes('Select Your Preferred Language'));
+
+      // Switch to Hindi
+      const hiReply = await bot.handleInboundMessage({
+        messageId: `wamid.lang_hi_${Date.now()}`,
+        fromPhoneNumber: '+919876543210',
+        text: 'hindi',
+        timestamp: '1698480000',
+      });
+      assert.ok(hiReply !== null);
+      assert.ok(hiReply.bodyText.includes('भाषा बदलकर हिंदी कर दी गई है'));
+    } finally {
+      Database.query = originalQuery;
+    }
+  });
 });

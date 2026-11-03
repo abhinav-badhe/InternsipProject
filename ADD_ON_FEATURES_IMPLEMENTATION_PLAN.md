@@ -79,7 +79,7 @@ The existing system is organized as a high-performance TypeScript monorepo power
 * **Feasibility:** High. Meta Cloud API delivers image payloads; OCR extracts text.
 * **Dependencies:** `whatsapp-adapter`, Meta Cloud API image handler, catalog fuzzy matcher.
 * **Priority:** Priority 2 (Customer Experience).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 3: WhatsApp Live Location Sharing
 * **Description:** Customer shares a WhatsApp location drop pin; backend resolves coordinates, determines delivery dark store zone, and updates delivery address.
@@ -96,11 +96,11 @@ The existing system is organized as a high-performance TypeScript monorepo power
 * **Completion Status:** NOT STARTED
 
 #### Feature 5: Multilingual WhatsApp Support
-* **Description:** Supports Hindi and regional language prompt flows, buttons, and invoice summaries based on customer selection.
-* **Current Status:** NOT IMPLEMENTED
+* **Description:** Supports Hindi, Hinglish, and English prompt flows, buttons, and order summaries with automatic language detection and customer preference storage.
+* **Current Status:** COMPLETED (`I18nManager` with English, Hindi, and Hinglish bundles, automatic Devanagari & colloquial keyword detection, interactive language switch buttons, unit tested).
 * **Dependencies:** `whatsapp-adapter`.
 * **Priority:** Priority 2 (Customer Experience).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 ---
 
@@ -183,7 +183,7 @@ The existing system is organized as a high-performance TypeScript monorepo power
 * **Current Status:** COMPLETED (Dynamic live slot generation endpoint `/delivery-slots`, rush priority surcharge, interactive segmented tabbed selector in customer Cart Drawer).
 * **Dependencies:** `order-service`, `apps/customer-web`.
 * **Priority:** Priority 2 (Customer Experience).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 14: Product Reviews, Ratings, and Recipe Bundles
 * **Description:** Verified customer star ratings and "Shop by Recipe" bundles (e.g. Dal Tadka, Pasta) adding all ingredients in 1 click.
@@ -201,21 +201,21 @@ The existing system is organized as a high-performance TypeScript monorepo power
 * **Current Status:** COMPLETED (`customer_wallets` & `wallet_transactions` tables, `/payments/wallet` balance & passbook history, topup, 1-tap order payment deduction, 5% cashback rewards, Customer Web Wallet Modal & Cart Drawer integration).
 * **Dependencies:** `payment-service`, `identity-service`, `apps/customer-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 16: Subscription Deliveries
 * **Description:** Automated recurring deliveries for daily pantry essentials (Milk, Bread, Fresh Eggs) on user-selected days.
-* **Current Status:** NOT IMPLEMENTED
+* **Current Status:** COMPLETED (`003_customer_subscriptions_schema.sql`, `customer_subscriptions` table, `/orders/subscriptions` CRUD & pause/resume endpoints, `SubscriptionModal.tsx` in customer web).
 * **Dependencies:** `order-service`, `inventory-service`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 17: Referral System and Coupon Engine
 * **Description:** Dynamic promo discount engine (percentage, flat off, cart minimums) and referral invite links.
-* **Current Status:** PARTIALLY IMPLEMENTED (`promoCode` parameter in checkout payload; engine pending).
+* **Current Status:** COMPLETED (`002_referrals_and_coupons_schema.sql`, seed high-value coupons `WELCOME50`, `SAVE10`, `FREESHIP`, `FLAT100`, `FRESH20`, `/pricing/coupons` & `/validate`, `/pricing/referrals/my-code` & claim, `ReferralModal.tsx` & Cart Drawer chips).
 * **Dependencies:** `pricing-service`, `order-service`, `apps/customer-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 ---
 
@@ -422,5 +422,36 @@ flowchart TD
   - `apps/customer-web/src/components/Header.tsx`: Wallet balance pill button in customer header with 1-click modal open.
   - `apps/customer-web/src/components/CartDrawer.tsx`: Embedded "Pay with FreshCart Wallet" toggle card with instant subtotal deduction.
   - Unit tests: Added Feature 15 test in `services/payment-service/test/payment.test.ts` (4 of 4 passing).
+
+### Record 10: Feature 17 (Referral System and Coupon Engine)
+* **Components Built:**
+  - `database/service-migrations/pricing-service/002_referrals_and_coupons_schema.sql`: Schema definition and seed data for promo coupons (`WELCOME50`, `SAVE10`, `FREESHIP`, `FLAT100`, `FRESH20`) and customer referrals ledger (`customer_referrals`).
+  - `services/pricing-service/src/app.ts`: Implemented dynamic coupon query and validation engine:
+    - `GET /api/v1/pricing/coupons`: Retrieves active promotional coupons and discount rules.
+    - `POST /api/v1/pricing/coupons/validate`: Real-time order validation calculating percentage, fixed amount, and free shipping discounts against order minimums.
+    - `GET /api/v1/pricing/referrals/my-code`: Generates unique customer referral code (`FC<ID><RANDOM>`) and tracks reward statistics.
+    - `POST /api/v1/pricing/referrals/claim`: Claims referral codes on signup/checkout unlocking ₹100 customer bonus.
+  - `apps/customer-web/src/components/ReferralModal.tsx`: Built "Give ₹100, Get ₹100" modal with WhatsApp share deep-link, 1-click code copying, and referral claim input.
+  - `apps/customer-web/src/components/CartDrawer.tsx`: Integrated dynamic coupon pills with 1-click apply, validation alerts, and instant bill discount deduction.
+  - `apps/customer-web/src/components/Header.tsx`: Added "🎁 Refer & Earn" navigation pill.
+  - Unit tests: Added Feature 17 test in `services/pricing-service/test/pricing.test.ts` (6 of 6 tests passing).
+
+### Record 11: Feature 5 (Multilingual WhatsApp Support - Hindi, Hinglish, English)
+* **Components Built:**
+  - `services/whatsapp-adapter/src/i18n.ts`: `I18nManager` providing comprehensive multilingual string dictionaries (`en`, `hi` Devanagari, and `hi-Latn` Hinglish).
+  - `services/whatsapp-adapter/src/whatsapp.bot.ts`: Integrated automatic language detection using Devanagari unicode range `[\u0900-\u097F]` and colloquial Hindi keyword analysis ("namaste", "doodh", "chahiye", "kripya", "bhejo"). Added interactive language selection menu commands (`language`, `bhasha`, `hindi`, `hinglish`, `english`).
+  - Unit tests: Added multilingual flow test in `services/whatsapp-adapter/test/whatsapp.test.ts` (8 of 8 tests passing).
+
+### Record 12: Feature 16 (Subscription Deliveries - Daily Milk & Essentials)
+* **Components Built:**
+  - `database/service-migrations/order-service/003_customer_subscriptions_schema.sql`: Relational schema for `customer_subscriptions` table tracking recurring item orders, frequencies (`DAILY`, `ALTERNATE_DAYS`, `WEEKLY`), delivery time slots, next delivery dates, and status (`ACTIVE`, `PAUSED`, `CANCELLED`).
+  - `services/order-service/src/app.ts`: Implemented recurring subscription REST APIs:
+    - `GET /api/v1/orders/subscriptions`: Fetches active customer recurring delivery schedules.
+    - `POST /api/v1/orders/subscriptions`: Enrolls recurring essential items with automatic 10% subscriber discount and calculates next delivery target date.
+    - `POST /api/v1/orders/subscriptions/:id/pause`: Temporarily pauses daily delivery.
+    - `POST /api/v1/orders/subscriptions/:id/resume`: Re-activates delivery schedule.
+    - `DELETE /api/v1/orders/subscriptions/:id`: Cancels subscription.
+  - `apps/customer-web/src/components/SubscriptionModal.tsx`: Built customer Subscription Manager modal with one-click presets for daily pantry staples (Amul Milk, Whole Wheat Bread, Farm Eggs, Curd), frequency picker, and pause/resume control.
+  - `apps/customer-web/src/components/Header.tsx`: Added "🥛 Subscriptions" button in navigation.
 
 ---

@@ -72,4 +72,5 @@ export interface WhatsAppSessionState {
     priceDifference: number;
   };
   lastMessageAt: string;
+  language?: 'en' | 'hi' | 'hi-Latn';
 }

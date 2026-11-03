@@ -651,3 +651,223 @@ export async function payOrderWithWallet(orderId: string, amount: number): Promi
   }
   return json.data;
 }
+
+export interface CouponItem {
+  code: string;
+  description: string;
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT' | 'FREE_SHIPPING';
+  discountValue: number;
+  minOrderAmount: number;
+  maxDiscountAmount?: number;
+}
+
+export async function fetchAvailableCoupons(): Promise<CouponItem[]> {
+  try {
+    const res = await fetch('/api/v1/pricing/coupons');
+    const json = await res.json();
+    if (json.success && json.data) {
+      return json.data;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch live coupons, using offline cache', err);
+  }
+  return [
+    {
+      code: 'WELCOME50',
+      description: 'Flat ₹50 OFF on your first grocery basket (Min order ₹199)',
+      discountType: 'FIXED_AMOUNT',
+      discountValue: 50.0,
+      minOrderAmount: 199.0,
+    },
+    {
+      code: 'SAVE10',
+      description: '10% OFF on all fresh fruits, veggies & staples (Min order ₹300)',
+      discountType: 'PERCENTAGE',
+      discountValue: 10.0,
+      minOrderAmount: 300.0,
+      maxDiscountAmount: 100.0,
+    },
+    {
+      code: 'FREESHIP',
+      description: 'Free Express Home Delivery on orders above ₹149',
+      discountType: 'FREE_SHIPPING',
+      discountValue: 40.0,
+      minOrderAmount: 149.0,
+    },
+    {
+      code: 'FLAT100',
+      description: 'Flat ₹100 instant discount on mega restock (Min order ₹699)',
+      discountType: 'FIXED_AMOUNT',
+      discountValue: 100.0,
+      minOrderAmount: 699.0,
+    },
+  ];
+}
+
+export async function validateCoupon(code: string, subtotal: number): Promise<{
+  valid: boolean;
+  code: string;
+  discountAmount: number;
+  description: string;
+  savingsMessage: string;
+}> {
+  const res = await fetch('/api/v1/pricing/coupons/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, subtotal }),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Invalid coupon code');
+  }
+  return json.data;
+}
+
+export interface ReferralDetails {
+  customerId: string;
+  referralCode: string;
+  shareUrl: string;
+  rewardPerFriend: number;
+  friendsInvited: number;
+  totalEarned: number;
+  shareMessage: string;
+}
+
+export async function fetchMyReferralCode(): Promise<ReferralDetails> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/pricing/referrals/my-code', {
+    headers: {
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+  });
+  const json = await res.json();
+  if (json.success && json.data) {
+    return json.data;
+  }
+  return {
+    customerId: session.user.userId,
+    referralCode: `FC${session.user.userId.slice(-4).toUpperCase() || 'GIFT'}`,
+    shareUrl: `http://localhost:5173/?ref=FCGIFT`,
+    rewardPerFriend: 100.0,
+    friendsInvited: 0,
+    totalEarned: 0,
+    shareMessage: 'Get ₹100 instant bonus on FreshCart groceries!',
+  };
+}
+
+export async function claimReferralCode(referralCode: string): Promise<any> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/pricing/referrals/claim', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify({ referralCode }),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to claim referral code');
+  }
+  return json.data;
+}
+
+export interface CustomerSubscription {
+  id: string;
+  subscription_number: string;
+  customer_id: string;
+  sku: string;
+  product_name: string;
+  variant_name: string;
+  quantity: number;
+  unit_price: number;
+  discount_percent: number;
+  frequency: 'DAILY' | 'ALTERNATE_DAYS' | 'WEEKDAYS_ONLY' | 'WEEKLY';
+  delivery_slot: string;
+  status: 'ACTIVE' | 'PAUSED' | 'CANCELLED';
+  start_date: string;
+  next_delivery_date: string;
+  delivery_address: any;
+  created_at: string;
+}
+
+export async function fetchCustomerSubscriptions(): Promise<CustomerSubscription[]> {
+  try {
+    const session = await getCustomerSession();
+    const res = await fetch('/api/v1/orders/subscriptions', {
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        'x-user-id': session.user.userId,
+      },
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      return json.data;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch subscriptions', err);
+  }
+  return [];
+}
+
+export async function createSubscription(params: {
+  sku: string;
+  productName: string;
+  variantName?: string;
+  quantity: number;
+  unitPrice: number;
+  frequency: string;
+  deliverySlot?: string;
+  deliveryAddress?: any;
+}): Promise<CustomerSubscription> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/orders/subscriptions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to create subscription');
+  }
+  return json.data;
+}
+
+export async function pauseSubscription(id: string): Promise<void> {
+  const session = await getCustomerSession();
+  await fetch(`/api/v1/orders/subscriptions/${id}/pause`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+  });
+}
+
+export async function resumeSubscription(id: string): Promise<void> {
+  const session = await getCustomerSession();
+  await fetch(`/api/v1/orders/subscriptions/${id}/resume`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+  });
+}
+
+export async function cancelSubscription(id: string): Promise<void> {
+  const session = await getCustomerSession();
+  await fetch(`/api/v1/orders/subscriptions/${id}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+  });
+}

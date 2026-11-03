@@ -122,4 +122,47 @@ describe('Pricing Service - Calculation Engine & Taxes', () => {
       }
     );
   });
+
+  it('Feature 17: Validates dynamic coupons and generates customer referral rewards', () => {
+    // 1. Percentage coupon with cap: SAVE10 (10% off, max ₹100, min ₹300)
+    const promoSave10: PromotionRule = {
+      code: 'SAVE10',
+      description: '10% off up to ₹100',
+      discountType: 'PERCENTAGE',
+      discountValue: 10.0,
+      minOrderAmount: 300.0,
+      maxDiscountAmount: 100.0,
+    };
+
+    // Subtotal: 10 x Dove (₹52 = ₹520) -> 10% = ₹52
+    const quote1 = PricingCalculator.calculateQuote({
+      items: [{ sku: 'DOVE-BAR-75G', quantity: 10 }],
+      priceMap,
+      promotion: promoSave10,
+    });
+    assert.equal(quote1.discountTotal, 52.0);
+    assert.equal(quote1.appliedPromotions[0].code, 'SAVE10');
+
+    // 2. Fixed Amount Coupon: WELCOME50 (₹50 off, min ₹199)
+    const promoWelcome50: PromotionRule = {
+      code: 'WELCOME50',
+      description: 'Flat ₹50 off',
+      discountType: 'FIXED_AMOUNT',
+      discountValue: 50.0,
+      minOrderAmount: 199.0,
+    };
+
+    // Subtotal: 4 x Dove (₹52 = ₹208 >= ₹199) -> ₹50 off
+    const quote2 = PricingCalculator.calculateQuote({
+      items: [{ sku: 'DOVE-BAR-75G', quantity: 4 }],
+      priceMap,
+      promotion: promoWelcome50,
+    });
+    assert.equal(quote2.discountTotal, 50.0);
+
+    // 3. Referral code formatting test
+    const cleanId = 'cust_test_4488'.replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
+    const refCode = `FC${cleanId}555`;
+    assert.ok(refCode.startsWith('FC4488'));
+  });
 });

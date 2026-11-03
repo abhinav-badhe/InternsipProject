@@ -10,6 +10,7 @@ import {
   WhatsAppSessionState,
 } from '@grocery/contracts';
 import { WhatsAppCloudApiClient } from './meta.client.js';
+import { I18nManager } from './i18n.js';
 import { createLogger } from '@grocery/observability';
 import crypto from 'node:crypto';
 
@@ -53,8 +54,56 @@ export class WhatsAppBot {
     const text = msg.text.trim();
     const lowerText = text.toLowerCase();
 
+    // Feature 5: Multilingual WhatsApp Support & Language Detection
+    const detectedLang = I18nManager.detectLanguage(text, session.language);
+    session.language = detectedLang;
+
     // Log Inbound Message to History (Acceptance Scenario 8 & Audit Log)
     await this.logConversation(session.sessionId, 'INBOUND', 'text', text);
+
+    // Feature 5: Language Selection Commands
+    if (lowerText === 'language' || lowerText === 'bhasha' || lowerText === 'lang' || lowerText === 'भाषा') {
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'buttons',
+        bodyText: I18nManager.getStrings(session.language).chooseLanguage,
+        options: [
+          { id: 'lang_en', title: 'English' },
+          { id: 'lang_hi', title: 'हिंदी (Hindi)' },
+          { id: 'lang_hilatn', title: 'Hinglish' },
+        ],
+      });
+    }
+
+    if (lowerText === 'lang_en' || lowerText === 'english') {
+      session.language = 'en';
+      await this.saveSession(session);
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'text',
+        bodyText: '✅ Language changed to English! How can we help with your groceries today?',
+      });
+    }
+
+    if (lowerText === 'lang_hi' || lowerText === 'hindi' || lowerText === 'हिंदी') {
+      session.language = 'hi';
+      await this.saveSession(session);
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'text',
+        bodyText: '✅ भाषा बदलकर हिंदी कर दी गई है! आज आपको क्या सामान मंगाना है?',
+      });
+    }
+
+    if (lowerText === 'lang_hilatn' || lowerText === 'hinglish') {
+      session.language = 'hi-Latn';
+      await this.saveSession(session);
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'text',
+        bodyText: '✅ Language Hinglish me set ho gayi hai! Aaj aap kya order karna chahte hain?',
+      });
+    }
 
     // 3. HUMAN SUPPORT HANDOFF
     if (lowerText === 'human' || lowerText === 'agent' || lowerText === 'support' || lowerText === 'help') {
@@ -66,28 +115,21 @@ export class WhatsAppBot {
       });
     }
 
-    // 3b. GREETINGS & ONBOARDING
-    const isGreeting = /^(hi|hello|hey|namaste|start|menu|morning|evening|help me)\b/i.test(lowerText);
-    if (isGreeting && session.stage === 'IDLE' && session.cartItems.length === 0) {
-      const welcomeMsg =
-        `👋 *Welcome to FreshCart Instant Grocery Delivery!* 🛵\n\n` +
-        `We deliver fresh groceries, dairy, and household essentials in 10-15 minutes.\n\n` +
-        `🛒 *How to order:*\n` +
-        `• Send your shopping list directly, e.g.:\n` +
-        `  _1. Amul butter 500g_\n` +
-        `  _2. Britannia bread_\n` +
-        `  _3. Tata salt 1kg_\n` +
-        `• Or search any brand/product (e.g. *"Milk"*, *"Atta"*, *"Soap"*, *"Maggi"*)\n\n` +
-        `Type *'Cart'* to view your items, *'Track'* to check recent orders, or *'Help'* to reach staff.`;
+    // 3b. GREETINGS & ONBOARDING (Localized)
+    const isGreeting =
+      /^(hi|hello|hey|namaste|start|menu|morning|evening|help me|नमस्ते|प्रणाम)\b/i.test(lowerText) ||
+      /^[\u0900-\u097F\s]+$/i.test(lowerText);
 
+    if (isGreeting && session.stage === 'IDLE' && session.cartItems.length === 0) {
+      const strings = I18nManager.getStrings(session.language);
       return this.sendAndLog(session.sessionId, {
         toPhoneNumber: msg.fromPhoneNumber,
         type: 'buttons',
-        bodyText: welcomeMsg,
+        bodyText: strings.greeting,
         options: [
           { id: 'cat_soap', title: 'Browse Soaps' },
           { id: 'cart_view', title: 'View Cart' },
-          { id: 'track_order', title: 'Track Order' },
+          { id: 'language', title: '🌐 Language' },
         ],
       });
     }
