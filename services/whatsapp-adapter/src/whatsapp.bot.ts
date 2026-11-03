@@ -935,11 +935,11 @@ export class WhatsAppBot {
     }
 
     // 12. MULTI-ITEM GROCERY SHOPPING LIST PARSING
-    // Supports inline numbering (e.g. "sende me these items 1. amul butter 500 gms 2. lux rose soap 3 pcs..."),
-    // newline-separated lists, bullets, and comma-separated lists
+    // Supports inline numbering, OCR notes, newline-separated lists, bullets, and comma-separated lists
     const parsedGroceryList = this.extractGroceryListItems(text);
-    if (parsedGroceryList.length > 1) {
-      return this.handleMultiItemShoppingList(session, msg, parsedGroceryList);
+    if (parsedGroceryList.length > 1 || msg.isPhotoOcr || msg.messageType === 'image') {
+      const itemsToProcess = parsedGroceryList.length > 0 ? parsedGroceryList : [text];
+      return this.handleMultiItemShoppingList(session, msg, itemsToProcess);
     }
 
     // 13. CHECK FOR CATEGORY DISAMBIGUATION (Acceptance Scenario 9: e.g. "soap")
@@ -1040,9 +1040,11 @@ export class WhatsAppBot {
           });
         }
 
-        const altDisplayName = singleMatch.product_name.toLowerCase().startsWith(singleMatch.brand_name.toLowerCase())
-          ? `${singleMatch.product_name} (${singleMatch.variant_name})`
-          : `${singleMatch.brand_name} ${singleMatch.product_name} (${singleMatch.variant_name})`;
+        const singleBrand = singleMatch.brand_name || (singleMatch as any).brand || '';
+        const singleProd = singleMatch.product_name || (singleMatch as any).name || '';
+        const altDisplayName = singleBrand && singleProd.toLowerCase().startsWith(singleBrand.toLowerCase())
+          ? `${singleProd} (${singleMatch.variant_name || ''})`
+          : `${singleBrand} ${singleProd} (${singleMatch.variant_name || ''})`.trim();
 
         (session as any).pendingAlternatives = [
           {
@@ -1165,9 +1167,11 @@ export class WhatsAppBot {
         );
 
         if (alternative) {
-          const altDisplayName = alternative.product_name.toLowerCase().startsWith(alternative.brand_name.toLowerCase())
-            ? `${alternative.product_name} (${alternative.variant_name})`
-            : `${alternative.brand_name} ${alternative.product_name} (${alternative.variant_name})`;
+          const brand = alternative.brand_name || (alternative as any).brand || '';
+          const prod = alternative.product_name || (alternative as any).name || '';
+          const altDisplayName = brand && prod.toLowerCase().startsWith(brand.toLowerCase())
+            ? `${prod} (${alternative.variant_name || ''})`
+            : `${brand} ${prod} (${alternative.variant_name || ''})`.trim();
 
           (session as any).pendingAlternatives = [
             {
@@ -1363,9 +1367,11 @@ export class WhatsAppBot {
           );
 
           if (alternative) {
-            const altDisplayName = alternative.product_name.toLowerCase().startsWith(alternative.brand_name.toLowerCase())
-              ? `${alternative.product_name} (${alternative.variant_name})`
-              : `${alternative.brand_name} ${alternative.product_name} (${alternative.variant_name})`;
+            const altBrand = alternative.brand_name || (alternative as any).brand || '';
+            const altProd = alternative.product_name || (alternative as any).name || '';
+            const altDisplayName = altBrand && altProd.toLowerCase().startsWith(altBrand.toLowerCase())
+              ? `${altProd} (${alternative.variant_name || ''})`
+              : `${altBrand} ${altProd} (${alternative.variant_name || ''})`.trim();
 
             outOfStockWithAlt.push({
               originalText: cleanLine,
@@ -1407,6 +1413,8 @@ export class WhatsAppBot {
     // Build rich, clear WhatsApp Markdown response
     let responseText = msg.isVoiceNote
       ? `🎙️ *Voice Note Received & Understood!*\n_\"${msg.text}\"_\n\n🛒 *FreshCart Order Breakdown:*\n`
+      : (msg.isPhotoOcr || msg.messageType === 'image')
+      ? `📸 *Shopping List Photo Scanned & Extracted!*\n_Extracted items from your handwritten list:_\n\n🛒 *FreshCart Order Breakdown:*\n`
       : `🛒 *FreshCart Order Breakdown & Live Inventory Check*\n`;
     responseText += `We verified all ${itemLines.length} items from your list against our live store stock:\n\n`;
 

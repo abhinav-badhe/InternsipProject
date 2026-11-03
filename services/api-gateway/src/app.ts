@@ -185,8 +185,13 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     forwardRequest(urls.pricing, req, res);
   });
 
-  // 7. Payment Webhook Receiver (Raw body / provider signatures) -> payment-service
-  app.use('/api/v1/payments/webhook', (req: Request, res: Response) => {
+  // 7. Payment Service (Wallet, Payment Intents, Webhooks) -> payment-service
+  app.use('/api/v1/payments*', (req: Request, res: Response) => {
+    if (req.headers.authorization) {
+      return authMiddleware.authenticate(req, res, () => {
+        forwardRequest(urls.payment, req, res);
+      });
+    }
     forwardRequest(urls.payment, req, res);
   });
 
@@ -198,6 +203,11 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   // -------------------------------------------------------------
   // Protected Routes (Require Valid Bearer Token)
   // -------------------------------------------------------------
+
+  // Feature 13: Delivery Slots (Public query for checkout scheduling)
+  app.get('/api/v1/orders/delivery-slots', (req: Request, res: Response) => {
+    forwardRequest(urls.order, req, res);
+  });
 
   // Protected Orders API (Checkout, My Orders, Single Order with Scenario 05 tenant check)
   app.use('/api/v1/orders*', authMiddleware.authenticate, (req: Request, res: Response) => {

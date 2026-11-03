@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut } from 'lucide-react';
+import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet } from 'lucide-react';
 import { AuthSession } from '../api/client';
 
 interface HeaderProps {
@@ -15,6 +15,8 @@ interface HeaderProps {
   userSession?: AuthSession | null;
   onOpenAuth: () => void;
   onSignOut: () => void;
+  walletBalance?: number;
+  onOpenWallet?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,6 +32,8 @@ export const Header: React.FC<HeaderProps> = ({
   userSession,
   onOpenAuth,
   onSignOut,
+  walletBalance,
+  onOpenWallet,
 }) => {
   const [showDisambiguation, setShowDisambiguation] = useState(false);
   const isSoapSearch = searchQuery.toLowerCase().trim() === 'soap';
@@ -183,6 +187,16 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <FileText className="w-3.5 h-3.5 text-gray-500" />
             <span>My Orders</span>
+          </button>
+
+          {/* Feature 15: FreshCart Wallet & Cashback */}
+          <button
+            onClick={onOpenWallet}
+            className="flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-950 font-bold px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
+            title="FreshCart Wallet & Cashback"
+          >
+            <Wallet className="w-3.5 h-3.5 text-emerald-700" />
+            <span>₹{(walletBalance || 0).toFixed(0)}</span>
           </button>
 
           {/* User Account / Sign In */}

@@ -75,7 +75,7 @@ The existing system is organized as a high-performance TypeScript monorepo power
 
 #### Feature 2: Shopping List Photo and Handwritten Note OCR
 * **Description:** Customers take a photo of a handwritten grocery note or printed list and send it to WhatsApp. The system extracts text lines via Vision OCR and adds matched catalog items to their cart.
-* **Current Status:** NOT IMPLEMENTED
+* **Current Status:** COMPLETED (Vision OCR service, multi-line handwritten parser, Gemini multimodal support, WhatsApp webhook & simulator integration, unit tested).
 * **Feasibility:** High. Meta Cloud API delivers image payloads; OCR extracts text.
 * **Dependencies:** `whatsapp-adapter`, Meta Cloud API image handler, catalog fuzzy matcher.
 * **Priority:** Priority 2 (Customer Experience).
@@ -180,7 +180,7 @@ The existing system is organized as a high-performance TypeScript monorepo power
 
 #### Feature 13: Scheduled Delivery Slots and Express Delivery
 * **Description:** Customers select between 15-minute Express Rush and scheduled delivery slots (e.g. Morning 7-9 AM, Evening 6-8 PM).
-* **Current Status:** PARTIALLY IMPLEMENTED (Slot string passed in checkout payload).
+* **Current Status:** COMPLETED (Dynamic live slot generation endpoint `/delivery-slots`, rush priority surcharge, interactive segmented tabbed selector in customer Cart Drawer).
 * **Dependencies:** `order-service`, `apps/customer-web`.
 * **Priority:** Priority 2 (Customer Experience).
 * **Completion Status:** NOT STARTED
@@ -198,7 +198,7 @@ The existing system is organized as a high-performance TypeScript monorepo power
 
 #### Feature 15: Customer Wallet and Cashback
 * **Description:** Digital store wallet where promotional cashback and refund credits are stored for 1-tap zero-latency checkout.
-* **Current Status:** NOT IMPLEMENTED
+* **Current Status:** COMPLETED (`customer_wallets` & `wallet_transactions` tables, `/payments/wallet` balance & passbook history, topup, 1-tap order payment deduction, 5% cashback rewards, Customer Web Wallet Modal & Cart Drawer integration).
 * **Dependencies:** `payment-service`, `identity-service`, `apps/customer-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
 * **Completion Status:** NOT STARTED
@@ -317,10 +317,10 @@ flowchart TD
 | **1** | WhatsApp Voice Note / Audio Ordering | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `AudioTranscriptionService`, Hinglish normalizer, and WhatsApp Simulator Mic UI |
 | **8** | Proof of Delivery (Signature & OTP) | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built HTML5 Touch Screen Signature Pad & OTP Handover Modal in `RiderFleetView.tsx` |
 | **12** | Multi-Address Management | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `customer_addresses` CRUD in `identity-service` & `AddressSelectorModal.tsx` in Cart |
-| **13** | Scheduled Delivery Slots & Express Rush | P2 | NOT STARTED | - | - | 15-min rush vs planned delivery slots |
-| **2** | Shopping List Photo & Note OCR | P2 | NOT STARTED | - | - | Visual OCR list extractor in WhatsApp |
+| **13** | Scheduled Delivery Slots & Express Rush | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `/orders/delivery-slots` dynamic backend & tabbed selector in Cart |
+| **2** | Shopping List Photo & Note OCR | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `VisionOcrService`, Gemini Vision + heuristic parser, & Simulator Camera OCR |
 | **5** | Multilingual WhatsApp Support | P2 | NOT STARTED | - | - | Regional language flows in WhatsApp bot |
-| **15** | Customer Wallet and Cashback | P3 | NOT STARTED | - | - | In-app credit balance & instant refunds |
+| **15** | Customer Wallet and Cashback | P3 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `customer_wallets` + `wallet_transactions` tables, `/payments/wallet` APIs, `WalletModal.tsx`, & 1-tap cart pay |
 | **21** | Real Payment Gateway Integration | P3 | NOT STARTED | - | - | Razorpay/PhonePe SDK & dynamic QR |
 | **22** | Split Payments (Wallet + UPI/Card) | P3 | NOT STARTED | - | - | Combines Wallet and Payment Gateway |
 | **17** | Referral System and Coupon Engine | P3 | NOT STARTED | - | - | Promo code validation & referral bonuses |
@@ -393,5 +393,34 @@ flowchart TD
   - `apps/customer-web/src/api/client.ts`: Client functions `fetchCustomerAddresses`, `saveCustomerAddress`, `deleteCustomerAddress`, and dynamic address injection in `executeRealCheckout`.
   - `apps/customer-web/src/components/AddressSelectorModal.tsx`: Saved address management modal with Home/Work/Other labels and new address creation form.
   - `apps/customer-web/src/components/CartDrawer.tsx`: Embedded delivery address selector card with 1-click address switching.
+
+### Record 7: Feature 13 (Scheduled Delivery Slots and Express Delivery)
+* **Components Built:**
+  - `services/order-service/src/app.ts`: Dynamic live delivery slots API (`GET /api/v1/orders/delivery-slots`) generating time-aware express options (Express Rush 10-15 mins with surge surcharge, Standard Express 25-30 mins) and scheduled daily slots (Today Evening, Today Night, Tomorrow Morning, Tomorrow Evening).
+  - `services/api-gateway/src/app.ts`: Public delivery slot query bypass permitting instant cart scheduling before auth challenges.
+  - `apps/customer-web/src/api/client.ts`: Added `fetchDeliverySlots` with high-availability offline fallbacks.
+  - `apps/customer-web/src/components/CartDrawer.tsx`: Built interactive segmented tabbed delivery speed selector (`⚡ Express` vs `📅 Scheduled`), live surge fee calculation, slot capacity badges, and order checkout payload binding.
+
+### Record 8: Feature 2 (Shopping List Photo and Handwritten Note OCR)
+* **Components Built:**
+  - `services/whatsapp-adapter/src/ocr.service.ts`: `VisionOcrService` supporting Google Gemini Multimodal Vision API (`gemini-1.5-flash`) and built-in optical heuristic parser for Indian quick-commerce handwritten notes (normalizing Hindi units: "aadha kilo", "darjan", "gm", "ltr", "pkt").
+  - `services/whatsapp-adapter/src/app.ts`: Integrated image webhook processing and `/api/v1/whatsapp/chat` photo OCR ingestion with auto-forward to `bot.handleInboundMessage`.
+  - `services/whatsapp-adapter/src/whatsapp.bot.ts`: Multi-item shopping list inventory breakdown with `📸 *Shopping List Photo Scanned & Extracted!*` header and live stock verification.
+  - `apps/store-admin-web/src/App.tsx`: Added Photo OCR Note quick simulation chips and camera button in WhatsApp Simulator.
+  - Unit tests: Added Feature 2 test in `services/whatsapp-adapter/test/whatsapp.test.ts` (7 of 7 passing).
+
+### Record 9: Feature 15 (Customer Wallet and Cashback)
+* **Components Built:**
+  - `database/service-migrations/payment-service/002_customer_wallet_schema.sql`: Relational schema for `customer_wallets` and `wallet_transactions` passbook ledger.
+  - `services/payment-service/src/app.ts`: Auto-bootstrapping wallet tables, auto-crediting ₹100 welcome bonus on initial query, and endpoints:
+    - `GET /api/v1/payments/wallet`: Balance and last 30 passbook transactions.
+    - `POST /api/v1/payments/wallet/topup`: Instant atomic wallet top-up (+₹100, +₹200, +₹500, +₹1,000).
+    - `POST /api/v1/payments/wallet/pay`: Atomically checks and deducts balance for zero-latency order payment.
+    - `POST /api/v1/payments/wallet/cashback`: Automated 5% cashback rewards credit upon order completion.
+  - `services/api-gateway/src/app.ts`: Forwarding `/api/v1/payments*` downstream with customer identity propagation.
+  - `apps/customer-web/src/components/WalletModal.tsx`: Customer Wallet & Cashback Passbook modal with quick top-up buttons, balance card, and CREDIT/DEBIT transaction list.
+  - `apps/customer-web/src/components/Header.tsx`: Wallet balance pill button in customer header with 1-click modal open.
+  - `apps/customer-web/src/components/CartDrawer.tsx`: Embedded "Pay with FreshCart Wallet" toggle card with instant subtotal deduction.
+  - Unit tests: Added Feature 15 test in `services/payment-service/test/payment.test.ts` (4 of 4 passing).
 
 ---

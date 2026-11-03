@@ -3,6 +3,7 @@ import { WhatsAppBot, CatalogClient, PricingClient, OrderClient } from './whatsa
 import { WhatsAppCloudApiClient } from './meta.client.js';
 import { SignatureVerifier } from './signature.verifier.js';
 import { AudioTranscriptionService } from './transcription.service.js';
+import { VisionOcrService } from './ocr.service.js';
 import { Database } from './db.js';
 import {
   createLogger,
@@ -116,6 +117,7 @@ export function createApp(deps?: {
   const metaClient: WhatsAppCloudApiClient = deps?.metaClient || new WhatsAppCloudApiClient();
 
   const transcriptionService = new AudioTranscriptionService();
+  const ocrService = new VisionOcrService();
 
   const bot = new WhatsAppBot(catalogClient, pricingClient, orderClient, metaClient);
 
@@ -222,10 +224,13 @@ export function createApp(deps?: {
         const fromPhone = message.from;
         const messageId = message.id;
 
-        // Check for Audio / Voice Note message (Feature 1)
+        // Check for Audio / Voice Note message (Feature 1) or Image / Photo OCR note (Feature 2)
         const isAudio = message.type === 'audio' || message.type === 'voice' || Boolean(message.audio);
+        const isImage = message.type === 'image' || Boolean(message.image);
         let isVoiceNote = false;
+        let isPhotoOcr = false;
         let audioTranscript: string | undefined = undefined;
+        let ocrLines: string[] | undefined = undefined;
 
         // Extract message content across all Meta payload variations:
         // text, interactive button reply, interactive list reply, quick reply button
@@ -253,6 +258,19 @@ export function createApp(deps?: {
             text = transcribed;
             audioTranscript = transcribed;
           }
+        } else if (isImage && message.image?.id) {
+          isPhotoOcr = true;
+          const mediaId = message.image.id;
+          const mediaUrl = await metaClient.getMediaUrl(mediaId).catch(() => null);
+          const buf = mediaUrl ? await metaClient.downloadMediaBuffer(mediaUrl).catch(() => null) : null;
+          const ocrRes = await ocrService.extractShoppingListFromImage({
+            imageBuffer: buf || undefined,
+            mimeType: message.image.mime_type,
+          });
+          if (ocrRes.items.length > 0) {
+            text = ocrRes.items.map((i) => `${i.quantity} ${i.unit || ''} ${i.item}`).join(', ');
+            ocrLines = ocrRes.items.map((i) => i.rawLine);
+          }
         }
 
         // Mark incoming message as read in Meta
@@ -263,8 +281,10 @@ export function createApp(deps?: {
           messageId,
           fromPhoneNumber: fromPhone,
           text,
-          messageType: isVoiceNote ? 'audio' : 'text',
+          messageType: isVoiceNote ? 'audio' : isPhotoOcr ? 'image' : 'text',
           isVoiceNote,
+          isPhotoOcr,
+          ocrLines,
           audioTranscript,
           timestamp: message.timestamp || Math.floor(Date.now() / 1000).toString(),
         });
@@ -296,7 +316,10 @@ export function createApp(deps?: {
     const phoneNumber = req.body?.phoneNumber || req.body?.fromPhone || req.body?.fromPhoneNumber || '+919876543210';
     const messageId = req.body?.messageId || `sim_msg_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const isVoiceNote = Boolean(req.body?.isVoiceNote || req.body?.messageType === 'audio');
+    const isPhotoOcr = Boolean(req.body?.isPhotoOcr || req.body?.messageType === 'image');
     let audioTranscript: string | undefined = undefined;
+    let ocrLines: string[] | undefined = undefined;
+    let ocrResult: any = null;
 
     try {
       if (isVoiceNote) {
@@ -305,14 +328,23 @@ export function createApp(deps?: {
         });
         message = transcribed || message;
         audioTranscript = message;
+      } else if (isPhotoOcr) {
+        ocrResult = await ocrService.extractShoppingListFromImage({
+          imageBase64: req.body?.imageBase64,
+          simulatedNoteText: req.body?.noteText || req.body?.photoTranscript || message,
+        });
+        ocrLines = ocrResult.items.map((i: any) => i.rawLine);
+        message = ocrResult.items.map((i: any) => `${i.quantity} ${i.unit || ''} ${i.item}`).join(', ');
       }
 
       const reply = await bot.handleInboundMessage({
         messageId,
         fromPhoneNumber: phoneNumber,
         text: message,
-        messageType: isVoiceNote ? 'audio' : 'text',
+        messageType: isVoiceNote ? 'audio' : isPhotoOcr ? 'image' : 'text',
         isVoiceNote,
+        isPhotoOcr,
+        ocrLines,
         audioTranscript,
         timestamp: Math.floor(Date.now() / 1000).toString(),
       });
@@ -328,6 +360,8 @@ export function createApp(deps?: {
             session,
             isVoiceNote,
             audioTranscript,
+            isPhotoOcr,
+            ocrResult,
           },
           correlationId
         )

@@ -298,4 +298,82 @@ describe('WhatsApp Adapter - Conversational Engine & Acceptance Scenarios', () =
       Database.query = originalQuery;
     }
   });
+
+  it('Feature 2: Extracts grocery shopping list items from handwritten note or list OCR', async () => {
+    const { VisionOcrService } = await import('../src/ocr.service.js');
+    const ocrService = new VisionOcrService();
+
+    const note = `
+    1. 2 kg Aashirvaad Shudh Chakki Atta
+    2. 1L Amul Taaza Milk
+    3. 500g Fresh Malai Paneer
+    4. 6 pcs Bananas
+    `;
+
+    const result = await ocrService.extractShoppingListFromImage({
+      simulatedNoteText: note,
+    });
+
+    assert.equal(result.items.length, 4);
+    assert.equal(result.items[0].quantity, 2);
+    assert.equal(result.items[0].unit, 'kg');
+    assert.ok(result.items[0].item.includes('Atta'));
+
+    assert.equal(result.items[1].quantity, 1);
+    assert.equal(result.items[1].unit, 'l');
+
+    assert.equal(result.items[2].quantity, 500);
+    assert.equal(result.items[2].unit, 'g');
+
+    // Test Bot rendering with OCR photo message
+    const originalQuery = Database.query;
+    Database.query = async (sql: string) => {
+      if (sql.includes('SELECT') && sql.includes('FROM products p')) {
+        return {
+          rows: [
+            {
+              product_id: 'prod-atta',
+              product_name: 'Aashirvaad Shudh Chakki Atta',
+              brand: 'Aashirvaad',
+              brand_name: 'Aashirvaad',
+              category_name: 'Staples & Grains',
+              variant_id: 'var-atta-2kg',
+              sku: 'SKU-ATTA-2KG',
+              variant_name: '2kg',
+              price: 120.0,
+              stock: 50,
+              available_stock: 50,
+            },
+          ],
+        } as any;
+      }
+      return { rows: [] } as any;
+    };
+
+    try {
+      const mockCatalog = {
+        disambiguate: async () => ({ isAmbiguous: false, query: 'test', matchingCategories: [] }),
+        searchProducts: async () => ({ items: [] }),
+        getSimilarAlternatives: async () => null,
+      };
+      const mockPricing = { calculateQuote: async () => ({} as any) };
+      const mockOrder = { checkout: async () => ({} as any) };
+
+      const bot = new WhatsAppBot(mockCatalog, mockPricing, mockOrder);
+      const reply = await bot.handleInboundMessage({
+        messageId: `wamid.ocr_${Date.now()}`,
+        fromPhoneNumber: '+919988776655',
+        text: '2 kg Aashirvaad Atta',
+        messageType: 'image',
+        isPhotoOcr: true,
+        ocrLines: ['1. 2 kg Aashirvaad Shudh Chakki Atta'],
+        timestamp: '1698480000',
+      });
+
+      assert.ok(reply !== null);
+      assert.ok(reply.bodyText.includes('Shopping List Photo Scanned & Extracted'));
+    } finally {
+      Database.query = originalQuery;
+    }
+  });
 });

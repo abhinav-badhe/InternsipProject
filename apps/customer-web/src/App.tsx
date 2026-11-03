@@ -6,6 +6,7 @@ import { CartDrawer, CartItem } from './components/CartDrawer';
 import { AlternativesModal } from './components/AlternativesModal';
 import { OrderHistoryModal, CustomerOrder } from './components/OrderHistoryModal';
 import { AuthModal } from './components/AuthModal';
+import { WalletModal } from './components/WalletModal';
 import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
 import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
 import {
@@ -17,6 +18,7 @@ import {
   getStoredCustomerSession,
   signOutCustomer,
   AuthSession,
+  fetchCustomerWallet,
 } from './api/client';
 
 export const App: React.FC = () => {
@@ -42,6 +44,10 @@ export const App: React.FC = () => {
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Feature 15: FreshCart Wallet & Cashback Modal State
+  const [isWalletOpen, setIsWalletOpen] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number>(100);
 
   // Authentication & MFA State
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -101,6 +107,13 @@ export const App: React.FC = () => {
       .catch((err) => {
         console.info('[Storefront] Guest browsing active:', err?.message || err);
       });
+
+    // 4. Feature 15: Fetch customer wallet & cashback balance
+    fetchCustomerWallet()
+      .then((w) => {
+        if (isMounted) setWalletBalance(w.balance);
+      })
+      .catch(() => {});
 
     const params = new URLSearchParams(window.location.search);
     const payOrder = params.get('payOrder');
@@ -291,6 +304,8 @@ export const App: React.FC = () => {
         userSession={userSession}
         onOpenAuth={() => setIsAuthOpen(true)}
         onSignOut={handleSignOut}
+        walletBalance={walletBalance}
+        onOpenWallet={() => setIsWalletOpen(true)}
       />
 
       {/* 2. Top Slider Category Strip (Visible on Home view) */}
@@ -581,6 +596,13 @@ export const App: React.FC = () => {
           setUserSession(session);
           showToast(`Welcome back, ${session.user.fullName}!`);
         }}
+      />
+
+      {/* Feature 15: FreshCart Customer Wallet & Cashback Modal */}
+      <WalletModal
+        isOpen={isWalletOpen}
+        onClose={() => setIsWalletOpen(false)}
+        onBalanceUpdated={(newBal) => setWalletBalance(newBal)}
       />
 
       {/* Toast Notification */}

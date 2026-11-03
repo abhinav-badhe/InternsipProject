@@ -50,6 +50,7 @@ import {
   Send,
   Mic,
   MicOff,
+  Camera,
   Eye,
   Filter,
   PackagePlus,
@@ -1628,7 +1629,11 @@ export const App: React.FC = () => {
   };
 
   // 10. WhatsApp Chat Simulator Send (Connected to live whatsapp-adapter backend)
-  const handleSendChatMessage = async (textToSend?: string, isVoice = false) => {
+  const handleSendChatMessage = async (
+    textToSend?: string,
+    isVoice = false,
+    isPhotoOcr = false
+  ) => {
     const txt = textToSend || chatInput;
     if (!txt.trim()) return;
 
@@ -1636,7 +1641,11 @@ export const App: React.FC = () => {
       ...chatMessages,
       {
         sender: 'user' as const,
-        text: isVoice ? `🎙️ Voice Note: "${txt}"` : txt,
+        text: isVoice
+          ? `🎙️ Voice Note: "${txt}"`
+          : isPhotoOcr
+          ? `📸 Photo OCR Note: "${txt}"`
+          : txt,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
     ];
@@ -1652,6 +1661,8 @@ export const App: React.FC = () => {
           phoneNumber: '+919876543210',
           isVoiceNote: isVoice,
           voiceTranscript: isVoice ? txt : undefined,
+          isPhotoOcr,
+          noteText: isPhotoOcr ? txt : undefined,
         }),
       });
       const json = await res.json();
@@ -3402,11 +3413,11 @@ export const App: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Voice Note Simulation Quick Chips */}
+                {/* Voice & Photo OCR Note Simulation Quick Chips */}
                 <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center gap-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mr-1 flex items-center gap-1">
                     <Mic className="w-3 h-3 text-amber-500" />
-                    <span>Voice Note Presets:</span>
+                    <span>Voice Presets:</span>
                   </span>
                   {[
                     '2 Amul butter and 1 Britannia bread',
@@ -3422,6 +3433,24 @@ export const App: React.FC = () => {
                       🎙️ {preset}
                     </button>
                   ))}
+
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 ml-2 mr-1 flex items-center gap-1">
+                    <Camera className="w-3 h-3 text-blue-500" />
+                    <span>Photo OCR Lists:</span>
+                  </span>
+                  {[
+                    '2 kg Aashirvaad Atta, 1L Amul Milk, 500g Paneer',
+                    'Maggi 4-pack, 1kg Tata Salt, 6 Bananas',
+                  ].map((preset, idx) => (
+                    <button
+                      key={`ocr-${idx}`}
+                      type="button"
+                      onClick={() => handleSendChatMessage(preset, false, true)}
+                      className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 border border-blue-200 text-blue-800 hover:bg-blue-100 transition-colors cursor-pointer"
+                    >
+                      📸 Note #{idx + 1}
+                    </button>
+                  ))}
                 </div>
 
                 {/* Chat Input */}
@@ -3431,7 +3460,7 @@ export const App: React.FC = () => {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
-                    placeholder="Type message or click Voice Note to simulate audio ordering..."
+                    placeholder="Type message, click Voice Note, or upload/send Shopping List Photo..."
                     className="flex-1 px-3.5 py-2 border border-gray-200 rounded-md text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
                   />
                   <button
@@ -3446,7 +3475,22 @@ export const App: React.FC = () => {
                     className="p-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold shadow-xs shrink-0"
                   >
                     <Mic className="w-4 h-4" />
-                    <span className="hidden sm:inline">Voice Note</span>
+                    <span className="hidden sm:inline">Voice</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="Send Simulated Handwritten Shopping List Photo (OCR)"
+                    onClick={() =>
+                      handleSendChatMessage(
+                        chatInput.trim() || '2 kg Atta\n1L Milk\n500g Paneer\n1kg Onion',
+                        false,
+                        true
+                      )
+                    }
+                    className="p-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold shadow-xs shrink-0"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span className="hidden sm:inline">Photo OCR</span>
                   </button>
                   <button
                     type="button"

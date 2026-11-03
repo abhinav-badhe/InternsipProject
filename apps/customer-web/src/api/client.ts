@@ -483,3 +483,171 @@ export async function disambiguateQuery(term: string): Promise<any> {
   const json = await res.json();
   return json.success ? json.data : null;
 }
+
+export interface DeliverySlotOption {
+  id: string;
+  type: 'EXPRESS' | 'SCHEDULED';
+  title: string;
+  timeWindow: string;
+  tag: string;
+  badgeColor: string;
+  fee: number;
+  available: boolean;
+  capacityStatus: string;
+  description: string;
+}
+
+export async function fetchDeliverySlots(): Promise<DeliverySlotOption[]> {
+  try {
+    const res = await fetch('/api/v1/orders/delivery-slots');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.success && json.data?.slots) {
+      return json.data.slots;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch delivery slots, using fallbacks', err);
+  }
+  return [
+    {
+      id: 'express-15',
+      type: 'EXPRESS',
+      title: 'Express Rush',
+      timeWindow: '10 - 15 Mins',
+      tag: '⚡ 15-Min Delivery',
+      badgeColor: 'amber',
+      fee: 25,
+      available: true,
+      capacityStatus: 'HIGH_DEMAND',
+      description: 'Direct priority dispatch',
+    },
+    {
+      id: 'express-30',
+      type: 'EXPRESS',
+      title: 'Standard Express',
+      timeWindow: '25 - 30 Mins',
+      tag: 'Free over ₹199',
+      badgeColor: 'emerald',
+      fee: 0,
+      available: true,
+      capacityStatus: 'OPTIMAL',
+      description: 'Fast eco-batched dispatch',
+    },
+    {
+      id: 'slot-today-evening',
+      type: 'SCHEDULED',
+      title: 'Today Evening',
+      timeWindow: '04:00 PM - 07:00 PM',
+      tag: 'Scheduled',
+      badgeColor: 'blue',
+      fee: 0,
+      available: true,
+      capacityStatus: 'AVAILABLE',
+      description: 'Reserved evening delivery slot',
+    },
+    {
+      id: 'slot-tomorrow-morning',
+      type: 'SCHEDULED',
+      title: 'Tomorrow Morning',
+      timeWindow: '07:00 AM - 10:00 AM',
+      tag: 'Breakfast Fresh',
+      badgeColor: 'teal',
+      fee: 0,
+      available: true,
+      capacityStatus: 'AVAILABLE',
+      description: 'Fresh milk, bakery & farm produce',
+    },
+  ];
+}
+
+export interface WalletTransaction {
+  id: string;
+  type: string;
+  amount: number;
+  balanceAfter: number;
+  referenceId?: string;
+  description: string;
+  createdAt: string;
+}
+
+export interface CustomerWalletData {
+  walletId: string;
+  customerId: string;
+  balance: number;
+  currency: string;
+  isActive: boolean;
+  transactions: WalletTransaction[];
+}
+
+export async function fetchCustomerWallet(): Promise<CustomerWalletData> {
+  try {
+    const session = await getCustomerSession();
+    const res = await fetch('/api/v1/payments/wallet', {
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        'x-user-id': session.user.userId,
+      },
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      return json.data;
+    }
+  } catch (err) {
+    console.warn('Using local fallback wallet state', err);
+  }
+
+  const session = await getCustomerSession();
+  return {
+    walletId: 'w_demo',
+    customerId: session.user.userId,
+    balance: 100.0,
+    currency: 'INR',
+    isActive: true,
+    transactions: [
+      {
+        id: 'tx_welcome',
+        type: 'WELCOME_BONUS',
+        amount: 100.0,
+        balanceAfter: 100.0,
+        description: 'Welcome to FreshCart! Joining Bonus Credit',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+export async function topupCustomerWallet(amount: number): Promise<CustomerWalletData> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/payments/wallet/topup', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify({ amount }),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to add funds to wallet');
+  }
+  return fetchCustomerWallet();
+}
+
+export async function payOrderWithWallet(orderId: string, amount: number): Promise<any> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/payments/wallet/pay', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify({ orderId, amount }),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Wallet payment failed');
+  }
+  return json.data;
+}

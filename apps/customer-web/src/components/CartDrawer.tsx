@@ -12,9 +12,19 @@ import {
   Home,
   Briefcase,
   ChevronRight,
+  Zap,
+  Clock,
+  Calendar,
+  Wallet,
 } from 'lucide-react';
 import { Product, ProductVariant } from '../data/catalog';
-import { CustomerSavedAddress, fetchCustomerAddresses } from '../api/client';
+import {
+  CustomerSavedAddress,
+  fetchCustomerAddresses,
+  DeliverySlotOption,
+  fetchDeliverySlots,
+  fetchCustomerWallet,
+} from '../api/client';
 import { AddressSelectorModal } from './AddressSelectorModal';
 
 export interface CartItem {
@@ -48,9 +58,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 }) => {
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState('EXPRESS_30');
+  const [slotTypeTab, setSlotTypeTab] = useState<'EXPRESS' | 'SCHEDULED'>('EXPRESS');
+  const [availableSlots, setAvailableSlots] = useState<DeliverySlotOption[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState('express-30');
   const [selectedAddress, setSelectedAddress] = useState<CustomerSavedAddress | null>(null);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [useWallet, setUseWallet] = useState<boolean>(true);
 
   useEffect(() => {
     fetchCustomerAddresses().then((list) => {
@@ -58,15 +72,40 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         setSelectedAddress(list[0]);
       }
     });
+
+    fetchDeliverySlots().then((slots) => {
+      setAvailableSlots(slots);
+      if (slots.length > 0) {
+        setSelectedSlotId(slots[1]?.id || slots[0].id);
+      }
+    });
+
+    fetchCustomerWallet().then((w) => {
+      setWalletBalance(w.balance);
+    });
   }, []);
 
   if (!isOpen) return null;
+
+  // Selected slot details
+  const activeSlot = availableSlots.find((s) => s.id === selectedSlotId) || {
+    id: selectedSlotId,
+    type: slotTypeTab,
+    title: 'Standard Express',
+    timeWindow: '25-30 Mins',
+    fee: 0,
+    tag: 'Free over ₹199',
+    badgeColor: 'emerald',
+    available: true,
+  };
 
   // Pricing calculations
   const subtotal = items.reduce((sum, item) => sum + item.variant.price * item.quantity, 0);
   const freeShippingThreshold = 499;
   const isFreeDelivery = subtotal >= freeShippingThreshold || appliedCoupon === 'FREESHIP';
-  const deliveryFee = subtotal === 0 ? 0 : isFreeDelivery ? 0 : 40.0;
+  const baseDeliveryFee = subtotal === 0 ? 0 : isFreeDelivery ? 0 : 40.0;
+  const rushFee = activeSlot.fee || 0;
+  const deliveryFee = baseDeliveryFee + rushFee;
 
   // Coupon discount
   let discount = 0;
@@ -78,7 +117,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   // Estimated Tax (5% on staples, 18% on personal care - approx 12% blended)
   const estimatedTax = Number(((subtotal - discount) * 0.12).toFixed(2));
-  const grandTotal = Math.max(0, Number((subtotal - discount + deliveryFee + estimatedTax).toFixed(2)));
+  const preWalletTotal = Math.max(0, Number((subtotal - discount + deliveryFee + estimatedTax).toFixed(2)));
+  const walletDeduction = useWallet ? Math.min(walletBalance, preWalletTotal) : 0;
+  const grandTotal = Math.max(0, Number((preWalletTotal - walletDeduction).toFixed(2)));
 
   const handleApplyCoupon = (e: React.FormEvent) => {
     e.preventDefault();
@@ -269,49 +310,90 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
             )}
 
-            {/* Delivery Slot Selector */}
+            {/* Feature 13: Delivery Slot Selector (Express vs Scheduled) */}
             {items.length > 0 && (
-              <div className="pt-2">
-                <span className="block text-xs font-semibold text-slate-800 mb-2">
-                  Select Delivery Slot
-                </span>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSlot('EXPRESS_30')}
-                    className={`p-2 rounded border text-left transition-colors ${
-                      selectedSlot === 'EXPRESS_30'
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-900 font-semibold'
-                        : 'border-slate-200 bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <span className="block font-bold">⚡ 30 Mins</span>
-                    <span className="text-[10px] text-slate-500">Express Delivery</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSlot('TODAY_EVENING')}
-                    className={`p-2 rounded border text-left transition-colors ${
-                      selectedSlot === 'TODAY_EVENING'
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-900 font-semibold'
-                        : 'border-slate-200 bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <span className="block font-bold">Today</span>
-                    <span className="text-[10px] text-slate-500">5 PM - 7 PM</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSlot('TOMORROW_MORNING')}
-                    className={`p-2 rounded border text-left transition-colors ${
-                      selectedSlot === 'TOMORROW_MORNING'
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-900 font-semibold'
-                        : 'border-slate-200 bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <span className="block font-bold">Tomorrow</span>
-                    <span className="text-[10px] text-slate-500">7 AM - 9 AM</span>
-                  </button>
+              <div className="pt-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                    Delivery Speed & Slot
+                  </span>
+                  <div className="flex bg-slate-100 p-0.5 rounded-lg text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setSlotTypeTab('EXPRESS')}
+                      className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                        slotTypeTab === 'EXPRESS'
+                          ? 'bg-white text-emerald-700 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      ⚡ Express
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSlotTypeTab('SCHEDULED')}
+                      className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                        slotTypeTab === 'SCHEDULED'
+                          ? 'bg-white text-emerald-700 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      📅 Scheduled
+                    </button>
+                  </div>
+                </div>
+
+                {/* Slot Options List */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {availableSlots
+                    .filter((s) => s.type === slotTypeTab)
+                    .map((slot) => {
+                      const isSelected = selectedSlotId === slot.id;
+                      const isClosed = !slot.available;
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          disabled={isClosed}
+                          onClick={() => setSelectedSlotId(slot.id)}
+                          className={`p-2.5 rounded-lg border text-left transition-all relative cursor-pointer ${
+                            isClosed
+                              ? 'border-slate-200 bg-slate-100 opacity-50 cursor-not-allowed'
+                              : isSelected
+                              ? 'border-emerald-600 bg-emerald-50/80 ring-1 ring-emerald-600 text-emerald-950 font-medium shadow-2xs'
+                              : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-xs flex items-center gap-1">
+                              {slot.type === 'EXPRESS' ? (
+                                <Zap className="w-3 h-3 text-amber-500 shrink-0" />
+                              ) : (
+                                <Calendar className="w-3 h-3 text-emerald-600 shrink-0" />
+                              )}
+                              {slot.title}
+                            </span>
+                            {slot.fee > 0 ? (
+                              <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1 py-0.5 rounded">
+                                +₹{slot.fee}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1 py-0.5 rounded">
+                                FREE
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-600 font-normal">
+                            {slot.timeWindow}
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-[10px]">
+                            <span className="text-slate-500">{slot.tag}</span>
+                            {isClosed && <span className="text-red-500 font-medium">Closed</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
             )}
@@ -350,6 +432,29 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           {/* Footer Bill & Checkout CTA */}
           {items.length > 0 && (
             <div className="p-4 border-t border-slate-200 bg-slate-50/70 space-y-3">
+              {/* Feature 15: FreshCart Wallet Pay Option */}
+              {walletBalance > 0 && (
+                <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50/70 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <div>
+                      <span className="block text-xs font-bold text-emerald-950">
+                        Pay with FreshCart Wallet
+                      </span>
+                      <span className="text-[10px] text-emerald-700">
+                        Available: ₹{walletBalance.toFixed(2)} (Instant 5% Cashback)
+                      </span>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={useWallet}
+                    onChange={(e) => setUseWallet(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded cursor-pointer accent-emerald-600"
+                  />
+                </div>
+              )}
+
               {/* Bill Details */}
               <div className="space-y-1.5 text-xs text-slate-600">
                 <div className="flex justify-between">
@@ -374,6 +479,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <span>Taxes (GST 5% - 18%)</span>
                   <span>₹{estimatedTax.toFixed(2)}</span>
                 </div>
+                {walletDeduction > 0 && (
+                  <div className="flex justify-between text-emerald-700 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Wallet className="w-3.5 h-3.5" />
+                      Wallet Balance Applied
+                    </span>
+                    <span>-₹{walletDeduction.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-sm text-slate-900">
                   <span>Grand Total</span>
                   <span>₹{grandTotal.toFixed(2)}</span>
@@ -384,7 +498,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <button
                 onClick={() =>
                   onCheckout(
-                    selectedSlot,
+                    activeSlot.title,
                     appliedCoupon || undefined,
                     selectedAddress || undefined
                   )

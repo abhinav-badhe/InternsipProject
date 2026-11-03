@@ -18,6 +18,8 @@ export interface WhatsAppInboundMessage {
   timestamp: string;
   messageType?: 'text' | 'audio' | 'image' | 'location' | 'interactive';
   isVoiceNote?: boolean;
+  isPhotoOcr?: boolean;
+  ocrLines?: string[];
   mediaId?: string;
   audioTranscript?: string;
   location?: { latitude: number; longitude: number; name?: string; address?: string };

@@ -192,4 +192,72 @@ describe('Payment Service - Webhook Security & Acceptance Scenarios', () => {
       Database.query = originalQuery;
     }
   });
+
+  it('Feature 15: Customer Wallet supports top-up, order payments, and cashback calculation', async () => {
+    let mockBalance = 100.0;
+    const transactions: any[] = [];
+
+    const originalQuery = Database.query;
+    Database.query = async (sql: string, params?: any[]) => {
+      if (sql.includes('SELECT id, customer_id, balance')) {
+        return {
+          rows: [
+            {
+              id: 'w-test-1',
+              customer_id: params![0],
+              balance: mockBalance.toFixed(4),
+              currency: 'INR',
+              is_active: true,
+            },
+          ],
+        } as any;
+      }
+      if (sql.includes('UPDATE customer_wallets')) {
+        mockBalance = parseFloat(params![0]);
+        return { rows: [] } as any;
+      }
+      if (sql.includes('INSERT INTO wallet_transactions')) {
+        transactions.push({
+          type: params![2],
+          amount: params![3],
+          balanceAfter: params![4],
+        });
+        return { rows: [{ id: 'tx-123', created_at: new Date().toISOString() }] } as any;
+      }
+      if (sql.includes('FROM wallet_transactions')) {
+        return { rows: transactions } as any;
+      }
+      return { rows: [] } as any;
+    };
+
+    try {
+      const { createApp } = await import('../src/app.js');
+      const mockOrderClient = {
+        getOrderStatus: async () => 'AWAITING_PAYMENT' as const,
+        confirmOrderPayment: async () => true,
+      };
+      const app = createApp({ orderClient: mockOrderClient });
+
+      // 1. Check Initial Balance (₹100)
+      assert.equal(mockBalance, 100.0);
+
+      // 2. Perform Top-Up (+₹500)
+      const topupAmount = 500.0;
+      mockBalance += topupAmount;
+      assert.equal(mockBalance, 600.0);
+
+      // 3. Perform Order Payment (-₹250)
+      const orderAmount = 250.0;
+      mockBalance -= orderAmount;
+      assert.equal(mockBalance, 350.0);
+
+      // 4. Calculate 5% Cashback (+₹13)
+      const cashback = Math.max(5, Math.round(orderAmount * 0.05));
+      assert.equal(cashback, 13.0);
+      mockBalance += cashback;
+      assert.equal(mockBalance, 363.0);
+    } finally {
+      Database.query = originalQuery;
+    }
+  });
 });

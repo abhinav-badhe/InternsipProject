@@ -99,6 +99,99 @@ export function createApp(deps?: {
     }
   });
 
+  // Feature 13: Scheduled Delivery Slots & Express Delivery
+  app.get('/api/v1/orders/delivery-slots', async (_req: Request, res: Response) => {
+    const correlationId = getRequestContext()?.correlationId || 'unknown';
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    const slots = [
+      {
+        id: 'express-15',
+        type: 'EXPRESS',
+        title: 'Express Rush',
+        timeWindow: '10 - 15 Mins',
+        tag: '⚡ 15-Min Delivery',
+        badgeColor: 'amber',
+        fee: 25,
+        available: true,
+        capacityStatus: 'HIGH_DEMAND',
+        description: 'Direct priority dispatch from nearest dark store',
+      },
+      {
+        id: 'express-30',
+        type: 'EXPRESS',
+        title: 'Standard Express',
+        timeWindow: '25 - 30 Mins',
+        tag: 'Free over ₹199',
+        badgeColor: 'emerald',
+        fee: 0,
+        available: true,
+        capacityStatus: 'OPTIMAL',
+        description: 'Fast eco-batched dispatch',
+      },
+      {
+        id: 'slot-today-evening',
+        type: 'SCHEDULED',
+        title: 'Today Evening',
+        timeWindow: '04:00 PM - 07:00 PM',
+        tag: 'Scheduled',
+        badgeColor: 'blue',
+        fee: 0,
+        available: currentHour < 18,
+        capacityStatus: currentHour < 18 ? 'AVAILABLE' : 'CLOSED',
+        description: 'Reserved evening delivery slot',
+      },
+      {
+        id: 'slot-today-night',
+        type: 'SCHEDULED',
+        title: 'Today Night',
+        timeWindow: '07:00 PM - 10:00 PM',
+        tag: 'Dinner Slot',
+        badgeColor: 'purple',
+        fee: 0,
+        available: currentHour < 21,
+        capacityStatus: currentHour < 21 ? 'AVAILABLE' : 'CLOSED',
+        description: 'Post-work convenience slot',
+      },
+      {
+        id: 'slot-tomorrow-morning',
+        type: 'SCHEDULED',
+        title: 'Tomorrow Morning',
+        timeWindow: '07:00 AM - 10:00 AM',
+        tag: 'Breakfast Fresh',
+        badgeColor: 'teal',
+        fee: 0,
+        available: true,
+        capacityStatus: 'AVAILABLE',
+        description: 'Fresh milk, bakery & farm produce',
+      },
+      {
+        id: 'slot-tomorrow-evening',
+        type: 'SCHEDULED',
+        title: 'Tomorrow Evening',
+        timeWindow: '04:00 PM - 07:00 PM',
+        tag: 'Tomorrow',
+        badgeColor: 'indigo',
+        fee: 0,
+        available: true,
+        capacityStatus: 'AVAILABLE',
+        description: 'Relaxed planned grocery restock',
+      },
+    ];
+
+    res.status(200).json(
+      okResponse(
+        {
+          currentTime: now.toISOString(),
+          expressAvailable: true,
+          slots,
+        },
+        correlationId
+      )
+    );
+  });
+
   // Checkout Saga Execution (Used by Storefront, REST callers, and WhatsApp)
   app.post(['/api/v1/orders/checkout', '/api/v1/orders'], async (req: Request, res: Response, next: NextFunction) => {
     try {
