@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, Phone, User, ShieldCheck, KeyRound, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
-import { signInCustomer, verifyCustomerMfa, registerCustomer, AuthSession } from '../api/client';
+import { X, Lock, Mail, Phone, User, ShieldCheck, KeyRound, ArrowRight, CheckCircle2, Sparkles, Smartphone, ChevronRight } from 'lucide-react';
+import {
+  signInCustomer,
+  verifyCustomerMfa,
+  registerCustomer,
+  sendCustomerPhoneOtp,
+  verifyCustomerPhoneOtp,
+  AuthSession,
+} from '../api/client';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -9,22 +16,34 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  // Login method: Mobile OTP (default) vs Password
+  const [authMode, setAuthMode] = useState<'phone_otp' | 'password'>('phone_otp');
   const [tab, setTab] = useState<'signin' | 'register'>('signin');
-  const [step, setStep] = useState<'credentials' | 'mfa'>('credentials');
+  const [step, setStep] = useState<'form' | 'verify_otp' | 'mfa'>('form');
 
-  // Form fields
+  // Customer Phone Login Fields
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [optionalEmail, setOptionalEmail] = useState('');
+  const [optionalName, setOptionalName] = useState('');
+
+  // Password Login Fields
   const [fullName, setFullName] = useState('');
   const [identifier, setIdentifier] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [passwordEmail, setPasswordEmail] = useState('');
+  const [passwordPhone, setPasswordPhone] = useState('');
   const [password, setPassword] = useState('');
   const [enableMfa, setEnableMfa] = useState(false);
+
+  // OTP Verification State
+  const [otpTicket, setOtpTicket] = useState('');
+  const [otpDestination, setOtpDestination] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [demoOtp, setDemoOtp] = useState<string | null>(null);
 
   // MFA State
   const [mfaTicket, setMfaTicket] = useState('');
   const [mfaDestination, setMfaDestination] = useState('');
   const [mfaOtp, setMfaOtp] = useState('');
-  const [demoOtp, setDemoOtp] = useState<string | null>(null);
 
   // Status
   const [isLoading, setIsLoading] = useState(false);
@@ -34,14 +53,78 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   if (!isOpen) return null;
 
   const resetState = () => {
-    setStep('credentials');
+    setStep('form');
     setErrorMessage(null);
     setSuccessMessage(null);
+    setOtpTicket('');
+    setOtpCode('');
+    setDemoOtp(null);
     setMfaTicket('');
     setMfaOtp('');
-    setDemoOtp(null);
   };
 
+  // 1. Send OTP to Mobile Number
+  const handleRequestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanNumber = mobileNumber.replace(/[^0-9]/g, '');
+    if (cleanNumber.length < 10) {
+      setErrorMessage('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const data = await sendCustomerPhoneOtp({
+        phone: cleanNumber,
+        email: optionalEmail.trim() || undefined,
+        fullName: optionalName.trim() || undefined,
+      });
+
+      setOtpTicket(data.ticket);
+      setOtpDestination(data.destination);
+      setDemoOtp(data.demoOtp || null);
+      setStep('verify_otp');
+      setSuccessMessage(`OTP sent to ${data.destination}!`);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to send OTP. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 2. Verify OTP and complete login
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCode || otpCode.length < 6) {
+      setErrorMessage('Please enter the complete 6-digit OTP code.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const session = await verifyCustomerPhoneOtp({
+        ticket: otpTicket,
+        otp: otpCode,
+      });
+
+      setSuccessMessage(`Welcome back, ${session.user.fullName || 'Customer'}! Logging in...`);
+      setTimeout(() => {
+        onSuccess(session);
+        onClose();
+        resetState();
+      }, 600);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Invalid or expired OTP code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 3. Password Sign In
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!identifier || !password) {
@@ -60,9 +143,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
         setDemoOtp(result.demoOtp || null);
         setStep('mfa');
       } else if (result.user && result.token) {
-        onSuccess({ user: result.user, token: result.token });
-        onClose();
-        resetState();
+        setSuccessMessage(`Welcome, ${result.user.fullName}!`);
+        setTimeout(() => {
+          onSuccess({ user: result.user!, token: result.token! });
+          onClose();
+          resetState();
+        }, 500);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Login failed. Please check credentials.');
@@ -71,9 +157,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
     }
   };
 
+  // 4. Password Registration
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !password || (!email && !phone)) {
+    if (!fullName || !password || (!passwordEmail && !passwordPhone)) {
       setErrorMessage('Full name, password, and at least an email or phone are required.');
       return;
     }
@@ -84,8 +171,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
     try {
       const session = await registerCustomer({
         fullName,
-        email: email || undefined,
-        phone: phone || undefined,
+        email: passwordEmail || undefined,
+        phone: passwordPhone || undefined,
         password,
         enableMfa,
       });
@@ -102,6 +189,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
     }
   };
 
+  // 5. MFA Verification
   const handleVerifyMfa = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mfaOtp || mfaOtp.length < 6) {
@@ -114,7 +202,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
 
     try {
       const session = await verifyCustomerMfa(mfaTicket, mfaOtp);
-      setSuccessMessage('Two-Factor Authentication verified!');
+      setSuccessMessage('Authentication verified!');
       setTimeout(() => {
         onSuccess(session);
         onClose();
@@ -153,53 +241,70 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
 
         {/* Modal Header */}
         <div className="text-center mb-5">
-          <div className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-[#007a55]/10 text-[#007a55] mb-2.5">
-            {step === 'mfa' ? <ShieldCheck className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#007a55]/10 text-[#007a55] mb-2.5">
+            {step === 'verify_otp' || step === 'mfa' ? (
+              <ShieldCheck className="w-6 h-6" />
+            ) : authMode === 'phone_otp' ? (
+              <Smartphone className="w-6 h-6" />
+            ) : (
+              <Lock className="w-6 h-6" />
+            )}
           </div>
-          <h3 className="text-lg font-bold text-gray-900 tracking-tight">
-            {step === 'mfa'
-              ? 'Multi-Factor Authentication (MFA)'
+          <h3 className="text-xl font-bold text-gray-900 tracking-tight">
+            {step === 'verify_otp'
+              ? 'Verify OTP'
+              : step === 'mfa'
+              ? 'Multi-Factor Verification'
+              : authMode === 'phone_otp'
+              ? 'Customer Mobile Login'
               : tab === 'signin'
-              ? 'Sign in to FreshCart'
+              ? 'Customer Sign In'
               : 'Create Customer Account'}
           </h3>
-          <p className="text-xs text-gray-500 mt-1">
-            {step === 'mfa'
-              ? `Enter the 6-digit security code sent to ${mfaDestination}`
-              : tab === 'signin'
-              ? 'Access your orders, fast 30-min checkout, and saved preferences'
-              : 'Join FreshCart for verified FEFO fresh groceries & WhatsApp sync'}
+          <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+            {step === 'verify_otp'
+              ? `Enter the 6-digit verification code sent to ${otpDestination}`
+              : step === 'mfa'
+              ? `Enter the 6-digit code sent to ${mfaDestination}`
+              : authMode === 'phone_otp'
+              ? 'Log in instantly via mobile number. Fast 10-second checkout & order tracking!'
+              : 'Access your orders, saved cart items, and quick checkout'}
           </p>
         </div>
 
-        {/* Tab Switcher (Only visible in credentials step) */}
-        {step === 'credentials' && (
+        {/* Primary Auth Mode Switcher */}
+        {step === 'form' && (
           <div className="flex rounded-lg bg-gray-100 p-1 mb-5 text-xs font-semibold">
             <button
               onClick={() => {
-                setTab('signin');
+                setAuthMode('phone_otp');
                 setErrorMessage(null);
+                setSuccessMessage(null);
               }}
-              className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer ${
-                tab === 'signin'
+              className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                authMode === 'phone_otp'
                   ? 'bg-white text-gray-900 shadow-2xs font-bold'
                   : 'text-gray-500 hover:text-gray-900'
               }`}
             >
-              Sign In
+              <Smartphone className="w-3.5 h-3.5 text-[#007a55]" />
+              <span>Mobile OTP</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-100 text-[#007a55] font-bold">Fast</span>
             </button>
             <button
               onClick={() => {
-                setTab('register');
+                setAuthMode('password');
                 setErrorMessage(null);
+                setSuccessMessage(null);
               }}
-              className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer ${
-                tab === 'register'
+              className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                authMode === 'password'
                   ? 'bg-white text-gray-900 shadow-2xs font-bold'
                   : 'text-gray-500 hover:text-gray-900'
               }`}
             >
-              Create Account
+              <Lock className="w-3.5 h-3.5 text-gray-500" />
+              <span>Email / Password</span>
             </button>
           </div>
         )}
@@ -217,9 +322,156 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           </div>
         )}
 
-        {/* STEP 1: CREDENTIALS */}
-        {step === 'credentials' && (
+        {/* ============================================================== */}
+        {/* MODE 1: MOBILE NUMBER LOGIN (OTP) - PRIMARY REQUESTED FEATURE */}
+        {/* ============================================================== */}
+        {authMode === 'phone_otp' && step === 'form' && (
+          <form onSubmit={handleRequestOtp} className="space-y-3.5">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Mobile Phone Number <span className="text-rose-500">*</span>
+              </label>
+              <div className="flex rounded-lg border border-gray-300 focus-within:ring-1 focus-within:ring-[#007a55] focus-within:border-[#007a55] overflow-hidden bg-white">
+                <span className="inline-flex items-center px-3 bg-gray-50 text-gray-600 text-xs font-bold border-r border-gray-200">
+                  🇮🇳 +91
+                </span>
+                <input
+                  type="tel"
+                  required
+                  autoFocus
+                  maxLength={10}
+                  placeholder="Enter 10-digit mobile number"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="w-full px-3 py-2 text-xs bg-white focus:outline-none font-medium"
+                />
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">We will send a 6-digit OTP code to verify your mobile number.</p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-gray-700">
+                  Email Address <span className="text-gray-400 font-normal">(Optional)</span>
+                </label>
+              </div>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  placeholder="e.g. name@example.com"
+                  value={optionalEmail}
+                  onChange={(e) => setOptionalEmail(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                />
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Optional — receive digital invoices and delivery receipts.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Your Name <span className="text-gray-400 font-normal">(Optional)</span>
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="e.g. Priya Sharma"
+                  value={optionalName}
+                  onChange={(e) => setOptionalName(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading || mobileNumber.length < 10}
+              className="w-full py-2.5 rounded-lg bg-[#007a55] hover:bg-[#006345] text-white text-xs font-semibold shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 mt-3"
+            >
+              {isLoading ? 'Sending Code...' : 'Continue with Mobile Number'}
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </form>
+        )}
+
+        {/* ============================================================== */}
+        {/* STEP: VERIFY MOBILE OTP */}
+        {/* ============================================================== */}
+        {step === 'verify_otp' && (
+          <form onSubmit={handleVerifyOtp} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5 text-center">
+                Enter 6-Digit OTP Code
+              </label>
+              <div className="relative max-w-[220px] mx-auto">
+                <KeyRound className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  maxLength={6}
+                  autoFocus
+                  required
+                  placeholder="123456"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="w-full pl-9 pr-3 py-2.5 text-center text-lg tracking-widest font-mono font-bold bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                />
+              </div>
+            </div>
+
+            {demoOtp && (
+              <div
+                onClick={() => setOtpCode(demoOtp)}
+                className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-center cursor-pointer hover:bg-emerald-100/70 transition-colors"
+                title="Click to auto-fill sandbox verification code"
+              >
+                <span className="text-[11px] text-emerald-800">
+                  Instant Test Code: <strong className="font-mono text-xs">{demoOtp}</strong> (Click to auto-fill)
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setStep('form')}
+                className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors cursor-pointer"
+              >
+                Change Number
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || otpCode.length < 6}
+                className="flex-1 py-2 rounded-lg bg-[#007a55] hover:bg-[#006345] text-white text-xs font-semibold shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isLoading ? 'Verifying...' : 'Verify & Log In'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ============================================================== */}
+        {/* MODE 2: EMAIL / PASSWORD */}
+        {/* ============================================================== */}
+        {authMode === 'password' && step === 'form' && (
           <>
+            <div className="flex rounded-md bg-gray-100 p-0.5 mb-4 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => { setTab('signin'); setErrorMessage(null); }}
+                className={`flex-1 py-1 rounded transition-all cursor-pointer ${tab === 'signin' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500'}`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTab('register'); setErrorMessage(null); }}
+                className={`flex-1 py-1 rounded transition-all cursor-pointer ${tab === 'register' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500'}`}
+              >
+                Create Account
+              </button>
+            </div>
+
             {tab === 'signin' ? (
               <form onSubmit={handleSignIn} className="space-y-3.5">
                 <div>
@@ -268,9 +520,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             ) : (
               <form onSubmit={handleRegister} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Full Name
-                  </label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Full Name</label>
                   <div className="relative">
                     <User className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
@@ -285,41 +535,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Email address
-                  </label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Email address</label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="email"
                       placeholder="priya@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      value={passwordEmail}
+                      onChange={(e) => setPasswordEmail(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Phone Number (for WhatsApp Orders)
-                  </label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Phone Number</label>
                   <div className="relative">
                     <Phone className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="tel"
                       placeholder="+919876543210"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      value={passwordPhone}
+                      onChange={(e) => setPasswordPhone(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Create Password
-                  </label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Password</label>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
@@ -331,24 +575,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                       className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
                     />
                   </div>
-                </div>
-
-                {/* MFA Option Checkbox */}
-                <div className="pt-2">
-                  <label className="flex items-start gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={enableMfa}
-                      onChange={(e) => setEnableMfa(e.target.checked)}
-                      className="w-4 h-4 mt-0.5 rounded border-gray-300 text-[#007a55] focus:ring-[#007a55] cursor-pointer"
-                    />
-                    <div className="text-xs text-gray-700">
-                      <span className="font-semibold block text-gray-900">Enable Two-Factor Authentication (MFA / 2FA)</span>
-                      <span className="text-[11px] text-gray-500">
-                        Requires a 6-digit verification code on sign in for enhanced protection.
-                      </span>
-                    </div>
-                  </label>
                 </div>
 
                 <button
@@ -364,7 +590,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           </>
         )}
 
-        {/* STEP 2: MFA OTP VERIFICATION */}
+        {/* ============================================================== */}
+        {/* STEP: PASSWORD 2FA / MFA CHALLENGE */}
+        {/* ============================================================== */}
         {step === 'mfa' && (
           <form onSubmit={handleVerifyMfa} className="space-y-4">
             <div>
@@ -397,7 +625,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             <div className="flex items-center gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setStep('credentials')}
+                onClick={() => setStep('form')}
                 className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors cursor-pointer"
               >
                 Back
@@ -412,8 +640,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             </div>
           </form>
         )}
+
+        {/* Footer: Shopkeeper / Store Admin Notice */}
+        <div className="mt-6 pt-4 border-t border-gray-100 text-center">
+          <p className="text-[11px] text-gray-500">
+            Store Owner or Shopkeeper?{' '}
+            <a
+              href="http://localhost:5174/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#007a55] font-semibold hover:underline inline-flex items-center gap-0.5"
+            >
+              <span>Access Seller Hub</span>
+              <ChevronRight className="w-3 h-3" />
+            </a>
+          </p>
+        </div>
       </div>
     </div>
   );
 };
-

@@ -190,7 +190,11 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-1 pl-1">
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-[#007a55] font-semibold">
                 <User className="w-3.5 h-3.5" />
-                <span className="max-w-[110px] truncate">{userSession.user.fullName.split(' ')[0]}</span>
+                <span className="max-w-[120px] truncate">
+                  {userSession.user.fullName && userSession.user.fullName !== 'Customer'
+                    ? userSession.user.fullName.split(' ')[0]
+                    : (userSession.user.phone || 'My Account')}
+                </span>
               </div>
               <button
                 onClick={onSignOut}

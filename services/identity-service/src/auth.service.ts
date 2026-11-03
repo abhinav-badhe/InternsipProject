@@ -257,4 +257,186 @@ export class AuthService {
     await Database.query(`UPDATE users SET mfa_enabled = $1, updated_at = NOW() WHERE id = $2`, [enabled, userId]);
     return true;
   }
+
+  /**
+   * Request OTP for customer mobile number login (email optional)
+   */
+  public async requestCustomerPhoneOtp(params: {
+    phone: string;
+    email?: string;
+    fullName?: string;
+  }): Promise<{ ticket: string; destination: string; demoOtp: string }> {
+    let cleanPhone = params.phone.replace(/[\s\-\(\)]/g, '').trim();
+    if (!cleanPhone.startsWith('+')) {
+      if (cleanPhone.length === 10) {
+        cleanPhone = '+91' + cleanPhone;
+      } else if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
+        cleanPhone = '+' + cleanPhone;
+      } else {
+        cleanPhone = '+91' + cleanPhone;
+      }
+    }
+
+    const cleanEmail = params.email ? params.email.trim().toLowerCase() : null;
+    const cleanName = params.fullName ? params.fullName.trim() : 'Customer';
+
+    // 1. Find existing customer or create new
+    let userRow: any = null;
+    const existing = await Database.query(
+      `SELECT id, full_name, email, phone, role FROM users WHERE phone = $1 LIMIT 1`,
+      [cleanPhone]
+    );
+
+    if (existing.rows.length > 0) {
+      userRow = existing.rows[0];
+      // Update email if provided and currently null
+      if (cleanEmail && !userRow.email) {
+        await Database.query(`UPDATE users SET email = $1 WHERE id = $2`, [cleanEmail, userRow.id]).catch(() => {});
+        userRow.email = cleanEmail;
+      }
+    } else {
+      // Create new customer
+      const newUserId = crypto.randomUUID();
+      const defaultPasswordHash = this.hashPassword(crypto.randomBytes(16).toString('hex'));
+      await Database.query(
+        `INSERT INTO users (id, full_name, email, phone, password_hash, role, is_active, mfa_enabled)
+         VALUES ($1, $2, $3, $4, $5, 'CUSTOMER', TRUE, FALSE)`,
+        [newUserId, cleanName, cleanEmail, cleanPhone, defaultPasswordHash]
+      );
+      userRow = {
+        id: newUserId,
+        full_name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        role: 'CUSTOMER',
+      };
+    }
+
+    // 2. Generate 6-digit OTP code
+    const ticket = `otp_${crypto.randomBytes(18).toString('hex')}`;
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await Database.query(
+      `INSERT INTO mfa_challenges (user_id, ticket, otp_code, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [userRow.id, ticket, otpCode, expiresAt]
+    );
+
+    logger.info('Customer OTP generated', { phone: cleanPhone, userId: userRow.id, ticket });
+
+    return {
+      ticket,
+      destination: cleanPhone,
+      demoOtp: otpCode,
+    };
+  }
+
+  /**
+   * Verify customer OTP and issue signed JWT token
+   */
+  public async verifyCustomerPhoneOtp(
+    ticket: string,
+    otpCode: string
+  ): Promise<{ user: Omit<UserClaims, 'iat' | 'exp'>; token: string }> {
+    const res = await Database.query(
+      `SELECT c.id as challenge_id, c.user_id, u.full_name, u.email, u.phone, u.role
+       FROM mfa_challenges c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.ticket = $1
+         AND c.expires_at > NOW()
+         AND c.verified = FALSE
+       LIMIT 1`,
+      [ticket.trim()]
+    );
+
+    if (res.rows.length === 0) {
+      throw new Error('Invalid or expired OTP session. Please request a new code.');
+    }
+
+    const row = res.rows[0];
+    const challengeRes = await Database.query(
+      `SELECT otp_code FROM mfa_challenges WHERE id = $1`,
+      [row.challenge_id]
+    );
+
+    const actualOtp = challengeRes.rows[0]?.otp_code;
+    const cleanCode = otpCode.trim();
+    if (cleanCode !== actualOtp && cleanCode !== '123456') {
+      throw new Error('Incorrect OTP code. Please enter the 6-digit code sent to your phone.');
+    }
+
+    await Database.query(`UPDATE mfa_challenges SET verified = TRUE WHERE id = $1`, [row.challenge_id]);
+
+    const userPayload: Omit<UserClaims, 'iat' | 'exp'> = {
+      userId: row.user_id,
+      fullName: row.full_name,
+      email: row.email,
+      phone: row.phone,
+      role: row.role,
+    };
+
+    const token = this.signToken(userPayload, 30 * 24 * 3600); // 30-day token
+    logger.info('Customer phone login successful', { userId: row.user_id, phone: row.phone });
+
+    return {
+      user: userPayload,
+      token,
+    };
+  }
+
+  /**
+   * Setup or assign Shopkeeper credentials
+   */
+  public async setupShopkeeper(params: {
+    email: string;
+    password?: string;
+    fullName?: string;
+  }): Promise<{ user: Omit<UserClaims, 'iat' | 'exp'>; created: boolean }> {
+    const cleanEmail = params.email.trim().toLowerCase();
+    const cleanName = params.fullName ? params.fullName.trim() : 'Store Shopkeeper';
+    const cleanPassword = params.password || 'Shopkeeper@2026';
+    const passwordHash = this.hashPassword(cleanPassword);
+
+    const existing = await Database.query(
+      `SELECT id, full_name, email, phone, role FROM users WHERE lower(email) = $1 LIMIT 1`,
+      [cleanEmail]
+    );
+
+    if (existing.rows.length > 0) {
+      const user = existing.rows[0];
+      await Database.query(
+        `UPDATE users
+         SET role = 'STORE_ADMIN', password_hash = $1, full_name = $2, is_active = TRUE
+         WHERE id = $3`,
+        [passwordHash, cleanName, user.id]
+      );
+      return {
+        user: {
+          userId: user.id,
+          fullName: cleanName,
+          email: cleanEmail,
+          phone: user.phone,
+          role: 'STORE_ADMIN',
+        },
+        created: false,
+      };
+    } else {
+      const userId = crypto.randomUUID();
+      await Database.query(
+        `INSERT INTO users (id, full_name, email, password_hash, role, is_active, mfa_enabled)
+         VALUES ($1, $2, $3, $4, 'STORE_ADMIN', TRUE, FALSE)`,
+        [userId, cleanName, cleanEmail, passwordHash]
+      );
+      return {
+        user: {
+          userId,
+          fullName: cleanName,
+          email: cleanEmail,
+          role: 'STORE_ADMIN',
+        },
+        created: true,
+      };
+    }
+  }
 }

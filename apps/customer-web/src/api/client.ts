@@ -92,6 +92,42 @@ export async function registerCustomer(params: {
   return cachedSession!;
 }
 
+export async function sendCustomerPhoneOtp(params: {
+  phone: string;
+  email?: string;
+  fullName?: string;
+}): Promise<{ ticket: string; destination: string; demoOtp: string }> {
+  const res = await fetch('/api/v1/auth/customer/send-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to send OTP to mobile number');
+  }
+  return json.data;
+}
+
+export async function verifyCustomerPhoneOtp(params: {
+  ticket: string;
+  otp: string;
+}): Promise<AuthSession> {
+  const res = await fetch('/api/v1/auth/customer/verify-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Invalid or expired OTP code');
+  }
+
+  cachedSession = json.data;
+  localStorage.setItem('grocery_customer_session', JSON.stringify(cachedSession));
+  return cachedSession!;
+}
+
 export function signOutCustomer(): void {
   cachedSession = null;
   localStorage.removeItem('grocery_customer_session');

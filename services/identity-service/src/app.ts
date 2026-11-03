@@ -146,6 +146,65 @@ export function createApp(): express.Application {
     }
   });
 
+  // Customer Phone Login - Request OTP (Email optional)
+  app.post('/api/v1/auth/customer/send-otp', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { phone, email, fullName } = req.body;
+
+      if (!phone) {
+        return res
+          .status(400)
+          .json(errorResponse('VALIDATION_ERROR', 'Mobile phone number is required', correlationId));
+      }
+
+      const result = await authService.requestCustomerPhoneOtp({ phone, email, fullName });
+      res.status(200).json(okResponse(result, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Customer Phone Login - Verify OTP & Issue Token
+  app.post('/api/v1/auth/customer/verify-otp', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { ticket, otp, code } = req.body;
+      const otpCode = otp || code;
+
+      if (!ticket || !otpCode) {
+        return res
+          .status(400)
+          .json(errorResponse('VALIDATION_ERROR', 'Ticket and 6-digit OTP code are required', correlationId));
+      }
+
+      const session = await authService.verifyCustomerPhoneOtp(ticket, String(otpCode));
+      res.status(200).json(okResponse(session, correlationId));
+    } catch (err: any) {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      res.status(401).json(errorResponse('INVALID_OTP', err.message || 'OTP verification failed', correlationId));
+    }
+  });
+
+  // Shopkeeper Setup & Assignment
+  app.post('/api/v1/auth/admin/setup-shopkeeper', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { email, password, fullName } = req.body;
+
+      if (!email) {
+        return res
+          .status(400)
+          .json(errorResponse('VALIDATION_ERROR', 'Shopkeeper email is required', correlationId));
+      }
+
+      const result = await authService.setupShopkeeper({ email, password, fullName });
+      res.status(200).json(okResponse(result, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Token Verification (Used by API Gateway)
   app.post('/api/v1/auth/verify-token', (req: Request, res: Response) => {
     const { token } = req.body;
