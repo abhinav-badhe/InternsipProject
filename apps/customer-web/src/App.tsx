@@ -102,6 +102,14 @@ export const App: React.FC = () => {
         console.info('[Storefront] Guest browsing active:', err?.message || err);
       });
 
+    const params = new URLSearchParams(window.location.search);
+    const payOrder = params.get('payOrder');
+    const amt = params.get('amt');
+    if (payOrder) {
+      showToast(`Payment requested for Order #${payOrder} (₹${amt || ''})`);
+      setIsOrdersOpen(true);
+    }
+
     return () => {
       isMounted = false;
     };
@@ -173,7 +181,7 @@ export const App: React.FC = () => {
       setOrders((prev) => [newOrder, ...prev]);
       setCartItems([]);
       setIsCartOpen(false);
-      showToast(`Order #${orderData.orderNumber} successfully placed! Reserved in database.`);
+      showToast(`Order #${orderData.orderNumber} placed! Payment options & amount sent to your WhatsApp.`);
     } catch (err: any) {
       showToast(`Checkout Error: ${err.message}`);
     } finally {

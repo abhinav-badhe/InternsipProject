@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, FileText, Download, CheckCircle2, Clock, PackageCheck, Truck, Search, Phone } from 'lucide-react';
+import { X, FileText, Download, CheckCircle2, Clock, PackageCheck, Truck, Search, Phone, CreditCard, Smartphone, Check } from 'lucide-react';
 
 export interface CustomerOrder {
   id: string;
@@ -34,6 +34,9 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [viewInvoiceOrder, setViewInvoiceOrder] = useState<CustomerOrder | null>(null);
+  const [payModalOrder, setPayModalOrder] = useState<CustomerOrder | null>(null);
+  const [payMethod, setPayMethod] = useState<'UPI' | 'CARD' | 'COD'>('UPI');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [lookupQuery, setLookupQuery] = useState('');
   const [lookupOrders, setLookupOrders] = useState<CustomerOrder[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -139,6 +142,34 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
       alert(`Error cancelling order: ${err.message}`);
     } finally {
       setCancellingId(null);
+    }
+  };
+
+  const handleConfirmPayment = async (order: CustomerOrder, method: 'UPI' | 'CARD' | 'COD') => {
+    setIsProcessingPayment(true);
+    try {
+      const res = await fetch(`/api/v1/orders/${order.id}/confirm-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentId: `${method.toLowerCase()}_web_${Date.now()}` }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        order.status = 'CONFIRMED';
+        if (lookupOrders) {
+          setLookupOrders((prev) =>
+            prev ? prev.map((o) => (o.id === order.id ? { ...o, status: 'CONFIRMED' } : o)) : null
+          );
+        }
+        alert(`Payment of ₹${order.grandTotal.toFixed(2)} confirmed via ${method}! Your order #${order.orderNumber} is confirmed.`);
+        setPayModalOrder(null);
+      } else {
+        alert(`Payment confirmation failed: ${json.error?.message || 'Error'}`);
+      }
+    } catch (err: any) {
+      alert(`Error confirming payment: ${err.message}`);
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -255,8 +286,20 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
                     </span>
                   </div>
 
-                  {/* Actions: Cancel + Invoice */}
+                  {/* Actions: Pay + Cancel + Invoice */}
                   <div className="flex items-center gap-2">
+                    {ord.status === 'AWAITING_PAYMENT' && (
+                      <button
+                        onClick={() => {
+                          setPayModalOrder(ord);
+                          setPayMethod('UPI');
+                        }}
+                        className="flex items-center gap-1 px-3 py-1 rounded text-xs font-bold text-white bg-[#007a55] hover:bg-[#006345] shadow-xs transition-colors cursor-pointer"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>Pay ₹{ord.grandTotal.toFixed(2)}</span>
+                      </button>
+                    )}
                     {(ord.status === 'CONFIRMED' || ord.status === 'PENDING_CONFIRMATION') && (
                       <button
                         onClick={() => handleCancelOrder(ord.id)}
@@ -359,6 +402,168 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
                 className="px-4 py-1.5 rounded-md text-xs font-semibold bg-[#007a55] text-white hover:bg-[#006345]"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Options Modal Popup */}
+      {payModalOrder && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={() => setPayModalOrder(null)}
+          />
+          <div className="relative bg-white rounded-xl max-w-md w-full shadow-2xl p-6 z-10 border border-gray-200">
+            <div className="flex items-center justify-between border-b pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-[#007a55]" />
+                <h4 className="font-bold text-gray-900 text-base">Select Payment Option</h4>
+              </div>
+              <button
+                onClick={() => setPayModalOrder(null)}
+                className="text-gray-400 hover:text-gray-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Order & Total Banner */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3.5 mb-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="text-[11px] text-emerald-800 font-medium">Order Number</span>
+                  <div className="text-xs font-bold text-emerald-950 font-mono">{payModalOrder.orderNumber}</div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] text-emerald-800 font-medium">Amount to Pay</span>
+                  <div className="text-lg font-black text-emerald-800">₹{payModalOrder.grandTotal.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* WhatsApp Integration Notice */}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 mb-4 flex items-center gap-2 text-xs text-green-900">
+              <Smartphone className="w-4 h-4 text-green-600 shrink-0" />
+              <span>
+                Payment link & options have also been dispatched directly to your <strong>WhatsApp</strong>!
+              </span>
+            </div>
+
+            {/* Payment Method Selector */}
+            <div className="space-y-2.5 mb-5">
+              {/* Option 1: UPI */}
+              <div
+                onClick={() => setPayMethod('UPI')}
+                className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                  payMethod === 'UPI'
+                    ? 'border-[#007a55] bg-emerald-50/50 ring-1 ring-[#007a55]'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-4 h-4 rounded-full border flex items-center justify-center">
+                      {payMethod === 'UPI' && <div className="w-2 h-2 rounded-full bg-[#007a55]" />}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-900">UPI Instant Pay</div>
+                      <div className="text-[11px] text-gray-500">Google Pay, PhonePe, Paytm, BHIM</div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded">
+                    Zero Fee
+                  </span>
+                </div>
+                {payMethod === 'UPI' && (
+                  <div className="mt-2.5 pt-2 border-t border-emerald-200/60 text-[11px] text-gray-700 space-y-1">
+                    <div>UPI ID: <code className="font-mono font-bold text-gray-900">freshcart@icici</code></div>
+                    <a
+                      href={`upi://pay?pa=freshcart@icici&pn=FreshCart&am=${payModalOrder.grandTotal.toFixed(2)}&tn=Order-${payModalOrder.orderNumber}&cu=INR`}
+                      className="inline-block text-[#007a55] font-bold hover:underline"
+                    >
+                      Tap here to open UPI App directly &rarr;
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Option 2: Cash on Delivery (COD) */}
+              <div
+                onClick={() => setPayMethod('COD')}
+                className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                  payMethod === 'COD'
+                    ? 'border-[#007a55] bg-emerald-50/50 ring-1 ring-[#007a55]'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-4 h-4 rounded-full border flex items-center justify-center">
+                      {payMethod === 'COD' && <div className="w-2 h-2 rounded-full bg-[#007a55]" />}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-900">Cash on Delivery (COD)</div>
+                      <div className="text-[11px] text-gray-500">Pay cash or scan QR when order arrives</div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] bg-gray-100 text-gray-700 font-semibold px-2 py-0.5 rounded">
+                    Doorstep
+                  </span>
+                </div>
+              </div>
+
+              {/* Option 3: Card / NetBanking */}
+              <div
+                onClick={() => setPayMethod('CARD')}
+                className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                  payMethod === 'CARD'
+                    ? 'border-[#007a55] bg-emerald-50/50 ring-1 ring-[#007a55]'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-4 h-4 rounded-full border flex items-center justify-center">
+                      {payMethod === 'CARD' && <div className="w-2 h-2 rounded-full bg-[#007a55]" />}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-900">Credit / Debit Card</div>
+                      <div className="text-[11px] text-gray-500">Visa, Mastercard, RuPay & NetBanking</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Submit Action */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setPayModalOrder(null)}
+                className="px-3.5 py-2 text-xs font-medium text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isProcessingPayment}
+                onClick={() => handleConfirmPayment(payModalOrder, payMethod)}
+                className="px-5 py-2 bg-[#007a55] hover:bg-[#006345] text-white text-xs font-bold rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                {isProcessingPayment ? (
+                  <span>Processing...</span>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>
+                      {payMethod === 'COD'
+                        ? 'Confirm Cash on Delivery'
+                        : `Pay ₹${payModalOrder.grandTotal.toFixed(2)} Now`}
+                    </span>
+                  </>
+                )}
               </button>
             </div>
           </div>

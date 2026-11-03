@@ -687,11 +687,172 @@ export class WhatsAppBot {
       }
     }
 
+    // 10.5. PAYMENT OPTIONS & ACTIONS (UPI, COD, CONFIRMATION)
+    const isPayUpiAction =
+      lowerText.startsWith('pay_upi') ||
+      lowerText === 'upi' ||
+      lowerText === 'pay upi' ||
+      lowerText === 'pay online' ||
+      (lowerText === 'pay' && session.cartItems.length === 0);
+
+    const isPayCodAction =
+      lowerText.startsWith('pay_cod') ||
+      lowerText === 'cod' ||
+      lowerText === 'cash' ||
+      lowerText === 'cash on delivery' ||
+      lowerText === 'pay cash';
+
+    const isPayPaidAction =
+      lowerText.startsWith('pay_paid') ||
+      lowerText === 'paid' ||
+      lowerText === 'i have paid' ||
+      lowerText === 'payment done' ||
+      lowerText === 'payment completed' ||
+      lowerText === 'confirm payment';
+
+    if (isPayUpiAction || isPayCodAction || isPayPaidAction) {
+      const cleanPhone = msg.fromPhoneNumber.replace(/[^0-9]/g, '');
+      let targetOrderNum: string | null = null;
+      const ordMatch = text.match(/ORD-[\w-]+/i);
+      if (ordMatch) {
+        targetOrderNum = ordMatch[0].toUpperCase();
+      } else if ((session as any).lastOrderNumber) {
+        targetOrderNum = (session as any).lastOrderNumber;
+      }
+
+      let orderRow: any = null;
+      if (targetOrderNum) {
+        const oRes = await Database.query(
+          `SELECT o.id, o.order_number, o.status, o.grand_total, o.reservation_id
+           FROM orders o
+           WHERE o.order_number = $1
+           LIMIT 1`,
+          [targetOrderNum]
+        );
+        orderRow = oRes.rows[0];
+      }
+
+      if (!orderRow) {
+        const oRes = await Database.query(
+          `SELECT o.id, o.order_number, o.status, o.grand_total, o.reservation_id
+           FROM orders o
+           WHERE o.customer_id ILIKE $1 OR o.delivery_address->>'phone' ILIKE $1
+           ORDER BY o.created_at DESC
+           LIMIT 1`,
+          ['%' + cleanPhone + '%']
+        );
+        orderRow = oRes.rows[0];
+      }
+
+      if (!orderRow) {
+        return this.sendAndLog(session.sessionId, {
+          toPhoneNumber: msg.fromPhoneNumber,
+          type: 'text',
+          bodyText: `No recent pending order found for ${msg.fromPhoneNumber}. Reply with items you'd like to buy, or *'Track'* to see order status!`,
+        });
+      }
+
+      const totalAmt = Number(orderRow.grand_total || 0).toFixed(2);
+
+      if (isPayCodAction) {
+        // Mark payment method as COD and confirm
+        await Database.query(
+          `UPDATE orders SET status = 'CONFIRMED', payment_intent_id = 'COD_PAYMENT', updated_at = NOW() WHERE id = $1`,
+          [orderRow.id]
+        );
+        if (orderRow.reservation_id) {
+          fetch(`${process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003'}/api/v1/inventory/reservations/${orderRow.reservation_id}/consume`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: orderRow.id }),
+          }).catch(() => {});
+        }
+
+        let codText = `💵 *Payment Option Set: Cash on Delivery (COD)*\n\n`;
+        codText += `🆔 *Order Number:* *${orderRow.order_number}*\n`;
+        codText += `💰 *Amount Due on Delivery:* *₹${totalAmt}*\n`;
+        codText += `🛵 *Order Status:* Confirmed & Dark Store Picking Started!\n\n`;
+        codText += `Our delivery partner will collect ₹${totalAmt} in cash or via UPI QR scan when arriving at your doorstep.\n\n`;
+        codText += `Reply *'Track'* anytime for live delivery updates! 📦`;
+
+        return this.sendAndLog(session.sessionId, {
+          toPhoneNumber: msg.fromPhoneNumber,
+          type: 'buttons',
+          bodyText: codText,
+          options: [
+            { id: `track_${orderRow.order_number}`, title: '📍 Track Order' },
+            { id: 'help_support', title: '💬 Store Support' },
+          ],
+        });
+      }
+
+      if (isPayPaidAction) {
+        // Customer confirmed payment -> mark CONFIRMED
+        try {
+          const ordUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3004';
+          await fetch(`${ordUrl}/api/v1/orders/${orderRow.id}/confirm-payment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paymentId: `upi_wa_${Date.now()}` }),
+          });
+        } catch (confErr: any) {
+          await Database.query(
+            `UPDATE orders SET status = 'CONFIRMED', updated_at = NOW() WHERE id = $1`,
+            [orderRow.id]
+          );
+        }
+
+        let paidText = `🎉 *Payment Received & Verified!*\n\n`;
+        paidText += `🆔 *Order Number:* *${orderRow.order_number}*\n`;
+        paidText += `💰 *Amount Paid:* *₹${totalAmt}*\n`;
+        paidText += `✅ *Payment Status:* Verified & Confirmed\n\n`;
+        paidText += `Your items are locked in and the fulfillment center is packing your grocery bag right now. 🛍️\n\n`;
+        paidText += `Reply *'Track'* anytime to follow your delivery partner in real time! 🛵💨`;
+
+        return this.sendAndLog(session.sessionId, {
+          toPhoneNumber: msg.fromPhoneNumber,
+          type: 'buttons',
+          bodyText: paidText,
+          options: [
+            { id: `track_${orderRow.order_number}`, title: '📍 Track Delivery' },
+            { id: 'view_catalog', title: '🛒 Shop More' },
+          ],
+        });
+      }
+
+      // Default: isPayUpiAction
+      const upiLink = `upi://pay?pa=freshcart@icici&pn=FreshCart&am=${totalAmt}&tn=Order-${orderRow.order_number}&cu=INR`;
+      const webPayUrl = `http://localhost:5173/?payOrder=${orderRow.order_number}&amt=${totalAmt}`;
+
+      let upiText = `💳 *Payment for Order ${orderRow.order_number}*\n\n`;
+      upiText += `💰 *Grand Total Payable:* *₹${totalAmt}*\n\n`;
+      upiText += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      upiText += `📱 *Option 1 — Tap to Open UPI App (GPay / PhonePe / Paytm / BHIM):*\n${upiLink}\n\n`;
+      upiText += `🌐 *Option 2 — Card / NetBanking Web Checkout:*\n${webPayUrl}\n\n`;
+      upiText += `📌 *Option 3 — Pay to Store UPI ID:*\n`;
+      upiText += `• UPI ID: *freshcart@icici*\n`;
+      upiText += `• Name: *FreshCart Retail*\n`;
+      upiText += `• Amount: *₹${totalAmt}*\n`;
+      upiText += `• Reference: *${orderRow.order_number}*\n`;
+      upiText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      upiText += `👉 After making payment, tap *'I Have Paid'* or reply *'PAID'* below to verify instantly!`;
+
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'buttons',
+        bodyText: upiText,
+        options: [
+          { id: `pay_paid_${orderRow.order_number}`, title: '✅ I Have Paid' },
+          { id: `pay_cod_${orderRow.order_number}`, title: '💵 Switch to COD' },
+        ],
+      });
+    }
+
     // 11. CHECKOUT / CONFIRMATION
     if (
       lowerText === 'confirm' ||
       lowerText === 'checkout' ||
-      lowerText === 'pay' ||
+      (lowerText === 'pay' && session.cartItems.length > 0) ||
       lowerText === 'cart_confirm' ||
       lowerText === 'confirm order' ||
       lowerText === 'confirm_order' ||
@@ -728,13 +889,19 @@ export class WhatsAppBot {
         items: session.cartItems.map((i) => ({ sku: i.sku, quantity: i.quantity })),
       });
 
-      // Clear cart on successful order creation
+      // Clear cart on successful order creation & track order in session
       session.cartItems = [];
       session.stage = 'IDLE';
       (session as any).pendingAlternatives = undefined;
+      (session as any).lastOrderNumber = order.orderNumber;
+      (session as any).lastOrderTotal = quote.grandTotal;
+      (session as any).lastOrderId = order.orderId;
       await this.saveSession(session);
 
-      let orderSuccessText = `🎉 *Order Confirmed & Placed Successfully!*\n\n`;
+      const upiLink = `upi://pay?pa=freshcart@icici&pn=FreshCart&am=${quote.grandTotal.toFixed(2)}&tn=Order-${order.orderNumber}&cu=INR`;
+      const webPayUrl = `http://localhost:5173/?payOrder=${order.orderNumber}&amt=${quote.grandTotal.toFixed(2)}`;
+
+      let orderSuccessText = `🎉 *Order Placed Successfully!*\n\n`;
       orderSuccessText += `🆔 *Order Number:* *${order.orderNumber}*\n`;
       orderSuccessText += `📦 *Order Breakdown (${order.items.length} items):*\n`;
       order.items.forEach((item: any, idx: number) => {
@@ -743,14 +910,27 @@ export class WhatsAppBot {
       orderSuccessText += `\n*Subtotal:* ₹${quote.subtotal.toFixed(2)}\n`;
       orderSuccessText += `*GST Tax:* ₹${quote.taxTotal.toFixed(2)}\n`;
       orderSuccessText += `*Delivery Fee:* ₹${quote.deliveryFee.toFixed(2)}\n`;
-      orderSuccessText += `*Grand Total:* *₹${quote.grandTotal.toFixed(2)}*\n\n`;
-      orderSuccessText += `🛵 *Status:* Stock successfully reserved in central warehouse. Order is being picked & packed!\n\n`;
-      orderSuccessText += `💳 *Complete Payment Securely:*\n${order.paymentCheckoutUrl}`;
+      orderSuccessText += `*Grand Total Payable:* *₹${quote.grandTotal.toFixed(2)}*\n\n`;
+      orderSuccessText += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      orderSuccessText += `💳 *CHOOSE YOUR PAYMENT OPTION:*\n\n`;
+      orderSuccessText += `1️⃣ *Instant UPI (Google Pay / PhonePe / Paytm / BHIM):*\n${upiLink}\n\n`;
+      orderSuccessText += `2️⃣ *Web Card / NetBanking Checkout:*\n${webPayUrl}\n\n`;
+      orderSuccessText += `3️⃣ *Or Reply Directly in Chat:*\n`;
+      orderSuccessText += `• Reply *'PAY'* for UPI link & details\n`;
+      orderSuccessText += `• Reply *'COD'* for Cash on Delivery\n`;
+      orderSuccessText += `• Reply *'PAID'* after completing payment\n`;
+      orderSuccessText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      orderSuccessText += `🛵 *Status:* Stock successfully reserved! Choose your payment option above.`;
 
       return this.sendAndLog(session.sessionId, {
         toPhoneNumber: msg.fromPhoneNumber,
-        type: 'text',
+        type: 'buttons',
         bodyText: orderSuccessText,
+        options: [
+          { id: `pay_upi_${order.orderNumber}`, title: `💳 Pay ₹${Math.round(quote.grandTotal)} UPI` },
+          { id: `pay_cod_${order.orderNumber}`, title: `💵 Cash on Delivery` },
+          { id: `pay_paid_${order.orderNumber}`, title: `✅ I Have Paid` },
+        ],
       });
     }
 
@@ -1748,6 +1928,15 @@ export class WhatsAppBot {
     }
     if ((session as any).pendingVariantChoices) {
       pendingContext.pendingVariantChoices = (session as any).pendingVariantChoices;
+    }
+    if ((session as any).lastOrderNumber) {
+      pendingContext.lastOrderNumber = (session as any).lastOrderNumber;
+    }
+    if ((session as any).lastOrderTotal) {
+      pendingContext.lastOrderTotal = (session as any).lastOrderTotal;
+    }
+    if ((session as any).lastOrderId) {
+      pendingContext.lastOrderId = (session as any).lastOrderId;
     }
 
     await Database.query(

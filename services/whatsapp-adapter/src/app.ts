@@ -266,7 +266,7 @@ export function createApp(deps?: {
   const chatHandler = async (req: Request, res: Response) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';
     const message = req.body?.message ?? req.body?.text ?? '';
-    const phoneNumber = req.body?.phoneNumber || req.body?.fromPhone || '+919876543210';
+    const phoneNumber = req.body?.phoneNumber || req.body?.fromPhone || req.body?.fromPhoneNumber || '+919876543210';
     const messageId = req.body?.messageId || `sim_msg_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     try {
@@ -396,22 +396,48 @@ export function createApp(deps?: {
   });
 
   // Proactive Outbound Message Dispatch API (for notifications & system alerts)
-  app.post('/api/v1/whatsapp/messages/send', async (req: Request, res: Response) => {
+  app.post(['/api/v1/whatsapp/messages/send', '/api/v1/whatsapp/dispatch'], async (req: Request, res: Response) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';
-    const { toPhone, bodyText, type, options, templateName } = req.body;
+    const rawPhone = req.body.toPhone || req.body.toPhoneNumber || req.body.phone || req.body.recipientAddress;
+    const bodyText = req.body.bodyText || req.body.text || req.body.message;
+    const type = req.body.type;
+    const options = req.body.options || req.body.buttons;
+    const templateName = req.body.templateName;
 
-    if (!toPhone) {
-      return res.status(400).json(errorResponse('VALIDATION_ERROR', 'Missing toPhone', correlationId));
+    if (!rawPhone) {
+      return res.status(400).json(errorResponse('VALIDATION_ERROR', 'Missing toPhone / phone', correlationId));
     }
+
+    const cleanPhone = String(rawPhone).startsWith('+') ? String(rawPhone) : `+${String(rawPhone).replace(/[^0-9]/g, '')}`;
 
     try {
       let dispatchResult;
       if (type === 'template' && templateName) {
-        dispatchResult = await metaClient.sendTemplateMessage(toPhone, templateName, 'en', options);
-      } else if (type === 'buttons' && options && options.length > 0) {
-        dispatchResult = await metaClient.sendInteractiveButtons(toPhone, bodyText || '', options);
+        dispatchResult = await metaClient.sendTemplateMessage(cleanPhone, templateName, 'en', options);
+      } else if ((type === 'buttons' || Array.isArray(options)) && options && options.length > 0) {
+        dispatchResult = await metaClient.sendInteractiveButtons(cleanPhone, bodyText || '', options);
       } else {
-        dispatchResult = await metaClient.sendTextMessage(toPhone, bodyText || '');
+        dispatchResult = await metaClient.sendTextMessage(cleanPhone, bodyText || '');
+      }
+
+      // Log outbound message to conversation history & session
+      try {
+        const session = await bot.getOrCreateSession(cleanPhone);
+        await (bot as any).logConversation(
+          session.sessionId,
+          'OUTBOUND',
+          options && options.length > 0 ? 'interactive' : 'text',
+          bodyText || '',
+          { correlationId, options }
+        );
+        // Also extract order number if present in text and link to session
+        const orderMatch = (bodyText || '').match(/ORD-[\w-]+/i);
+        if (orderMatch) {
+          (session as any).lastOrderNumber = orderMatch[0].toUpperCase();
+          await (bot as any).saveSession(session);
+        }
+      } catch (logErr: any) {
+        logger.warn('Failed to log outbound dispatch to conversation history', { error: logErr.message });
       }
 
       return res.status(200).json(okResponse(dispatchResult, correlationId));

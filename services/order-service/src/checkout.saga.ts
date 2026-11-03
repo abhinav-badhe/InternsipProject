@@ -194,6 +194,57 @@ export class CheckoutSagaOrchestrator {
       await client.query('COMMIT');
       logger.info('Checkout saga completed successfully', { orderId, orderNumber });
 
+      // Multi-channel notification: Dispatch WhatsApp payment options & total to customer
+      try {
+        const phone =
+          (req.deliveryAddress as any)?.phone ||
+          (req.customerId?.startsWith('phone_') ? req.customerId.replace('phone_', '') : null) ||
+          (req.customerId?.startsWith('+') ? req.customerId : null);
+
+        if (phone) {
+          const cleanPhone = String(phone).startsWith('+') ? String(phone) : `+${String(phone).replace(/[^0-9]/g, '')}`;
+          const upiLink = `upi://pay?pa=freshcart@icici&pn=FreshCart&am=${quote.grandTotal.toFixed(2)}&tn=Order-${orderNumber}&cu=INR`;
+          const webPayUrl = `http://localhost:5173/?payOrder=${orderNumber}&amt=${quote.grandTotal.toFixed(2)}`;
+
+          let waPaymentText = `🛍️ *FreshCart Order Placed — Payment Options*\n\n`;
+          waPaymentText += `Hello ${(req.deliveryAddress as any)?.recipientName || 'Valued Customer'},\n`;
+          waPaymentText += `Your order *${orderNumber}* has been placed and stock is reserved!\n\n`;
+          waPaymentText += `🆔 *Order Number:* *${orderNumber}*\n`;
+          waPaymentText += `📦 *Items:* ${quote.items.map(i => `${i.productName} × ${i.quantity}`).slice(0, 3).join(', ')}${quote.items.length > 3 ? ` (+${quote.items.length - 3} more)` : ''}\n`;
+          waPaymentText += `💰 *Grand Total Payable:* *₹${quote.grandTotal.toFixed(2)}*\n\n`;
+          waPaymentText += `━━━━━━━━━━━━━━━━━━━━━\n`;
+          waPaymentText += `💳 *CHOOSE YOUR PAYMENT OPTION:*\n\n`;
+          waPaymentText += `1️⃣ *Instant UPI Payment (GPay / PhonePe / Paytm / BHIM):*\n${upiLink}\n\n`;
+          waPaymentText += `2️⃣ *Web Card / NetBanking Checkout:*\n${webPayUrl}\n\n`;
+          waPaymentText += `3️⃣ *Or Simply Reply in WhatsApp:*\n`;
+          waPaymentText += `• Reply *'PAY'* for UPI Payment details\n`;
+          waPaymentText += `• Reply *'COD'* to choose Cash on Delivery\n`;
+          waPaymentText += `• Reply *'PAID'* after completing payment\n`;
+          waPaymentText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+          waPaymentText += `🛵 Stock is reserved for your order. Thank you for choosing FreshCart!`;
+
+          const waAdapterUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waAdapterUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: cleanPhone,
+              bodyText: waPaymentText,
+              type: 'buttons',
+              options: [
+                { id: `pay_upi_${orderNumber}`, title: `💳 Pay ₹${Math.round(quote.grandTotal)} UPI` },
+                { id: `pay_cod_${orderNumber}`, title: `💵 Cash on Delivery` },
+                { id: `pay_paid_${orderNumber}`, title: `✅ I Have Paid` },
+              ],
+            }),
+          }).catch((dispErr: any) => {
+            logger.warn('WhatsApp checkout payment dispatch notice', { error: dispErr.message, phone: cleanPhone });
+          });
+        }
+      } catch (notifErr: any) {
+        logger.warn('Failed to trigger WhatsApp order payment notification', { error: notifErr.message });
+      }
+
       return {
         orderId,
         orderNumber,

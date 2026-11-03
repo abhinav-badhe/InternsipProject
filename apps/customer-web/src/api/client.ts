@@ -349,6 +349,8 @@ export async function executeRealCheckout(params: {
       customerId: session.user.userId,
       channel: 'WEB',
       deliveryAddress: {
+        recipientName: session.user.fullName || 'Valued Customer',
+        phone: session.user.phone || '+917774094369',
         street: '12th Main Road, HSR Sector 2',
         city: 'Bengaluru',
         pincode: '560102',
