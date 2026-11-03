@@ -871,3 +871,143 @@ export async function cancelSubscription(id: string): Promise<void> {
     },
   });
 }
+
+// ====================================================================
+// Feature 21: Real Payment Gateway (Razorpay / UPI QR / PhonePe)
+// ====================================================================
+
+export interface GatewayOrderDetails {
+  success: boolean;
+  provider: string;
+  keyId: string;
+  razorpayOrderId: string;
+  amountInPaise: number;
+  amount: number;
+  currency: string;
+  customerName: string;
+  customerPhone: string;
+  upiString: string;
+  upiQrUrl: string;
+  paymentAttemptId: string;
+}
+
+export async function initiateGatewayOrder(
+  orderId: string,
+  amount: number
+): Promise<GatewayOrderDetails> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/payments/gateway/order', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify({
+      orderId,
+      amount,
+      customerId: session.user.userId,
+      customerName: session.user.fullName,
+      customerPhone: session.user.phone || '+91 98765 43210',
+    }),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to initialize payment gateway order');
+  }
+  return json.data;
+}
+
+export async function verifyGatewayPayment(params: {
+  orderId: string;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature?: string;
+}): Promise<{ success: boolean; message: string; paymentId: string }> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/payments/gateway/verify', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Payment verification failed');
+  }
+  return json.data;
+}
+
+// ====================================================================
+// Feature 22: Split Payments (Wallet + UPI / Gateway)
+// ====================================================================
+
+export interface SplitPaymentInitiateResult {
+  success: boolean;
+  splitId: string;
+  orderId: string;
+  totalAmount: number;
+  walletAmount: number;
+  gatewayAmount: number;
+  status: string;
+  walletTransactionId?: string;
+  gateway?: {
+    provider: string;
+    keyId: string;
+    gatewayOrderId: string;
+    amountInPaise: number;
+    upiString: string;
+    upiQrUrl: string;
+  };
+}
+
+export async function initiateSplitPayment(params: {
+  orderId: string;
+  totalAmount: number;
+  walletAmount: number;
+  gatewayAmount: number;
+}): Promise<SplitPaymentInitiateResult> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/payments/split/initiate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify({
+      ...params,
+      customerId: session.user.userId,
+    }),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to initiate split payment');
+  }
+  return json.data;
+}
+
+export async function confirmSplitPayment(params: {
+  splitId: string;
+  gatewayPaymentId: string;
+  gatewaySignature?: string;
+}): Promise<any> {
+  const session = await getCustomerSession();
+  const res = await fetch('/api/v1/payments/split/confirm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      'x-user-id': session.user.userId,
+    },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to confirm split payment');
+  }
+  return json.data;
+}

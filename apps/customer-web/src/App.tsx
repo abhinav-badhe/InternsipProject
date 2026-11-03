@@ -9,6 +9,7 @@ import { AuthModal } from './components/AuthModal';
 import { WalletModal } from './components/WalletModal';
 import { ReferralModal } from './components/ReferralModal';
 import { SubscriptionModal } from './components/SubscriptionModal';
+import { PaymentGatewayModal } from './components/PaymentGatewayModal';
 import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
 import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
 import {
@@ -56,6 +57,9 @@ export const App: React.FC = () => {
 
   // Feature 16: Daily Subscriptions Modal State
   const [isSubscriptionsOpen, setIsSubscriptionsOpen] = useState(false);
+
+  // Feature 21 & Feature 22: Payment Gateway & Split Payment Modal State
+  const [selectedPaymentOrder, setSelectedPaymentOrder] = useState<CustomerOrder | null>(null);
 
   // Authentication & MFA State
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -207,7 +211,12 @@ export const App: React.FC = () => {
       setOrders((prev) => [newOrder, ...prev]);
       setCartItems([]);
       setIsCartOpen(false);
-      showToast(`Order #${orderData.orderNumber} placed! Payment options & amount sent to your WhatsApp.`);
+
+      if (orderData.grandTotal > 0 && orderData.status !== 'CONFIRMED') {
+        setSelectedPaymentOrder(newOrder);
+      } else {
+        showToast(`Order #${orderData.orderNumber} placed! Payment options & amount sent to your WhatsApp.`);
+      }
     } catch (err: any) {
       showToast(`Checkout Error: ${err.message}`);
     } finally {
@@ -596,7 +605,27 @@ export const App: React.FC = () => {
         isOpen={isOrdersOpen}
         onClose={() => setIsOrdersOpen(false)}
         orders={orders}
+        walletBalance={walletBalance}
       />
+
+      {/* Feature 21 & Feature 22: Live Payment Gateway & Split Payment Modal */}
+      {selectedPaymentOrder && (
+        <PaymentGatewayModal
+          isOpen={Boolean(selectedPaymentOrder)}
+          onClose={() => setSelectedPaymentOrder(null)}
+          orderId={selectedPaymentOrder.id}
+          orderNumber={selectedPaymentOrder.orderNumber}
+          totalAmount={selectedPaymentOrder.grandTotal}
+          walletBalance={walletBalance}
+          onPaymentSuccess={(paymentId) => {
+            setOrders((prev) =>
+              prev.map((o) => (o.id === selectedPaymentOrder.id ? { ...o, status: 'CONFIRMED' } : o))
+            );
+            fetchCustomerWallet().then((w) => setWalletBalance(w.balance)).catch(() => {});
+            showToast(`🎉 Payment Confirmed! Order #${selectedPaymentOrder.orderNumber} is packing at dark store.`);
+          }}
+        />
+      )}
 
       {/* Sign In / Register / MFA Modal */}
       <AuthModal

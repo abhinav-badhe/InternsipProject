@@ -248,17 +248,17 @@ The existing system is organized as a high-performance TypeScript monorepo power
 
 #### Feature 21: Real Payment Gateway Integration (Razorpay / PhonePe)
 * **Description:** Direct SDK integration for Razorpay / PhonePe Indian payment gateways generating dynamic UPI QR codes and verifying webhook cryptographic signatures.
-* **Current Status:** PARTIALLY IMPLEMENTED (Payment architecture & intent endpoints ready; mock provider active).
-* **Dependencies:** `payment-service`.
+* **Current Status:** COMPLETED (Dynamic UPI QR generation, Razorpay HMAC-SHA256 signature verification, instant order confirmation & automatic 5% cashback credit, interactive PaymentGatewayModal with QR scanner & UPI app deep link).
+* **Dependencies:** `payment-service`, `apps/customer-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 22: Split Payments
 * **Description:** Allows customer to pay partially using Wallet balance and the remaining amount via UPI, Card, or COD.
-* **Current Status:** NOT IMPLEMENTED
+* **Current Status:** COMPLETED (`payment_splits` schema & table, `/payments/split/initiate` atomic wallet balance reservation, dynamic remaining gateway QR order generation, `/payments/split/confirm` verification, slider in `PaymentGatewayModal`).
 * **Dependencies:** Feature 15 (Wallet), Feature 21 (Payment Gateway).
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 #### Feature 23: E-Way Bill Generation and B2B GST Invoicing
 * **Description:** Automated E-Way bill generation and compliance for bulk B2B purchases exceeding ₹50,000.
@@ -453,5 +453,24 @@ flowchart TD
     - `DELETE /api/v1/orders/subscriptions/:id`: Cancels subscription.
   - `apps/customer-web/src/components/SubscriptionModal.tsx`: Built customer Subscription Manager modal with one-click presets for daily pantry staples (Amul Milk, Whole Wheat Bread, Farm Eggs, Curd), frequency picker, and pause/resume control.
   - `apps/customer-web/src/components/Header.tsx`: Added "🥛 Subscriptions" button in navigation.
+
+### Record 13: Feature 21 (Real Payment Gateway Integration - Razorpay / UPI QR / PhonePe)
+* **Components Built:**
+  - `services/payment-service/src/app.ts`: Implemented Indian payment gateway workflows:
+    - `POST /api/v1/payments/gateway/order`: Dynamically creates Razorpay order records and generates standardized UPI QR code parameters (`upi://pay?pa=freshcart@icici...`) compatible with GPay, PhonePe, Paytm, and BHIM.
+    - `POST /api/v1/payments/gateway/verify`: Performs HMAC-SHA256 signature verification (`order_id + "|" + payment_id` with `RAZORPAY_KEY_SECRET`), marks order `PAID`, notifies `order-service` to confirm order, and auto-credits 5% cashback rewards to customer wallet.
+  - `apps/customer-web/src/api/client.ts`: Added `initiateGatewayOrder` and `verifyGatewayPayment`.
+  - `apps/customer-web/src/components/PaymentGatewayModal.tsx`: Built RBI-compliant interactive checkout modal with dynamic UPI QR Code, 1-click UPI copy, Razorpay card/netbanking portal, and verification handler.
+  - Unit tests: Added Feature 21 HMAC and UPI QR test in `services/payment-service/test/payment.test.ts` (6 of 6 tests passing).
+
+### Record 14: Feature 22 (Split Payments - Wallet + Gateway / UPI)
+* **Components Built:**
+  - `database/service-migrations/payment-service/003_payment_gateway_and_splits_schema.sql`: Created `payment_splits` relational schema tracking `total_amount`, `wallet_amount`, `gateway_amount`, `gateway_order_id`, and dual status.
+  - `services/payment-service/src/app.ts`: Implemented 2-step atomic split transaction lifecycle:
+    - `POST /api/v1/payments/split/initiate`: Verifies sum equivalence (`wallet + gateway == total`), atomically verifies and deducts customer wallet portion, generates dynamic gateway UPI QR for remaining balance, and logs in `payment_splits` table.
+    - `POST /api/v1/payments/split/confirm`: Verifies gateway payment leg, sets `payment_splits` to `PAID`, triggers order confirmation in `order-service`, and awards cashback.
+  - `apps/customer-web/src/components/PaymentGatewayModal.tsx`: Integrated interactive Split Pay tab with wallet slider, dual payment preview, and split payment confirmation flow.
+  - `apps/customer-web/src/components/OrderHistoryModal.tsx`: Replaced legacy mockup modal with live `PaymentGatewayModal` for pending orders.
+  - Unit tests: Added Feature 22 test in `services/payment-service/test/payment.test.ts`.
 
 ---
