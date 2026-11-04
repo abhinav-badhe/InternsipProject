@@ -17,7 +17,7 @@ import {
   Tag,
   MapPin,
 } from 'lucide-react';
-import { scanPickItemBarcode, fetchOrderPickList } from '../api/adminClient';
+import { scanPickItemBarcode, fetchOrderPickList, markOrderReadyForDelivery } from '../api/adminClient';
 
 interface BarcodePickPackScannerProps {
   ordersInPicking: Array<{ orderNumber: string; id?: string }>;
@@ -51,6 +51,8 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
 
   // Final Bag Packing state
   const [completedBagCode, setCompletedBagCode] = useState<string | null>(null);
+  const [isMarkingReady, setIsMarkingReady] = useState(false);
+  const [isReadyForDelivery, setIsReadyForDelivery] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -78,6 +80,7 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
     setIsLoadingOrder(true);
     setLastScanResult(null);
     setCompletedBagCode(null);
+    setIsReadyForDelivery(false);
     try {
       const data = await fetchOrderPickList(orderNum);
       setPickListData(data);
@@ -88,6 +91,33 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
       console.error('Failed to load pick list', err);
     } finally {
       setIsLoadingOrder(false);
+    }
+  };
+
+  const handleMarkReadyForDelivery = async () => {
+    const orderId =
+      pickListData?.orderId ||
+      pickListData?.pickList?.order_id ||
+      ordersInPicking.find((o) => o.orderNumber === selectedOrderNumber)?.id;
+
+    if (!orderId) {
+      alert(`Could not resolve orderId for ${selectedOrderNumber}. Please check order details.`);
+      return;
+    }
+
+    try {
+      setIsMarkingReady(true);
+      await markOrderReadyForDelivery(orderId);
+      setIsReadyForDelivery(true);
+      if (onSwitchToFleet) {
+        setTimeout(() => {
+          onSwitchToFleet();
+        }, 1200);
+      }
+    } catch (err: any) {
+      alert(`Failed to broadcast order to delivery partners: ${err.message}`);
+    } finally {
+      setIsMarkingReady(false);
     }
   };
 
@@ -450,7 +480,22 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    onClick={handleMarkReadyForDelivery}
+                    disabled={isMarkingReady || isReadyForDelivery}
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                  >
+                    {isMarkingReady ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : isReadyForDelivery ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                    ) : (
+                      <Bike className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isReadyForDelivery ? 'Ready & Broadcasted!' : '🚀 Mark Ready for Delivery'}</span>
+                  </button>
+
                   <button
                     onClick={() => window.print()}
                     className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-xs font-bold text-[#007a55] hover:bg-emerald-100 flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -461,10 +506,10 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
                   {onSwitchToFleet && (
                     <button
                       onClick={onSwitchToFleet}
-                      className="px-3.5 py-1.5 rounded-lg bg-[#007a55] hover:bg-[#006345] text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-xs"
                     >
                       <Bike className="w-3.5 h-3.5" />
-                      <span>Rider Fleet</span>
+                      <span>Deliveries</span>
                     </button>
                   )}
                 </div>

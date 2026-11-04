@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk, ChefHat, MapPin, ChevronDown } from 'lucide-react';
+import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk, ChefHat, MapPin, ChevronDown, Bike } from 'lucide-react';
 import { AuthSession, CustomerSavedAddress } from '../api/client';
 
 interface HeaderProps {
@@ -258,6 +258,16 @@ export const Header: React.FC<HeaderProps> = ({
             <Gift className="w-3.5 h-3.5 text-amber-600" />
             <span>Refer & Earn</span>
           </button>
+
+          {/* Delivery Partner Portal Link */}
+          <a
+            href="/delivery/login"
+            className="hidden xl:flex items-center gap-1.5 text-xs text-emerald-800 hover:text-emerald-950 font-bold px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
+            title="Open Dedicated Delivery Partner Portal"
+          >
+            <Bike className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Partner Portal</span>
+          </a>
 
           {/* User Account / Sign In */}
           {userSession ? (

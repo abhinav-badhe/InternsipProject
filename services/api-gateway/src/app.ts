@@ -91,6 +91,10 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
       'x-correlation-id': correlationId,
     };
 
+    if (req.headers.authorization) {
+      headers['authorization'] = req.headers.authorization as string;
+    }
+
     if (req.user) {
       headers['x-user-id'] = req.user.userId;
       headers['x-user-role'] = req.user.role;
@@ -126,7 +130,26 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
       });
 
       const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
+      if (contentType.includes('text/event-stream') && response.body) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.status(response.status);
+        const reader = response.body.getReader();
+        const pump = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(value);
+            }
+          } catch {} finally {
+            res.end();
+          }
+        };
+        return pump();
+      } else if (contentType.includes('application/json')) {
         const responseBody = await response.json();
         return res.status(response.status).json(responseBody);
       } else {
@@ -264,7 +287,21 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   app.use(
     '/api/v1/fulfillment*',
     (req: Request, res: Response, next: NextFunction) => {
-      if (req.headers.authorization) {
+      const authHeader = (req.headers.authorization || '') as string;
+      if (authHeader.startsWith('Bearer dp_token_')) {
+        const parts = authHeader.replace('Bearer dp_token_', '').split('_');
+        const riderId = parts[0];
+        req.user = {
+          userId: riderId,
+          role: 'DRIVER' as any,
+          email: '',
+          fullName: 'Delivery Partner',
+          exp: Math.floor(Date.now() / 1000) + 86400,
+        };
+        return forwardRequest(urls.fulfillment, req, res);
+      }
+
+      if (authHeader) {
         return authMiddleware.authenticate(req, res, () => {
           forwardRequest(urls.fulfillment, req, res);
         });

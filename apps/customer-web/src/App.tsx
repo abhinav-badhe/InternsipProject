@@ -12,6 +12,7 @@ import { SubscriptionModal } from './components/SubscriptionModal';
 import { PaymentGatewayModal } from './components/PaymentGatewayModal';
 import { RecipeBundlesModal } from './components/RecipeBundlesModal';
 import { AddressSelectorModal } from './components/AddressSelectorModal';
+import { DeliveryPartnerApp } from './components/DeliveryPartnerApp';
 import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
 import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
 import {
@@ -29,6 +30,23 @@ import {
 } from './api/client';
 
 export const App: React.FC = () => {
+  // 1. Dedicated Delivery Partner Route Guard & App Isolation
+  const [currentPath, setCurrentPath] = useState<string>(
+    typeof window !== 'undefined' ? window.location.pathname : '/'
+  );
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  if (currentPath.startsWith('/delivery')) {
+    return <DeliveryPartnerApp />;
+  }
+
   const [viewMode, setViewMode] = useState<'home' | 'browse'>('home');
   const [selectedCategoryId, setSelectedCategoryId] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');

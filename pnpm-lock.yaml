@@ -79,6 +79,9 @@ importers:
       '@grocery/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      leaflet:
+        specifier: ^1.9.4
+        version: 1.9.4
       lucide-react:
         specifier: ^1.16.0
         version: 1.62.0(@types/react@19.3.0)(react@19.3.1)
@@ -92,6 +95,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.0.0
         version: 4.3.3(vite@6.4.5(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.15))
+      '@types/leaflet':
+        specifier: ^1.9.22
+        version: 1.9.22
       '@types/react':
         specifier: ^19.0.0
         version: 19.3.0

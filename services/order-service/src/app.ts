@@ -836,7 +836,12 @@ export function createApp(deps?: {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
       // Map alias status strings to DB enum
+      let isReadyForDelivery = false;
       if (status === 'OUT_FOR_DELIVERY') status = 'DISPATCHED';
+      if (status === 'READY_FOR_DELIVERY' || status === 'READY_FOR_PICKUP' || status === 'PACKED') {
+        status = 'PACKED';
+        isReadyForDelivery = true;
+      }
 
       const validStatuses = [
         'PENDING_CONFIRMATION',
@@ -872,10 +877,23 @@ export function createApp(deps?: {
       // Update order status in PostgreSQL
       await Database.query(
         `UPDATE orders
-         SET status = $1, cancellation_reason = COALESCE($2, cancellation_reason), updated_at = NOW()
-         WHERE id = $3`,
-        [status, reason || null, order.id]
+         SET status = $1, 
+             cancellation_reason = COALESCE($2, cancellation_reason), 
+             ready_for_pickup = CASE WHEN $3 = TRUE THEN TRUE ELSE ready_for_pickup END,
+             ready_for_pickup_at = CASE WHEN $3 = TRUE THEN NOW() ELSE ready_for_pickup_at END,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [status, reason || null, isReadyForDelivery, order.id]
       );
+
+      // If marked ready for delivery, trigger broadcast in fulfillment-service
+      if (isReadyForDelivery) {
+        const fUrl = process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008';
+        fetch(`${fUrl}/api/v1/fulfillment/orders/${order.id}/ready-for-delivery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => {});
+      }
 
       // If transitioned to CONFIRMED, generate fulfillment pick list and GST invoice
       if (status === 'CONFIRMED') {

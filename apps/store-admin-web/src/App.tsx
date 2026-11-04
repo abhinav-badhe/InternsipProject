@@ -26,6 +26,7 @@ import {
 } from './api/adminClient';
 import { AdminAuthModal } from './AdminAuthModal';
 import { RiderFleetView } from './components/RiderFleetView';
+import { DeliveryPartnerApp } from './components/DeliveryPartnerApp';
 import { BarcodePickPackScanner } from './components/BarcodePickPackScanner';
 import { SupplierPurchaseOrdersView } from './components/SupplierPurchaseOrdersView';
 import { CustomerClvChurnView } from './components/CustomerClvChurnView';
@@ -739,6 +740,23 @@ const INITIAL_FORECASTS: DemandForecast[] = [
 // ==========================================
 
 export const App: React.FC = () => {
+  // 1. Dedicated Delivery Partner Route Guard & App Isolation
+  const [currentPath, setCurrentPath] = useState<string>(
+    typeof window !== 'undefined' ? window.location.pathname : '/'
+  );
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  if (currentPath.startsWith('/delivery')) {
+    return <DeliveryPartnerApp />;
+  }
+
   // Navigation strictly matching our backend microservices & fleet operations
   const [activeNav, setActiveNav] = useState<
     'catalog' | 'inventory' | 'orders' | 'fulfillment' | 'invoices' | 'analytics' | 'whatsapp' | 'deliveries' | 'suppliers' | 'clv'
@@ -1781,6 +1799,17 @@ export const App: React.FC = () => {
               <span>Sign In / 2FA</span>
             </button>
           )}
+
+          <a
+            href="/delivery/login"
+            target="_blank"
+            rel="noreferrer"
+            className="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-[#007a55] font-semibold text-xs transition-colors shadow-2xs"
+            title="Open Dedicated Delivery Partner Portal"
+          >
+            <Bike className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Delivery Partner Portal</span>
+          </a>
 
           <a
             href="http://localhost:5173"

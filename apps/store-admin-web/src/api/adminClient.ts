@@ -538,3 +538,15 @@ export async function receivePurchaseOrder(poId: string): Promise<any> {
   }
   return json.data;
 }
+
+export async function markOrderReadyForDelivery(orderId: string): Promise<any> {
+  const res = await authFetch(`/api/v1/fulfillment/orders/${orderId}/ready-for-delivery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.error?.message || 'Failed to mark order ready for delivery');
+  }
+  return json.data;
+}
