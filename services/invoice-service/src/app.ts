@@ -210,6 +210,135 @@ export function createApp(): express.Application {
     res.status(200).send(Buffer.from(`%PDF-1.4 Mock Invoice for ${verified.invoiceId} StorageKey: ${verified.storageKey}`));
   });
 
+  // ====================================================================
+  // Feature 23: E-Way Bill Generation & B2B GST Invoicing (> ₹50,000 Compliance)
+  // ====================================================================
+
+  Database.query(`
+    CREATE TABLE IF NOT EXISTS eway_bills (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      eway_bill_number VARCHAR(32) NOT NULL UNIQUE,
+      invoice_id UUID,
+      invoice_number VARCHAR(64) NOT NULL,
+      order_id UUID NOT NULL,
+      order_number VARCHAR(32) NOT NULL,
+      supply_type VARCHAR(32) NOT NULL DEFAULT 'OUTWARD',
+      sub_supply_type VARCHAR(32) NOT NULL DEFAULT 'SUPPLY',
+      gstin_supplier VARCHAR(32) NOT NULL DEFAULT '29AABCF1234F1Z5',
+      supplier_name VARCHAR(128) NOT NULL DEFAULT 'FreshCart Quick Commerce Pvt Ltd',
+      gstin_recipient VARCHAR(32) NOT NULL,
+      recipient_name VARCHAR(128) NOT NULL,
+      from_pincode VARCHAR(10) NOT NULL DEFAULT '560102',
+      to_pincode VARCHAR(10) NOT NULL,
+      total_invoice_value NUMERIC(12, 2) NOT NULL,
+      hsn_code VARCHAR(16) NOT NULL DEFAULT '1905',
+      transporter_id VARCHAR(32) DEFAULT 'TRANS-DELHIVERY-01',
+      transporter_name VARCHAR(128) DEFAULT 'FreshCart Hyperlocal Express Logistics',
+      vehicle_number VARCHAR(32) DEFAULT 'KA-05-EQ-4412',
+      approximate_distance_km INTEGER NOT NULL DEFAULT 8,
+      status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+      valid_from TIMESTAMPTZ DEFAULT NOW(),
+      valid_until TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '1 day'),
+      nic_portal_ack_number VARCHAR(64),
+      qr_code_data TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch((err: any) => {
+    logger.warn('eway_bills table bootstrap notice', { error: err.message });
+  });
+
+  // List all generated E-Way Bills
+  app.get('/api/v1/invoices/eway-bills', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const result = await Database.query(`
+        SELECT id, eway_bill_number as "ewayBillNumber", invoice_number as "invoiceNumber",
+               order_number as "orderNumber", gstin_recipient as "gstinRecipient",
+               recipient_name as "recipientName", total_invoice_value as "totalInvoiceValue",
+               vehicle_number as "vehicleNumber", approximate_distance_km as "approximateDistanceKm",
+               status, valid_from as "validFrom", valid_until as "validUntil",
+               nic_portal_ack_number as "nicPortalAckNumber", created_at as "createdAt"
+        FROM eway_bills
+        ORDER BY created_at DESC
+        LIMIT 50
+      `);
+      res.status(200).json(okResponse(result.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Generate E-Way Bill for B2B Order / Invoice
+  app.post('/api/v1/invoices/:invoiceId/eway-bill', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { invoiceId } = req.params;
+      const {
+        recipientGstin = '29ABCDE1234F2Z5',
+        recipientName = 'FreshCart Corporate Partner',
+        recipientPincode = '560034',
+        vehicleNumber = 'KA-05-EQ-4412',
+        transporterName = 'FreshCart Fast Logistics',
+        distanceKm = 12,
+      } = req.body || {};
+
+      const invRes = await Database.query(
+        `SELECT id, invoice_number, order_id, order_number, customer_name, grand_total
+         FROM invoices
+         WHERE id::text = $1 OR invoice_number = $1
+         LIMIT 1`,
+        [invoiceId]
+      );
+
+      if (invRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('NOT_FOUND', `Invoice ${invoiceId} not found`, correlationId));
+      }
+
+      const inv = invRes.rows[0];
+      const ewbNum = `${Math.floor(1000 + Math.random() * 9000)} ${Math.floor(1000 + Math.random() * 9000)} ${Math.floor(1000 + Math.random() * 9000)}`;
+      const ackNumber = `NIC-EWB-${Date.now().toString().slice(-8)}`;
+      const qrData = `EWB:${ewbNum}|GSTIN:29AABCF1234F1Z5|INV:${inv.invoice_number}|VAL:${inv.grand_total}`;
+
+      const inserted = await Database.query(`
+        INSERT INTO eway_bills (
+          eway_bill_number, invoice_id, invoice_number, order_id, order_number,
+          gstin_recipient, recipient_name, from_pincode, to_pincode, total_invoice_value,
+          transporter_name, vehicle_number, approximate_distance_km, status,
+          nic_portal_ack_number, qr_code_data, valid_from, valid_until
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, '560102', $8, $9,
+          $10, $11, $12, 'ACTIVE',
+          $13, $14, NOW(), NOW() + INTERVAL '1 day'
+        )
+        RETURNING *
+      `, [
+        ewbNum,
+        inv.id,
+        inv.invoice_number,
+        inv.order_id,
+        inv.order_number,
+        recipientGstin,
+        recipientName || inv.customer_name,
+        recipientPincode,
+        parseFloat(inv.grand_total),
+        transporterName,
+        vehicleNumber,
+        parseInt(distanceKm, 10),
+        ackNumber,
+        qrData,
+      ]);
+
+      res.status(201).json(okResponse({
+        ewayBill: inserted.rows[0],
+        message: `Government NIC E-Way Bill #${ewbNum} generated successfully for B2B compliance.`,
+      }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Global Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';

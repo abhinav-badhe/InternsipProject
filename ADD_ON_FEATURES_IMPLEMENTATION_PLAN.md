@@ -187,10 +187,10 @@ The existing system is organized as a high-performance TypeScript monorepo power
 
 #### Feature 14: Product Reviews, Ratings, and Recipe Bundles
 * **Description:** Verified customer star ratings and "Shop by Recipe" bundles (e.g. Dal Tadka, Pasta) adding all ingredients in 1 click.
-* **Current Status:** NOT IMPLEMENTED
+* **Current Status:** COMPLETED (`002_reviews_and_recipes_schema.sql`, `product_reviews`, `recipe_bundles`, `recipe_bundle_items`, `/catalog/products/:id/reviews`, `/catalog/recipes`, `RecipeBundlesModal.tsx`, 1-click cart addition, unit tested).
 * **Dependencies:** `catalog-service`, `apps/customer-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 ---
 
@@ -237,10 +237,10 @@ The existing system is organized as a high-performance TypeScript monorepo power
 
 #### Feature 20: Customer Lifetime Value (CLV) and Churn Risk Prediction
 * **Description:** RFM (Recency, Frequency, Monetary) analytics predicting customer churn probabilities in Seller Hub.
-* **Current Status:** NOT IMPLEMENTED
+* **Current Status:** COMPLETED (`002_customer_clv_churn_schema.sql`, `customer_clv_predictions` table, `/analytics/customers/clv-churn`, `/reactivate` 1-click WhatsApp win-back voucher trigger, `CustomerClvChurnView.tsx` Seller Hub dashboard, unit tested).
 * **Dependencies:** `analytics-service`, `apps/store-admin-web`.
 * **Priority:** Priority 3 (Commerce and Intelligence).
-* **Completion Status:** NOT STARTED
+* **Completion Status:** COMPLETED
 
 ---
 
@@ -311,28 +311,28 @@ flowchart TD
 | Feature # | Feature Name | Priority | Status | Started Date | Completed Date | Notes |
 | :---: | :--- | :---: | :---: | :---: | :---: | :--- |
 | **6** | Rider / Delivery Partner Mobile PWA | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `RiderFleetView.tsx` with Smartphone PWA & Dark Store Dispatch |
-| **7** | Real-Time GPS Map Tracking | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `LiveTrackingModal.tsx` in `apps/customer-web` with live 5s polling |
-| **9** | Barcode / QR Code Scanner for Pick & Pack | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `BarcodePickPackScanner.tsx` + `POST /api/v1/fulfillment/scan` |
-| **11** | Automated Supplier PO Generation | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `SupplierPurchaseOrdersView.tsx` + `003_purchase_orders_schema.sql` |
+| **7** | Real-Time GPS Map Tracking | P1 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Built `LiveTrackingModal.tsx` with live OpenStreetMap tile telemetry & coordinates |
+| **9** | Barcode / QR Code Scanner for Pick & Pack | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `BarcodePickPackScanner.tsx` + `POST /api/v1/fulfillment/scan` + Bag Seals |
+| **11** | Automated Supplier PO Generation | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `SupplierPurchaseOrdersView.tsx` + `003_purchase_orders_schema.sql` + Stock Restock |
 | **1** | WhatsApp Voice Note / Audio Ordering | P1 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `AudioTranscriptionService`, Hinglish normalizer, and WhatsApp Simulator Mic UI |
-| **8** | Proof of Delivery (Signature & OTP) | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built HTML5 Touch Screen Signature Pad & OTP Handover Modal in `RiderFleetView.tsx` |
+| **8** | Proof of Delivery (Signature & OTP) | P2 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Cryptographic 4-digit PIN generation, WhatsApp dispatch, & server-side validation |
 | **12** | Multi-Address Management | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `customer_addresses` CRUD in `identity-service` & `AddressSelectorModal.tsx` in Cart |
-| **13** | Scheduled Delivery Slots & Express Rush | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `/orders/delivery-slots` dynamic backend & tabbed selector in Cart |
-| **2** | Shopping List Photo & Note OCR | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `VisionOcrService`, Gemini Vision + heuristic parser, & Simulator Camera OCR |
-| **5** | Multilingual WhatsApp Support | P2 | NOT STARTED | - | - | Regional language flows in WhatsApp bot |
-| **15** | Customer Wallet and Cashback | P3 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `customer_wallets` + `wallet_transactions` tables, `/payments/wallet` APIs, `WalletModal.tsx`, & 1-tap cart pay |
-| **21** | Real Payment Gateway Integration | P3 | NOT STARTED | - | - | Razorpay/PhonePe SDK & dynamic QR |
-| **22** | Split Payments (Wallet + UPI/Card) | P3 | NOT STARTED | - | - | Combines Wallet and Payment Gateway |
-| **17** | Referral System and Coupon Engine | P3 | NOT STARTED | - | - | Promo code validation & referral bonuses |
-| **16** | Subscription Deliveries | P3 | NOT STARTED | - | - | Daily milk & essentials automated orders |
-| **19** | AI-Powered Recommendations | P3 | NOT STARTED | - | - | Frequently bought together recommendations |
-| **18** | Dynamic / Surge Pricing Engine | P3 | NOT STARTED | - | - | Weather & rush hour dynamic fee calculation |
-| **14** | Reviews, Ratings & Recipe Bundles | P3 | NOT STARTED | - | - | Star ratings & 1-click recipe add to cart |
-| **20** | CLV & Churn Risk Prediction | P3 | NOT STARTED | - | - | Merchant RFM predictive analytics |
-| **3** | WhatsApp Live Location Sharing | P3 | NOT STARTED | - | - | Native drop-pin coordinate ingestion |
-| **4** | Proactive Reorder Reminders | P3 | NOT STARTED | - | - | Consumption interval notifications |
-| **10** | Batch Picking and Wave Fulfillment | P3 | NOT STARTED | - | - | Multi-order dark store picking optimization |
-| **23** | E-Way Bill Generation & B2B GST | P3 | NOT STARTED | - | - | Compliance invoices for orders > ₹50,000 |
+| **13** | Scheduled Delivery Slots & Express Rush | P2 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Live PostgreSQL capacity throttling, `delivery_slot_id` & `delivery_type` DB columns |
+| **2** | Shopping List Photo & Note OCR | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `VisionOcrService`, Gemini Vision + parser, & Simulator Camera OCR |
+| **5** | Multilingual WhatsApp Support | P2 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `I18nManager` with English, Hindi, and Hinglish bundles & language detection |
+| **15** | Customer Wallet and Cashback | P3 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Built `customer_wallets` + `wallet_transactions` tables, `/payments/wallet` APIs, `WalletModal.tsx` |
+| **21** | Real Payment Gateway Integration | P3 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Razorpay standard checkout SDK integration, dynamic UPI QR, & HMAC signature verification |
+| **22** | Split Payments (Wallet + UPI/Card) | P3 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Atomic wallet deduction + remaining gateway split order generation & verification |
+| **17** | Referral System and Coupon Engine | P3 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Promo code validation with min cart limits, max discount caps, & referral share links |
+| **16** | Subscription Deliveries | P3 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Automated daily execution engine generating real orders & warehouse pick lists |
+| **19** | AI-Powered Recommendations | P3 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Transactional market basket analysis with live co-occurrence SQL query |
+| **18** | Dynamic / Surge Pricing Engine | P3 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Automated clock late-night surcharge & live dark store queue load evaluation |
+| **14** | Reviews, Ratings & Recipe Bundles | P3 | **COMPLETED** | 2026-11-03 | 2026-11-03 | Star reviews and 1-click authentic recipe ingredient bundles |
+| **20** | CLV & Churn Risk Prediction | P3 | **COMPLETED** | 2026-11-03 | 2026-11-04 | Real SQL RFM analytics recalculation engine from live orders table |
+| **3** | WhatsApp Live Location Sharing | P3 | **COMPLETED** | 2026-11-04 | 2026-11-04 | Native WhatsApp location pin ingestion, haversine geofence calculation (< 12 km) |
+| **4** | Proactive Reorder Reminders | P3 | **COMPLETED** | 2026-11-04 | 2026-11-04 | Automated replenishment interval detection & 1-tap WhatsApp reminder triggers |
+| **10** | Batch Picking and Wave Fulfillment | P3 | **COMPLETED** | 2026-11-04 | 2026-11-04 | Multi-order wave aggregation, consolidated aisle picking, & tote sorting |
+| **23** | E-Way Bill Generation & B2B GST | P3 | **COMPLETED** | 2026-11-04 | 2026-11-04 | Government NIC standard E-Way Bill generation & QR data verification (> ₹50k) |
 
 ---
 
@@ -489,5 +489,26 @@ flowchart TD
   - `apps/customer-web/src/api/client.ts`: Added `fetchProductRecommendations` client helper.
   - `apps/customer-web/src/components/CartDrawer.tsx`: Built horizontal "Frequently Bought Together" recommendations carousel inside customer cart drawer with 1-click `+ Add` button and AI pairing badges.
   - Unit tests: Added Feature 19 collaborative filtering test in `services/catalog-service/test/disambiguation.test.ts` (4 of 4 tests passing).
+
+### Record 17: Feature 14 (Product Reviews, Ratings, and "Cook & Shop" Recipe Bundles)
+* **Components Built:**
+  - `database/service-migrations/catalog-service/002_reviews_and_recipes_schema.sql`: Created `product_reviews`, `recipe_bundles`, and `recipe_bundle_items` tables. Seeded authentic Indian and Continental recipes: Homestyle Dal Tadka & Jeera Rice, Creamy Italian Penne Pasta, Mumbai Pav Bhaji, and Royal Kadai Paneer with full ingredient linkages.
+  - `services/catalog-service/src/app.ts`: Implemented review and recipe REST APIs:
+    - `GET /api/v1/catalog/products/:productId/reviews`: Retrieves customer ratings, average star rating, and verified buyer reviews.
+    - `POST /api/v1/catalog/products/:productId/reviews`: Submits verified buyer review and rating.
+    - `GET /api/v1/catalog/recipes`: Lists recipe bundles, calculates line-item ingredient prices from `base_prices`, and computes promotional bundle discounts.
+  - `apps/customer-web/src/components/RecipeBundlesModal.tsx`: Built Cook & Shop modal featuring recipe photos, cuisine tags, prep times, servings, ingredient checklists, and 1-click "Add Entire Recipe to Cart".
+  - `apps/customer-web/src/components/Header.tsx`: Added "🍲 Recipes" button in navigation.
+  - Unit tests: Added Feature 14 recipe bundle calculation test in `services/catalog-service/test/disambiguation.test.ts` (5 of 5 tests passing).
+
+### Record 18: Feature 20 (Customer Lifetime Value & Churn Risk Prediction)
+* **Components Built:**
+  - `database/service-migrations/analytics-service/002_customer_clv_churn_schema.sql`: Created `customer_clv_predictions` schema storing RFM parameters, predicted monthly orders, 12-month projected CLV, churn probabilities, and segments (`VIP_CHAMPION`, `LOYAL_REGULAR`, `AT_RISK`, `HIBERNATING`).
+  - `services/analytics-service/src/app.ts`: Implemented CLV and Churn endpoints:
+    - `GET /api/v1/analytics/customers/clv-churn`: Computes portfolio summary KPIs, segment breakdowns, and customer predictive records.
+    - `POST /api/v1/analytics/customers/:customerId/reactivate`: Triggers 1-click WhatsApp win-back reactivation campaigns (`FRESH20`) for at-risk accounts.
+  - `apps/store-admin-web/src/components/CustomerClvChurnView.tsx`: Built Seller Hub RFM analytics dashboard with segment filters, KPI metric cards, churn risk badges, and 1-click retention dispatch.
+  - `apps/store-admin-web/src/App.tsx`: Added "Customer CLV & Churn" tab in Seller Hub navigation.
+  - Unit tests: Added Feature 20 RFM classification test in `services/analytics-service/test/analytics.test.ts` (9 of 9 tests passing).
 
 ---

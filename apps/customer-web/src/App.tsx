@@ -10,6 +10,7 @@ import { WalletModal } from './components/WalletModal';
 import { ReferralModal } from './components/ReferralModal';
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { PaymentGatewayModal } from './components/PaymentGatewayModal';
+import { RecipeBundlesModal } from './components/RecipeBundlesModal';
 import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
 import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
 import {
@@ -57,6 +58,9 @@ export const App: React.FC = () => {
 
   // Feature 16: Daily Subscriptions Modal State
   const [isSubscriptionsOpen, setIsSubscriptionsOpen] = useState(false);
+
+  // Feature 14: Recipe Bundles Modal State
+  const [isRecipesOpen, setIsRecipesOpen] = useState(false);
 
   // Feature 21 & Feature 22: Payment Gateway & Split Payment Modal State
   const [selectedPaymentOrder, setSelectedPaymentOrder] = useState<CustomerOrder | null>(null);
@@ -325,6 +329,7 @@ export const App: React.FC = () => {
         onOpenWallet={() => setIsWalletOpen(true)}
         onOpenReferral={() => setIsReferralOpen(true)}
         onOpenSubscriptions={() => setIsSubscriptionsOpen(true)}
+        onOpenRecipes={() => setIsRecipesOpen(true)}
       />
 
       {/* 2. Top Slider Category Strip (Visible on Home view) */}
@@ -662,6 +667,15 @@ export const App: React.FC = () => {
         onSubscriptionChanged={() => {
           showToast('Updated your morning recurring subscription.');
         }}
+      />
+
+      {/* Feature 14: Cook & Shop Recipe Bundles Modal */}
+      <RecipeBundlesModal
+        isOpen={isRecipesOpen}
+        onClose={() => setIsRecipesOpen(false)}
+        products={products}
+        onAddIngredient={handleAddToCart}
+        onShowToast={showToast}
       />
 
       {/* Toast Notification */}

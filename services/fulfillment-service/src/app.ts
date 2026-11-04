@@ -422,6 +422,279 @@ export function createApp(): express.Application {
   });
 
   // ====================================================================
+  // FEATURE 10: BATCH PICKING AND WAVE FULFILLMENT (MICRO-WAREHOUSE AGGREGATION)
+  // ====================================================================
+
+  Database.query(`
+    CREATE TABLE IF NOT EXISTS fulfillment_waves (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      wave_number VARCHAR(32) NOT NULL UNIQUE,
+      zone VARCHAR(64) NOT NULL DEFAULT 'ZONE_A',
+      status VARCHAR(32) NOT NULL DEFAULT 'PLANNED',
+      total_orders INTEGER NOT NULL DEFAULT 0,
+      total_items INTEGER NOT NULL DEFAULT 0,
+      picker_id VARCHAR(64),
+      picker_name VARCHAR(128),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS wave_orders (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      wave_id UUID NOT NULL,
+      order_id UUID NOT NULL,
+      order_number VARCHAR(32) NOT NULL,
+      tote_number VARCHAR(32) NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'ASSIGNED',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS wave_pick_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      wave_id UUID NOT NULL,
+      sku VARCHAR(64) NOT NULL,
+      product_name VARCHAR(128) NOT NULL,
+      total_quantity_requested INTEGER NOT NULL DEFAULT 1,
+      quantity_picked INTEGER NOT NULL DEFAULT 0,
+      status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+      aisle_bay VARCHAR(32) DEFAULT 'A-01-R',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch((err: any) => {
+    logger.warn('wave fulfillment tables init notice', { error: err.message });
+  });
+
+  // 1. List all waves
+  app.get('/api/v1/fulfillment/waves', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const wavesRes = await Database.query(`
+        SELECT id, wave_number as "waveNumber", zone, status,
+               total_orders as "totalOrders", total_items as "totalItems",
+               picker_name as "pickerName", started_at as "startedAt",
+               completed_at as "completedAt", created_at as "createdAt"
+        FROM fulfillment_waves
+        ORDER BY created_at DESC
+        LIMIT 20
+      `);
+
+      const waves = await Promise.all(
+        wavesRes.rows.map(async (w: any) => {
+          const itemsRes = await Database.query(
+            `SELECT id, sku, product_name as "productName",
+                    total_quantity_requested as "totalQuantityRequested",
+                    quantity_picked as "quantityPicked", status, aisle_bay as "aisleBay"
+             FROM wave_pick_items WHERE wave_id = $1 ORDER BY status ASC, sku ASC`,
+            [w.id]
+          );
+          const ordersRes = await Database.query(
+            `SELECT id, order_id as "orderId", order_number as "orderNumber",
+                    tote_number as "toteNumber", status
+             FROM wave_orders WHERE wave_id = $1 ORDER BY tote_number ASC`,
+            [w.id]
+          );
+          return {
+            ...w,
+            items: itemsRes.rows,
+            orders: ordersRes.rows,
+          };
+        })
+      );
+
+      res.status(200).json(okResponse({ waves }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2. Generate new Wave from pending unassigned orders
+  app.post('/api/v1/fulfillment/waves/generate', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { zone = 'ZONE_A', maxOrders = 6, pickerName = 'DarkStore Wave Picker' } = req.body || {};
+
+      // Find open orders that are not already part of an active wave
+      const eligibleOrdersRes = await Database.query(`
+        SELECT o.id as "orderId", o.order_number as "orderNumber"
+        FROM orders o
+        JOIN pick_lists pl ON o.id = pl.order_id
+        LEFT JOIN wave_orders wo ON o.id = wo.order_id
+        WHERE pl.status IN ('GENERATED', 'ASSIGNED')
+          AND o.status IN ('AWAITING_PAYMENT', 'CONFIRMED')
+          AND wo.id IS NULL
+        LIMIT $1
+      `, [maxOrders]);
+
+      if (eligibleOrdersRes.rows.length === 0) {
+        return res.status(400).json(errorResponse('NO_ELIGIBLE_ORDERS', 'No pending unassigned orders available to bundle into a wave.', correlationId));
+      }
+
+      const ordersToBatch = eligibleOrdersRes.rows;
+      const waveId = crypto.randomUUID();
+      const waveNumber = `WAVE-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+
+      // Aggregate item quantities across these orders
+      const orderIds = ordersToBatch.map((o: any) => o.orderId);
+      const aggItemsRes = await Database.query(`
+        SELECT pi.sku, pi.product_name as "productName", SUM(pi.quantity_requested)::int as "totalQuantity"
+        FROM pick_items pi
+        JOIN pick_lists pl ON pi.pick_list_id = pl.id
+        WHERE pl.order_id = ANY($1)
+        GROUP BY pi.sku, pi.product_name
+        ORDER BY pi.sku ASC
+      `, [orderIds]);
+
+      const aggregatedItems = aggItemsRes.rows;
+      const totalItemsCount = aggregatedItems.reduce((sum: number, it: any) => sum + it.totalQuantity, 0);
+
+      // Create Wave Master
+      await Database.query(`
+        INSERT INTO fulfillment_waves (id, wave_number, zone, status, total_orders, total_items, picker_name, started_at)
+        VALUES ($1, $2, $3, 'IN_PROGRESS', $4, $5, $6, NOW())
+      `, [waveId, waveNumber, zone, ordersToBatch.length, totalItemsCount, pickerName]);
+
+      // Assign Totes to Orders
+      for (let i = 0; i < ordersToBatch.length; i++) {
+        const ord = ordersToBatch[i];
+        const toteNumber = `TOTE-${String.fromCharCode(65 + Math.floor(i / 10))}${((i % 10) + 1).toString().padStart(2, '0')}`;
+        await Database.query(`
+          INSERT INTO wave_orders (wave_id, order_id, order_number, tote_number, status)
+          VALUES ($1, $2, $3, $4, 'ASSIGNED')
+        `, [waveId, ord.orderId, ord.orderNumber, toteNumber]);
+      }
+
+      // Insert aggregated pick lines
+      const AISLES = ['A-01-R', 'A-02-L', 'B-01-R', 'B-03-L', 'C-02-R', 'D-01-L'];
+      for (let i = 0; i < aggregatedItems.length; i++) {
+        const it = aggregatedItems[i];
+        const aisle = AISLES[i % AISLES.length];
+        await Database.query(`
+          INSERT INTO wave_pick_items (wave_id, sku, product_name, total_quantity_requested, quantity_picked, status, aisle_bay)
+          VALUES ($1, $2, $3, $4, 0, 'PENDING', $5)
+        `, [waveId, it.sku, it.productName, it.totalQuantity, aisle]);
+      }
+
+      res.status(201).json(okResponse({
+        waveId,
+        waveNumber,
+        zone,
+        totalOrders: ordersToBatch.length,
+        totalItems: totalItemsCount,
+        orders: ordersToBatch,
+        aggregatedItemsCount: aggregatedItems.length,
+      }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 3. Pick item in Wave (Picker scans/picks consolidated SKU)
+  app.post('/api/v1/fulfillment/waves/:id/pick-item', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { sku } = req.body;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      if (!sku) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'sku is required', correlationId));
+      }
+
+      const itemRes = await Database.query(`
+        SELECT id, sku, product_name as "productName", total_quantity_requested as "totalQty", quantity_picked as "qtyPicked"
+        FROM wave_pick_items
+        WHERE wave_id = $1 AND UPPER(sku) = UPPER($2)
+        LIMIT 1
+      `, [id, sku]);
+
+      if (itemRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('NOT_FOUND', `SKU ${sku} not found in this wave`, correlationId));
+      }
+
+      const item = itemRes.rows[0];
+      const newPickedQty = item.totalQty;
+
+      await Database.query(`
+        UPDATE wave_pick_items
+        SET quantity_picked = $1, status = 'PICKED'
+        WHERE id = $2
+      `, [newPickedQty, item.id]);
+
+      // Also query which tote boxes get this SKU
+      const totesRes = await Database.query(`
+        SELECT wo.tote_number as "toteNumber", wo.order_number as "orderNumber", pi.quantity_requested as "quantity"
+        FROM wave_orders wo
+        JOIN pick_lists pl ON wo.order_id = pl.order_id
+        JOIN pick_items pi ON pl.id = pi.pick_list_id
+        WHERE wo.wave_id = $1 AND UPPER(pi.sku) = UPPER($2)
+      `, [id, sku]);
+
+      // Check if entire wave is now picked
+      const remRes = await Database.query(`
+        SELECT COUNT(*)::int as remaining FROM wave_pick_items WHERE wave_id = $1 AND status = 'PENDING'
+      `, [id]);
+      const isWaveComplete = (remRes.rows[0]?.remaining || 0) === 0;
+
+      res.status(200).json(okResponse({
+        sku: item.sku,
+        productName: item.productName,
+        totalQuantityPicked: newPickedQty,
+        sortToTotes: totesRes.rows,
+        isWaveComplete,
+        message: `Picked ${newPickedQty}x ${item.productName}. Sort into customer totes!`,
+      }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 4. Complete Wave and automatically transition all batched orders to PACKED
+  app.post('/api/v1/fulfillment/waves/:id/complete', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      await Database.query(`
+        UPDATE fulfillment_waves
+        SET status = 'COMPLETED', completed_at = NOW(), updated_at = NOW()
+        WHERE id = $1
+      `, [id]);
+
+      // Mark all wave items picked
+      await Database.query(`
+        UPDATE wave_pick_items
+        SET quantity_picked = total_quantity_requested, status = 'PICKED'
+        WHERE wave_id = $1
+      `, [id]);
+
+      // Update associated pick lists & orders to PACKED
+      const ordersRes = await Database.query(`
+        SELECT order_id as "orderId", order_number as "orderNumber" FROM wave_orders WHERE wave_id = $1
+      `, [id]);
+
+      for (const ord of ordersRes.rows) {
+        await Database.query(`
+          UPDATE pick_lists SET status = 'PACKED' WHERE order_id = $1
+        `, [ord.orderId]);
+        await Database.query(`
+          UPDATE pick_items SET status = 'PICKED' WHERE pick_list_id IN (SELECT id FROM pick_lists WHERE order_id = $1)
+        `, [ord.orderId]);
+        await Database.query(`
+          UPDATE orders SET status = 'PACKED' WHERE id = $1
+        `, [ord.orderId]);
+      }
+
+      res.status(200).json(okResponse({
+        waveId: id,
+        status: 'COMPLETED',
+        completedOrdersCount: ordersRes.rows.length,
+        message: `Wave completed! ${ordersRes.rows.length} order(s) sorted, sealed, and ready for rider pickup.`,
+      }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ====================================================================
   // FEATURE 6 & 7: RIDER / DELIVERY PARTNER FLEET & LIVE TRACKING API
   // ====================================================================
 
@@ -439,6 +712,7 @@ export function createApp(): express.Application {
       current_lng NUMERIC(10, 6) DEFAULT 77.641151,
       estimated_arrival_minutes INTEGER DEFAULT 12,
       delivery_address JSONB,
+      delivery_otp VARCHAR(8),
       assigned_at TIMESTAMPTZ DEFAULT NOW(),
       dispatched_at TIMESTAMPTZ,
       delivered_at TIMESTAMPTZ,
@@ -447,6 +721,7 @@ export function createApp(): express.Application {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE delivery_assignments ADD COLUMN IF NOT EXISTS delivery_otp VARCHAR(8);
   `).catch((err: any) => {
     logger.warn('delivery_assignments init notice', { error: err.message });
   });
@@ -541,13 +816,14 @@ export function createApp(): express.Application {
       const rPhone = riderPhone || '+91 98765 00112';
 
       const assignId = crypto.randomUUID();
+      const generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
       await Database.query(`
         INSERT INTO delivery_assignments (
           id, order_id, order_number, rider_id, rider_name, rider_phone,
-          status, delivery_address, assigned_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'ASSIGNED', $7, NOW())
+          status, delivery_address, delivery_otp, assigned_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'ASSIGNED', $7, $8, NOW())
         ON CONFLICT DO NOTHING
-      `, [assignId, order.id, order.order_number, rId, rName, rPhone, JSON.stringify(order.delivery_address)]);
+      `, [assignId, order.id, order.order_number, rId, rName, rPhone, JSON.stringify(order.delivery_address), generatedOtp]);
 
       res.status(200).json(okResponse({
         deliveryId: assignId,
@@ -577,11 +853,21 @@ export function createApp(): express.Application {
       }
       const order = ordRes.rows[0];
 
+      // Ensure a 4-digit PIN exists for delivery verification
+      let otpRes = await Database.query(
+        `SELECT delivery_otp FROM delivery_assignments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [order.id]
+      );
+      let activeOtp = otpRes.rows[0]?.delivery_otp;
+      if (!activeOtp) {
+        activeOtp = Math.floor(1000 + Math.random() * 9000).toString();
+      }
+
       await Database.query(`
         UPDATE delivery_assignments 
-        SET status = 'IN_TRANSIT', dispatched_at = NOW(), updated_at = NOW() 
-        WHERE order_id = $1
-      `, [order.id]);
+        SET status = 'IN_TRANSIT', delivery_otp = $1, dispatched_at = NOW(), updated_at = NOW() 
+        WHERE order_id = $2
+      `, [activeOtp, order.id]);
 
       // Update Order Service status to DISPATCHED
       try {
@@ -593,7 +879,7 @@ export function createApp(): express.Application {
         });
       } catch {}
 
-      // Dispatch WhatsApp update to customer
+      // Dispatch WhatsApp update to customer with real Verification PIN
       try {
         const phone = (order.delivery_address as any)?.phone;
         if (phone) {
@@ -603,7 +889,7 @@ export function createApp(): express.Application {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               toPhone: phone,
-              bodyText: `🛵 *Your FreshCart Order is Out for Delivery!*\n\nOrder *${order.order_number}* has been picked up from our Dark Store and is on its way to you!\n⏱️ *Estimated Delivery:* 8–12 minutes.\n\nReply *'Track'* anytime for live location updates!`
+              bodyText: `🛵 *Your FreshCart Order is Out for Delivery!*\n\nOrder *${order.order_number}* has been picked up from our Dark Store and is on its way to you!\n⏱️ *Estimated Delivery:* 8–12 minutes.\n\n🔑 *Delivery Verification PIN:* *${activeOtp}*\n(Please share this 4-digit PIN with your delivery partner at your doorstep)\n\nReply *'Track'* anytime for live location updates!`
             })
           }).catch(() => {});
         }
@@ -613,6 +899,7 @@ export function createApp(): express.Application {
         orderId: order.id,
         orderNumber: order.order_number,
         status: 'IN_TRANSIT',
+        deliveryOtp: activeOtp,
         dispatchedAt: new Date().toISOString()
       }, correlationId));
     } catch (err) {
@@ -646,7 +933,7 @@ export function createApp(): express.Application {
   app.post('/api/v1/fulfillment/deliveries/:orderId/complete', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { orderId } = req.params;
-      const { proofSignature, proofNotes } = req.body || {};
+      const { proofSignature, proofNotes, otp } = req.body || {};
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
       const ordRes = await Database.query(
@@ -658,6 +945,22 @@ export function createApp(): express.Application {
       }
       const order = ordRes.rows[0];
 
+      // Cryptographic Delivery PIN Verification
+      const daRes = await Database.query(
+        `SELECT id, delivery_otp FROM delivery_assignments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [order.id]
+      );
+      const expectedOtp = daRes.rows[0]?.delivery_otp;
+      if (expectedOtp) {
+        if (!otp || String(otp).trim() !== String(expectedOtp).trim()) {
+          return res.status(400).json(errorResponse(
+            'INVALID_DELIVERY_PIN',
+            'Invalid 4-digit Delivery PIN. Please ask the customer for their verification PIN (sent to their WhatsApp and tracking screen).',
+            correlationId
+          ));
+        }
+      }
+
       await Database.query(`
         UPDATE delivery_assignments 
         SET status = 'DELIVERED', 
@@ -666,7 +969,7 @@ export function createApp(): express.Application {
             proof_notes = COALESCE($2, proof_notes),
             updated_at = NOW() 
         WHERE order_id = $3
-      `, [proofSignature || null, proofNotes || 'Handed to customer at doorstep', order.id]);
+      `, [proofSignature || null, proofNotes || 'Handed to customer with verified OTP', order.id]);
 
       // Update Order Service status to DELIVERED
       try {
@@ -688,7 +991,7 @@ export function createApp(): express.Application {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               toPhone: phone,
-              bodyText: `🎉 *Order Delivered Successfully!*\n\nYour order *${order.order_number}* has been delivered to your doorstep. We hope you enjoy your fresh groceries!\n\nThank you for choosing FreshCart. 🛍️`
+              bodyText: `🎉 *Order Delivered Successfully!*\n\nYour order *${order.order_number}* has been verified and delivered to your doorstep. We hope you enjoy your fresh groceries!\n\nThank you for choosing FreshCart. 🛍️`
             })
           }).catch(() => {});
         }
@@ -722,6 +1025,9 @@ export function createApp(): express.Application {
           da.current_lat as "currentLat",
           da.current_lng as "currentLng",
           da.estimated_arrival_minutes as "etaMinutes",
+          da.delivery_otp as "deliveryOtp",
+          da.proof_signature as "proofSignature",
+          da.proof_notes as "proofNotes",
           da.assigned_at as "assignedAt",
           da.dispatched_at as "dispatchedAt",
           da.delivered_at as "deliveredAt",

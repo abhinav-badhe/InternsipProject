@@ -66,13 +66,19 @@ export class CheckoutSagaOrchestrator {
     try {
       await client.query('BEGIN');
 
-      // Record order master
+      // Extract Delivery Slot & Delivery Type (Express vs Scheduled)
+      const slotVal = String((req.deliveryAddress as any)?.slot || 'Standard Express');
+      const isScheduled = slotVal.toLowerCase().includes('scheduled') || slotVal.toLowerCase().includes('evening') || slotVal.toLowerCase().includes('morning') || slotVal.includes(':');
+      const deliverySlotId = (req.deliveryAddress as any)?.slotId || (isScheduled ? 'slot-scheduled' : slotVal.toLowerCase().includes('15') || slotVal.toLowerCase().includes('rush') ? 'express-15' : 'express-30');
+      const deliveryType = isScheduled ? 'SCHEDULED' : 'EXPRESS';
+
+      // Record order master with real delivery slot columns
       await client.query(
         `INSERT INTO orders 
          (id, order_number, idempotency_key, customer_id, channel, status, currency, 
           subtotal, discount_total, tax_total, delivery_fee, grand_total, 
-          reservation_id, delivery_address)
-         VALUES ($1, $2, $3, $4, $5, 'AWAITING_PAYMENT', $6, $7, $8, $9, $10, $11, $12, $13)`,
+          reservation_id, delivery_address, delivery_slot_id, delivery_type)
+         VALUES ($1, $2, $3, $4, $5, 'AWAITING_PAYMENT', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           orderId,
           orderNumber,
@@ -87,6 +93,8 @@ export class CheckoutSagaOrchestrator {
           quote.grandTotal,
           reservationId,
           JSON.stringify(req.deliveryAddress),
+          deliverySlotId,
+          deliveryType,
         ]
       );
 

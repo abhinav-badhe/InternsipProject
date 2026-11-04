@@ -36,3 +36,4 @@ CREATE TABLE IF NOT EXISTS customer_referrals (
 
 CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON customer_referrals(referrer_customer_id);
 CREATE INDEX IF NOT EXISTS idx_referrals_code ON customer_referrals(referral_code);
+

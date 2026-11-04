@@ -19,6 +19,7 @@ import {
   pauseSubscription,
   resumeSubscription,
   cancelSubscription,
+  triggerDailySubscriptionBatch,
 } from '../api/client';
 
 interface SubscriptionModalProps {
@@ -47,6 +48,22 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [frequency, setFrequency] = useState<'DAILY' | 'ALTERNATE_DAYS' | 'WEEKDAYS_ONLY' | 'WEEKLY'>('DAILY');
   const [quantity, setQuantity] = useState(1);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isExecutingBatch, setIsExecutingBatch] = useState(false);
+
+  const handleRunBatchNow = async () => {
+    try {
+      setIsExecutingBatch(true);
+      const res = await triggerDailySubscriptionBatch();
+      setStatusMessage(`✅ Morning batch executed! Generated ${res.processedCount} order(s). Check Orders history!`);
+      loadSubscriptions();
+      if (onSubscriptionChanged) onSubscriptionChanged();
+      setTimeout(() => setStatusMessage(null), 5000);
+    } catch (err: any) {
+      alert(`Batch execution failed: ${err.message}`);
+    } finally {
+      setIsExecutingBatch(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -289,6 +306,24 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                         </div>
                       );
                     })}
+                </div>
+              )}
+
+              {subscriptions.filter((s) => s.status === 'ACTIVE').length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-800">Automated 07:00 AM Cron Engine</p>
+                    <p className="text-[9px] text-slate-500">Executes morning deliveries into dark store pick lists</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isExecutingBatch}
+                    onClick={handleRunBatchNow}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>{isExecutingBatch ? 'Executing...' : 'Run Morning Batch'}</span>
+                  </button>
                 </div>
               )}
             </div>

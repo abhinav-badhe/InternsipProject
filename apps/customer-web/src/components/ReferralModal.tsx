@@ -238,3 +238,4 @@ export const ReferralModal: React.FC<ReferralModalProps> = ({
     </div>
   );
 };
+

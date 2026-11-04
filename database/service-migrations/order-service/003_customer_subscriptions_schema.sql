@@ -28,3 +28,15 @@ CREATE TABLE IF NOT EXISTS customer_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_subs_customer_id ON customer_subscriptions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_subs_status_next_date ON customer_subscriptions(status, next_delivery_date);
+
+CREATE TABLE IF NOT EXISTS subscription_execution_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    subscription_id UUID NOT NULL,
+    order_id UUID NOT NULL,
+    order_number VARCHAR(32) NOT NULL,
+    execution_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sub_logs_date ON subscription_execution_logs(execution_date);
+

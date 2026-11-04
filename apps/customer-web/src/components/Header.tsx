@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk } from 'lucide-react';
+import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk, ChefHat } from 'lucide-react';
 import { AuthSession } from '../api/client';
 
 interface HeaderProps {
@@ -19,6 +19,7 @@ interface HeaderProps {
   onOpenWallet?: () => void;
   onOpenReferral?: () => void;
   onOpenSubscriptions?: () => void;
+  onOpenRecipes?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenWallet,
   onOpenReferral,
   onOpenSubscriptions,
+  onOpenRecipes,
 }) => {
   const [showDisambiguation, setShowDisambiguation] = useState(false);
   const isSoapSearch = searchQuery.toLowerCase().trim() === 'soap';
@@ -211,6 +213,16 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Milk className="w-3.5 h-3.5 text-indigo-600" />
             <span>Subscriptions</span>
+          </button>
+
+          {/* Feature 14: Cook & Shop Recipe Bundles */}
+          <button
+            onClick={onOpenRecipes}
+            className="hidden lg:flex items-center gap-1.5 text-xs text-orange-950 hover:text-orange-900 font-bold px-3 py-1.5 rounded-lg border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors cursor-pointer shadow-2xs"
+            title="Shop Ingredients by Recipe"
+          >
+            <ChefHat className="w-3.5 h-3.5 text-orange-600" />
+            <span>Recipes</span>
           </button>
 
           {/* Feature 17: Refer & Earn Program */}

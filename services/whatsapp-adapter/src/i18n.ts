@@ -104,3 +104,4 @@ export class I18nManager {
     return LOCALIZED_STRINGS.en;
   }
 }
+

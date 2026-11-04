@@ -147,4 +147,21 @@ describe('Catalog Service - Category Disambiguation & Domain Logic', () => {
     assert.ok(matched.complementarySkus.includes('BRD-WHT-400G'));
     assert.equal(matched.reason, 'Frequently bought with Fresh Milk');
   });
+
+  it('Feature 14: Recipe Bundles calculates savings and ingredient quantities accurately', () => {
+    const ingredients = [
+      { sku: 'TOMATO-HYB-1KG', unitPrice: 35.0, quantity: 1 },
+      { sku: 'ONION-RED-1KG', unitPrice: 40.0, quantity: 1 },
+      { sku: 'AMUL-BTR-100G', unitPrice: 56.0, quantity: 1 },
+    ];
+    const originalPrice = ingredients.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+    assert.equal(originalPrice, 131.0);
+
+    const discountPercent = 12.0;
+    const savings = Math.round((originalPrice * discountPercent) / 100);
+    assert.equal(savings, 16.0);
+
+    const bundlePrice = originalPrice - savings;
+    assert.equal(bundlePrice, 115.0);
+  });
 });

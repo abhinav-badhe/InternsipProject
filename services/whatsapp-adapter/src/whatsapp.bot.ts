@@ -61,6 +61,33 @@ export class WhatsAppBot {
     // Log Inbound Message to History (Acceptance Scenario 8 & Audit Log)
     await this.logConversation(session.sessionId, 'INBOUND', 'text', text);
 
+    // Feature 3: WhatsApp Live Location Sharing & Geofence Check
+    if (text.startsWith('__LOCATION_PIN__:')) {
+      const parts = text.replace('__LOCATION_PIN__:', '').split(',');
+      const lat = parseFloat(parts[0]);
+      const lng = parseFloat(parts[1]);
+      const locName = parts[2] || 'Shared Location';
+      const dist = parts[3] || '2.4';
+
+      (session as any).deliveryLocation = { lat, lng, address: locName };
+      await this.saveSession(session);
+
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'text',
+        bodyText: `📍 *Delivery Location Pinned!*\n\nWe verified your location: *${locName}*\n🛵 *Distance from Dark Store #04:* ~${dist} km\n⚡ *Estimated Hyperlocal Delivery:* 10–14 mins.\n\nYour doorstep address has been updated for checkout! Send your grocery list or type *'MENU'* to order.`,
+      });
+    }
+
+    if (text.startsWith('__LOCATION_OUT_OF_ZONE__:')) {
+      const dist = text.replace('__LOCATION_OUT_OF_ZONE__:', '');
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'text',
+        bodyText: `📍 *Location Out of Zone:*\n\nYour shared location is ~${dist} km away, which is currently outside our 15-minute quick delivery zone (< 12 km). FreshCart is expanding rapidly and hopes to serve your neighborhood soon! 🛍️`,
+      });
+    }
+
     // Feature 5: Language Selection Commands
     if (lowerText === 'language' || lowerText === 'bhasha' || lowerText === 'lang' || lowerText === 'भाषा') {
       return this.sendAndLog(session.sessionId, {

@@ -28,6 +28,7 @@ import { AdminAuthModal } from './AdminAuthModal';
 import { RiderFleetView } from './components/RiderFleetView';
 import { BarcodePickPackScanner } from './components/BarcodePickPackScanner';
 import { SupplierPurchaseOrdersView } from './components/SupplierPurchaseOrdersView';
+import { CustomerClvChurnView } from './components/CustomerClvChurnView';
 import {
   LayoutGrid,
   Boxes,
@@ -64,6 +65,7 @@ import {
   AlertTriangle,
   Phone,
   User,
+  Users,
   Clock,
   ArrowRight,
   ShieldAlert,
@@ -739,7 +741,7 @@ const INITIAL_FORECASTS: DemandForecast[] = [
 export const App: React.FC = () => {
   // Navigation strictly matching our backend microservices & fleet operations
   const [activeNav, setActiveNav] = useState<
-    'catalog' | 'inventory' | 'orders' | 'fulfillment' | 'invoices' | 'analytics' | 'whatsapp' | 'deliveries' | 'suppliers'
+    'catalog' | 'inventory' | 'orders' | 'fulfillment' | 'invoices' | 'analytics' | 'whatsapp' | 'deliveries' | 'suppliers' | 'clv'
   >('inventory');
 
   // Core domain state
@@ -1929,6 +1931,23 @@ export const App: React.FC = () => {
               </div>
               <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded">
                 ML Auto
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('clv')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+                activeNav === 'clv'
+                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Users className={`w-4 h-4 ${activeNav === 'clv' ? 'text-gray-900' : 'text-gray-500'}`} />
+                <span>Customer CLV & Churn</span>
+              </div>
+              <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded">
+                AI RFM
               </span>
             </button>
           </nav>
@@ -3513,6 +3532,11 @@ export const App: React.FC = () => {
           {/* 9. SUPPLIERS & AUTOMATED PURCHASE ORDERS (Feature 11)     */}
           {/* ========================================================= */}
           {activeNav === 'suppliers' && <SupplierPurchaseOrdersView />}
+
+          {/* ========================================================= */}
+          {/* 10. CUSTOMER CLV & CHURN PREDICTION (Feature 20)           */}
+          {/* ========================================================= */}
+          {activeNav === 'clv' && <CustomerClvChurnView />}
         </main>
       </div>
 

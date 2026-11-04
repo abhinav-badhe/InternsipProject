@@ -100,10 +100,31 @@ export function createApp(deps?: {
   });
 
   // Feature 13: Scheduled Delivery Slots & Express Delivery
+  Database.query(`
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_slot_id VARCHAR(64) DEFAULT 'express-15';
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_type VARCHAR(32) DEFAULT 'EXPRESS';
+  `).catch(() => {});
+
   app.get('/api/v1/orders/delivery-slots', async (_req: Request, res: Response) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';
     const now = new Date();
     const currentHour = now.getHours();
+
+    // Query live capacity utilization from PostgreSQL orders table
+    let slotCounts: Record<string, number> = {};
+    try {
+      const countRes = await Database.query(
+        `SELECT delivery_slot_id, count(*)::int as count
+         FROM orders
+         WHERE created_at >= CURRENT_DATE
+         GROUP BY delivery_slot_id`
+      );
+      for (const row of countRes.rows) {
+        if (row.delivery_slot_id) slotCounts[row.delivery_slot_id] = row.count;
+      }
+    } catch {}
+
+    const MAX_SLOT_CAPACITY = 35;
 
     const slots = [
       {
@@ -114,8 +135,10 @@ export function createApp(deps?: {
         tag: '⚡ 15-Min Delivery',
         badgeColor: 'amber',
         fee: 25,
-        available: true,
-        capacityStatus: 'HIGH_DEMAND',
+        available: (slotCounts['express-15'] || 0) < 50,
+        capacityStatus: (slotCounts['express-15'] || 0) > 30 ? 'HIGH_DEMAND' : 'OPTIMAL',
+        bookedCount: slotCounts['express-15'] || 0,
+        maxCapacity: 50,
         description: 'Direct priority dispatch from nearest dark store',
       },
       {
@@ -127,7 +150,9 @@ export function createApp(deps?: {
         badgeColor: 'emerald',
         fee: 0,
         available: true,
-        capacityStatus: 'OPTIMAL',
+        capacityStatus: (slotCounts['express-30'] || 0) > 40 ? 'HIGH_DEMAND' : 'OPTIMAL',
+        bookedCount: slotCounts['express-30'] || 0,
+        maxCapacity: 60,
         description: 'Fast eco-batched dispatch',
       },
       {
@@ -138,8 +163,14 @@ export function createApp(deps?: {
         tag: 'Scheduled',
         badgeColor: 'blue',
         fee: 0,
-        available: currentHour < 18,
-        capacityStatus: currentHour < 18 ? 'AVAILABLE' : 'CLOSED',
+        available: currentHour < 18 && (slotCounts['slot-today-evening'] || 0) < MAX_SLOT_CAPACITY,
+        capacityStatus: currentHour >= 18
+          ? 'CLOSED'
+          : (slotCounts['slot-today-evening'] || 0) >= MAX_SLOT_CAPACITY
+          ? 'FULL'
+          : 'AVAILABLE',
+        bookedCount: slotCounts['slot-today-evening'] || 0,
+        maxCapacity: MAX_SLOT_CAPACITY,
         description: 'Reserved evening delivery slot',
       },
       {
@@ -150,8 +181,14 @@ export function createApp(deps?: {
         tag: 'Dinner Slot',
         badgeColor: 'purple',
         fee: 0,
-        available: currentHour < 21,
-        capacityStatus: currentHour < 21 ? 'AVAILABLE' : 'CLOSED',
+        available: currentHour < 21 && (slotCounts['slot-today-night'] || 0) < MAX_SLOT_CAPACITY,
+        capacityStatus: currentHour >= 21
+          ? 'CLOSED'
+          : (slotCounts['slot-today-night'] || 0) >= MAX_SLOT_CAPACITY
+          ? 'FULL'
+          : 'AVAILABLE',
+        bookedCount: slotCounts['slot-today-night'] || 0,
+        maxCapacity: MAX_SLOT_CAPACITY,
         description: 'Post-work convenience slot',
       },
       {
@@ -162,8 +199,10 @@ export function createApp(deps?: {
         tag: 'Breakfast Fresh',
         badgeColor: 'teal',
         fee: 0,
-        available: true,
-        capacityStatus: 'AVAILABLE',
+        available: (slotCounts['slot-tomorrow-morning'] || 0) < MAX_SLOT_CAPACITY,
+        capacityStatus: (slotCounts['slot-tomorrow-morning'] || 0) >= MAX_SLOT_CAPACITY ? 'FULL' : 'AVAILABLE',
+        bookedCount: slotCounts['slot-tomorrow-morning'] || 0,
+        maxCapacity: MAX_SLOT_CAPACITY,
         description: 'Fresh milk, bakery & farm produce',
       },
       {
@@ -174,8 +213,10 @@ export function createApp(deps?: {
         tag: 'Tomorrow',
         badgeColor: 'indigo',
         fee: 0,
-        available: true,
-        capacityStatus: 'AVAILABLE',
+        available: (slotCounts['slot-tomorrow-evening'] || 0) < MAX_SLOT_CAPACITY,
+        capacityStatus: (slotCounts['slot-tomorrow-evening'] || 0) >= MAX_SLOT_CAPACITY ? 'FULL' : 'AVAILABLE',
+        bookedCount: slotCounts['slot-tomorrow-evening'] || 0,
+        maxCapacity: MAX_SLOT_CAPACITY,
         description: 'Relaxed planned grocery restock',
       },
     ];
@@ -210,12 +251,23 @@ export function createApp(deps?: {
           delivery_slot VARCHAR(64) NOT NULL DEFAULT '07:00 AM - 09:00 AM',
           status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
           start_date DATE NOT NULL DEFAULT CURRENT_DATE,
-          next_delivery_date DATE NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '1 day'),
+          next_delivery_date DATE NOT NULL DEFAULT CURRENT_DATE,
           delivery_address JSONB NOT NULL,
           created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_subs_cust_id ON customer_subscriptions(customer_id);
+
+        CREATE TABLE IF NOT EXISTS subscription_execution_logs (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          subscription_id UUID NOT NULL,
+          order_id UUID NOT NULL,
+          order_number VARCHAR(32) NOT NULL,
+          execution_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED',
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_sub_logs_date ON subscription_execution_logs(execution_date);
       `);
     } catch (err: any) {
       logger.warn('Subscription table bootstrap notice', { message: err.message });
@@ -349,6 +401,189 @@ export function createApp(deps?: {
       );
 
       res.status(200).json(okResponse({ success: true, status: 'CANCELLED' }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature 16: Automated Morning Subscription Batch Execution Engine
+  // Triggers recurring orders for daily milk, bread & essentials scheduled for today
+  app.post('/api/v1/orders/subscriptions/process-daily', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      // 1. Fetch all active subscriptions due for fulfillment today
+      const dueRes = await Database.query(
+        `SELECT id, subscription_number, customer_id, sku, product_name, variant_name,
+                quantity, unit_price, discount_percent, frequency, delivery_slot, delivery_address
+         FROM customer_subscriptions
+         WHERE status = 'ACTIVE'
+           AND next_delivery_date <= CURRENT_DATE
+         ORDER BY created_at ASC`
+      );
+
+      const dueSubscriptions = dueRes.rows;
+      const createdOrders: any[] = [];
+      const errors: any[] = [];
+
+      for (const sub of dueSubscriptions) {
+        try {
+          const discountMultiplier = Math.max(0, 1 - parseFloat(sub.discount_percent || 0) / 100);
+          const effectivePrice = parseFloat(sub.unit_price) * discountMultiplier;
+          const totalAmount = Number((effectivePrice * parseInt(sub.quantity, 10)).toFixed(2));
+          const orderNumber = `SUB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+          const orderId = crypto.randomUUID();
+          const reservationId = crypto.randomUUID();
+          const idempotencyKey = `idemp_sub_${sub.subscription_number}_${Date.now()}`;
+          const grossSubtotal = parseFloat(sub.unit_price) * parseInt(sub.quantity, 10);
+          const discountTotal = grossSubtotal - totalAmount;
+
+          // Create real order in orders table
+          const orderInsert = await Database.query(
+            `INSERT INTO orders (
+               id, order_number, idempotency_key, customer_id, channel, status,
+               currency, subtotal, discount_total, tax_total, delivery_fee, grand_total,
+               reservation_id, delivery_address, delivery_slot_id, delivery_type
+             ) VALUES (
+               $1, $2, $3, $4, 'WEB', 'CONFIRMED',
+               'INR', $5, $6, 0.00, 0.00, $7,
+               $8, $9, 'slot-tomorrow-morning', 'SCHEDULED'
+             )
+             RETURNING id, order_number, grand_total, status, created_at`,
+            [
+              orderId,
+              orderNumber,
+              idempotencyKey,
+              sub.customer_id,
+              grossSubtotal,
+              discountTotal,
+              totalAmount,
+              reservationId,
+              JSON.stringify({
+                ...sub.delivery_address,
+                isSubscription: true,
+                subscriptionNumber: sub.subscription_number,
+                slot: 'Morning Subscription (07:00 AM - 09:00 AM)',
+              }),
+            ]
+          );
+          const newOrder = orderInsert.rows[0];
+
+          // Create order item with all required schema fields
+          const orderItemId = crypto.randomUUID();
+          await Database.query(
+            `INSERT INTO order_items (
+               id, order_id, sku, product_name, variant_name, quantity, unit_price, net_amount, tax_amount
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0.00)`,
+            [
+              orderItemId,
+              newOrder.id,
+              sub.sku,
+              sub.product_name,
+              sub.variant_name || 'Standard',
+              sub.quantity,
+              effectivePrice,
+              totalAmount,
+            ]
+          );
+
+          // Trigger fulfillment pick list creation so dark store pickers can pack it
+          try {
+            const fulfillUrl = process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008';
+            fetch(`${fulfillUrl}/api/v1/fulfillment/pick-lists`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                orderId: newOrder.id,
+                orderNumber: newOrder.order_number,
+                customerId: sub.customer_id,
+                zone: 'ZONE_A',
+                items: [
+                  {
+                    sku: sub.sku,
+                    productName: `${sub.product_name} (${sub.variant_name || 'Standard'})`,
+                    quantityRequested: sub.quantity,
+                  },
+                ],
+              }),
+            }).catch(() => {});
+          } catch {}
+
+          // Record in execution audit log
+          await Database.query(
+            `INSERT INTO subscription_execution_logs (subscription_id, order_id, order_number, execution_date, status)
+             VALUES ($1, $2, $3, CURRENT_DATE, 'COMPLETED')`,
+            [sub.id, newOrder.id, newOrder.order_number]
+          );
+
+          // Advance next delivery date based on frequency
+          let intervalDays = 1;
+          if (sub.frequency === 'ALTERNATE_DAYS') {
+            intervalDays = 2;
+          } else if (sub.frequency === 'WEEKLY') {
+            intervalDays = 7;
+          }
+
+          await Database.query(
+            `UPDATE customer_subscriptions
+             SET next_delivery_date = CURRENT_DATE + ($1 || ' days')::INTERVAL, updated_at = NOW()
+             WHERE id = $2`,
+            [intervalDays, sub.id]
+          );
+
+          createdOrders.push({
+            subscriptionNumber: sub.subscription_number,
+            orderId: newOrder.id,
+            orderNumber: newOrder.order_number,
+            productName: sub.product_name,
+            quantity: sub.quantity,
+            totalAmount,
+          });
+        } catch (subErr: any) {
+          logger.error('Failed to process subscription order', {
+            subscriptionId: sub.id,
+            error: subErr.message,
+          });
+          errors.push({ subscriptionNumber: sub.subscription_number, error: subErr.message });
+        }
+      }
+
+      logger.info('Subscription morning execution completed', {
+        processedCount: createdOrders.length,
+        errorCount: errors.length,
+      });
+
+      res.status(200).json(
+        okResponse(
+          {
+            processedCount: createdOrders.length,
+            createdOrders,
+            errors,
+            executedAt: new Date().toISOString(),
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Get subscription execution audit history
+  app.get('/api/v1/orders/subscriptions/execution-logs', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const result = await Database.query(
+        `SELECT l.id, l.subscription_id as "subscriptionId", l.order_id as "orderId",
+                l.order_number as "orderNumber", l.execution_date as "executionDate",
+                l.status, l.created_at as "createdAt",
+                s.product_name as "productName", s.quantity, s.customer_id as "customerId"
+         FROM subscription_execution_logs l
+         LEFT JOIN customer_subscriptions s ON l.subscription_id = s.id
+         ORDER BY l.created_at DESC
+         LIMIT 50`
+      );
+      res.status(200).json(okResponse(result.rows, correlationId));
     } catch (err) {
       next(err);
     }

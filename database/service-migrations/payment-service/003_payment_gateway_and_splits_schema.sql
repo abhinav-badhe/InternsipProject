@@ -23,3 +23,4 @@ CREATE TABLE IF NOT EXISTS payment_splits (
 
 CREATE INDEX IF NOT EXISTS idx_payment_splits_order ON payment_splits(order_id);
 CREATE INDEX IF NOT EXISTS idx_payment_splits_customer ON payment_splits(customer_id);
+

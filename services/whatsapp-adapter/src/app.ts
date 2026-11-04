@@ -224,9 +224,10 @@ export function createApp(deps?: {
         const fromPhone = message.from;
         const messageId = message.id;
 
-        // Check for Audio / Voice Note message (Feature 1) or Image / Photo OCR note (Feature 2)
+        // Check for Audio / Voice Note message (Feature 1), Image / Photo OCR note (Feature 2), or Live Location (Feature 3)
         const isAudio = message.type === 'audio' || message.type === 'voice' || Boolean(message.audio);
         const isImage = message.type === 'image' || Boolean(message.image);
+        const isLocation = message.type === 'location' || Boolean(message.location);
         let isVoiceNote = false;
         let isPhotoOcr = false;
         let audioTranscript: string | undefined = undefined;
@@ -270,6 +271,24 @@ export function createApp(deps?: {
           if (ocrRes.items.length > 0) {
             text = ocrRes.items.map((i) => `${i.quantity} ${i.unit || ''} ${i.item}`).join(', ');
             ocrLines = ocrRes.items.map((i) => i.rawLine);
+          }
+        } else if (isLocation && message.location) {
+          const lat = Number(message.location.latitude);
+          const lng = Number(message.location.longitude);
+          const locName = message.location.name || message.location.address || `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+          const dsLat = 12.914142;
+          const dsLng = 77.641151;
+          const R = 6371;
+          const dLat = (lat - dsLat) * (Math.PI / 180);
+          const dLng = (lng - dsLng) * (Math.PI / 180);
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos(dsLat * (Math.PI / 180)) * Math.cos(lat * (Math.PI / 180)) * Math.sin(dLng / 2) ** 2;
+          const distanceKm = Number((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1));
+
+          if (distanceKm <= 12) {
+            text = `__LOCATION_PIN__:${lat},${lng},${locName},${distanceKm}`;
+          } else {
+            text = `__LOCATION_OUT_OF_ZONE__:${distanceKm}`;
           }
         }
 
@@ -335,6 +354,24 @@ export function createApp(deps?: {
         });
         ocrLines = ocrResult.items.map((i: any) => i.rawLine);
         message = ocrResult.items.map((i: any) => `${i.quantity} ${i.unit || ''} ${i.item}`).join(', ');
+      } else if (req.body?.isLocation || req.body?.location) {
+        const lat = Number(req.body?.latitude || req.body?.location?.latitude || 12.9352);
+        const lng = Number(req.body?.longitude || req.body?.location?.longitude || 77.6245);
+        const locName = req.body?.address || req.body?.location?.name || 'Koramangala 4th Block, Bengaluru';
+
+        const dsLat = 12.914142;
+        const dsLng = 77.641151;
+        const R = 6371;
+        const dLat = (lat - dsLat) * (Math.PI / 180);
+        const dLng = (lng - dsLng) * (Math.PI / 180);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(dsLat * (Math.PI / 180)) * Math.cos(lat * (Math.PI / 180)) * Math.sin(dLng / 2) ** 2;
+        const distanceKm = Number((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1));
+
+        if (distanceKm <= 12) {
+          message = `__LOCATION_PIN__:${lat},${lng},${locName},${distanceKm}`;
+        } else {
+          message = `__LOCATION_OUT_OF_ZONE__:${distanceKm}`;
+        }
       }
 
       const reply = await bot.handleInboundMessage({

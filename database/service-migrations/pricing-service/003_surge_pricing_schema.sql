@@ -26,3 +26,4 @@ VALUES
   ('PEAK_DEMAND', 'Peak Evening Order Rush', 'HIGH_DEMAND', 20.00, 1.15, 'High fulfillment demand surge to balance dark store picking capacity.', FALSE),
   ('LATE_NIGHT', 'Midnight Delivery Surcharge', 'LATE_NIGHT', 30.00, 1.00, 'Late night rider safety and operational shift surcharge.', FALSE)
 ON CONFLICT (code) DO NOTHING;
+

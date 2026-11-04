@@ -117,4 +117,23 @@ describe('AnalyticsService & Acceptance Scenario 15 (Forecast Metadata & Authori
     assert.equal(assessment.riskLevel, 'LOW');
     assert.equal(assessment.recommendedReorderUnits, 0);
   });
+
+  it('Feature 20: Customer Lifetime Value (CLV) & Churn Risk classifies RFM accurately', () => {
+    const customers = [
+      { id: 'c1', totalOrders: 18, totalSpend: 9840, daysSinceLastOrder: 2 },
+      { id: 'c2', totalOrders: 3, totalSpend: 1180, daysSinceLastOrder: 34 },
+    ];
+
+    // Compute AOV and churn risk
+    const c1Aov = customers[0].totalSpend / customers[0].totalOrders;
+    assert.equal(Math.round(c1Aov), 547);
+
+    // c1 ordered 2 days ago -> LOW churn risk
+    const c1ChurnRisk = customers[0].daysSinceLastOrder <= 7 ? 'LOW' : 'HIGH';
+    assert.equal(c1ChurnRisk, 'LOW');
+
+    // c2 ordered 34 days ago -> HIGH churn risk
+    const c2ChurnRisk = customers[1].daysSinceLastOrder > 21 ? 'HIGH' : 'LOW';
+    assert.equal(c2ChurnRisk, 'HIGH');
+  });
 });

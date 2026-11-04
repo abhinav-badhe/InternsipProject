@@ -82,7 +82,65 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
     setTimeout(() => setCopiedUpi(false), 2000);
   };
 
-  // Feature 21: Verify Gateway Payment
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if ((window as any).Razorpay) return resolve(true);
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleRazorpayCheckoutModal = async () => {
+    if (!gatewayData) return;
+    try {
+      setIsVerifying(true);
+      setError(null);
+
+      const hasLoaded = await loadRazorpayScript();
+      if (hasLoaded && (window as any).Razorpay) {
+        const options = {
+          key: gatewayData.keyId || 'rzp_test_freshcart',
+          amount: gatewayData.amountInPaise,
+          currency: gatewayData.currency || 'INR',
+          name: 'FreshCart Hyperlocal Grocery',
+          description: `Order #${orderNumber}`,
+          order_id: gatewayData.razorpayOrderId.startsWith('order_') ? gatewayData.razorpayOrderId : undefined,
+          prefill: {
+            name: gatewayData.customerName || 'Valued Customer',
+            contact: gatewayData.customerPhone || '9876543210',
+          },
+          theme: { color: '#007a55' },
+          handler: async function (response: any) {
+            await verifyGatewayPayment({
+              orderId,
+              razorpayOrderId: response.razorpay_order_id || gatewayData.razorpayOrderId,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            });
+            setPaymentDone(true);
+            onPaymentSuccess(response.razorpay_payment_id);
+          },
+          modal: {
+            ondismiss: function () {
+              setIsVerifying(false);
+            },
+          },
+        };
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      } else {
+        await handleVerifyDirectPayment();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Payment initiation failed');
+      setIsVerifying(false);
+    }
+  };
+
+  // Feature 21: Verify Gateway Payment (UPI / Sandbox)
   const handleVerifyDirectPayment = async () => {
     if (!gatewayData) return;
     try {
@@ -343,12 +401,12 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
                 </div>
 
                 <button
-                  onClick={handleVerifyDirectPayment}
+                  onClick={handleRazorpayCheckoutModal}
                   disabled={isVerifying}
-                  className="w-full py-2.5 bg-[#0c2340] hover:bg-[#1a365d] disabled:opacity-60 text-white font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-sm"
+                  className="w-full py-2.5 bg-[#0c2340] hover:bg-[#1a365d] disabled:opacity-60 text-white font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                 >
                   <CreditCard className="w-4 h-4" />
-                  <span>{isVerifying ? 'Processing Card...' : `Pay ₹${totalAmount.toFixed(2)} with Razorpay`}</span>
+                  <span>{isVerifying ? 'Opening Razorpay Gateway...' : `Launch Razorpay Checkout (₹${totalAmount.toFixed(2)})`}</span>
                 </button>
               </div>
             )}
@@ -449,3 +507,4 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
     </div>
   );
 };
+

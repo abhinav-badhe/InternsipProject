@@ -360,6 +360,31 @@ export function createApp(): express.Application {
   app.get('/api/v1/pricing/surge/status', async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      // 1. Dynamic Clock-Based Late Night Surcharge (11 PM - 6 AM)
+      const currentHour = new Date().getHours();
+      const isLateNight = currentHour >= 23 || currentHour < 6;
+      await Database.query(
+        `UPDATE surge_rules SET is_active = $1, updated_at = NOW() WHERE code = 'LATE_NIGHT'`,
+        [isLateNight]
+      ).catch(() => {});
+
+      // 2. Dynamic Real-Time Dark Store Order Load Surcharge
+      try {
+        const orderLoadRes = await Database.query(
+          `SELECT COUNT(*)::int as active_orders
+           FROM orders
+           WHERE status IN ('AWAITING_PAYMENT', 'CONFIRMED')
+             AND created_at >= NOW() - INTERVAL '1 hour'`
+        );
+        const activeCount = orderLoadRes.rows[0]?.active_orders || 0;
+        const shouldSurgePeak = activeCount >= 10;
+        await Database.query(
+          `UPDATE surge_rules SET is_active = $1, updated_at = NOW() WHERE code = 'PEAK_DEMAND'`,
+          [shouldSurgePeak]
+        );
+      } catch {}
+
       const activeRes = await Database.query(
         `SELECT code, name, surge_type, fee_amount, multiplier, description, is_active
          FROM surge_rules

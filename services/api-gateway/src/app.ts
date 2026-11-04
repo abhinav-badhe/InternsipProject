@@ -209,9 +209,22 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     forwardRequest(urls.order, req, res);
   });
 
+  // Feature 16: Subscription Execution Batch Engine (Automated Morning Order Fulfillment)
+  app.all('/api/v1/orders/subscriptions/process-daily', (req: Request, res: Response) => {
+    forwardRequest(urls.order, req, res);
+  });
+  app.get('/api/v1/orders/subscriptions/execution-logs', (req: Request, res: Response) => {
+    forwardRequest(urls.order, req, res);
+  });
+
   // Protected Orders API (Checkout, My Orders, Single Order with Scenario 05 tenant check)
   app.use('/api/v1/orders*', authMiddleware.authenticate, (req: Request, res: Response) => {
     forwardRequest(urls.order, req, res);
+  });
+
+  // Feature 14: Customer Product Reviews Submission
+  app.post('/api/v1/catalog/products/:productId/reviews', (req: Request, res: Response) => {
+    forwardRequest(urls.catalog, req, res);
   });
 
   // Staff-only Catalog Management

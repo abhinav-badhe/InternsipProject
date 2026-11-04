@@ -243,15 +243,19 @@ export const RiderFleetView: React.FC = () => {
         body: JSON.stringify({
           proofSignature: signatureData,
           proofNotes: notes,
+          otp: podOtp.trim(),
         }),
       });
       const data = await res.json();
       if (data.success) {
-        showNotification(`Order #${podModalDelivery.orderNumber} DELIVERED with digital signature! Earned ₹60.`);
+        showNotification(`Order #${podModalDelivery.orderNumber} DELIVERED with verified PIN & signature! Earned ₹60.`);
         setPodModalDelivery(null);
         clearSignature();
+        setPodOtp('');
         await fetchDeliveries();
         setPwaTab('completed');
+      } else {
+        showNotification(`Delivery Error: ${data.error?.message || 'Verification failed'}`);
       }
     } catch (err: any) {
       showNotification(`Failed to complete delivery: ${err.message}`);

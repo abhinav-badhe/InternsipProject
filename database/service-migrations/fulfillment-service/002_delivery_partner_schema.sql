@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS delivery_assignments (
     delivered_at TIMESTAMPTZ,
     proof_signature TEXT,
     proof_notes TEXT,
+    delivery_otp VARCHAR(8),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
