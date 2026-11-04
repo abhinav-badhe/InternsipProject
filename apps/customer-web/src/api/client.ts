@@ -383,7 +383,7 @@ export async function fetchCustomerAddresses(): Promise<CustomerSavedAddress[]> 
       id: 'addr_default_home',
       label: 'HOME',
       recipientName: 'Valued Customer',
-      phone: '+917774094369',
+      phone: '+917745860406',
       flatNumber: 'Flat 402, Lotus Residency',
       street: '12th Main Road, HSR Sector 2',
       landmark: 'Near Green Park Metro',
@@ -397,7 +397,7 @@ export async function fetchCustomerAddresses(): Promise<CustomerSavedAddress[]> 
 export async function saveCustomerAddress(address: CustomerSavedAddress): Promise<CustomerSavedAddress> {
   const session = getStoredCustomerSession();
   const token = session?.token;
-  const userPhone = address.phone || session?.user?.phone || '+917774094369';
+  const userPhone = address.phone || session?.user?.phone || '+917745860406';
   const customerId = address.customerId || session?.user?.userId || `cust_${userPhone.replace(/[^0-9]/g, '').slice(-10)}`;
 
   const payload = {
@@ -472,7 +472,7 @@ export async function executeRealCheckout(params: {
   const addr = params.deliveryAddress || {
     label: 'HOME' as const,
     recipientName: session.user.fullName || 'Valued Customer',
-    phone: session.user.phone || '+917774094369',
+    phone: session.user.phone || '+917745860406',
     flatNumber: 'Flat 402',
     street: '12th Main Road, HSR Sector 2',
     city: 'Bengaluru',

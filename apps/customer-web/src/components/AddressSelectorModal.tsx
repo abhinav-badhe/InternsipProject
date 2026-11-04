@@ -261,7 +261,7 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
     }
 
     const session = getStoredCustomerSession();
-    const activePhone = phone || session?.user?.phone || '+917774094369';
+    const activePhone = phone || session?.user?.phone || '+917745860406';
 
     setIsSaving(true);
     try {
