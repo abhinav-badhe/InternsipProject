@@ -11,6 +11,7 @@ import { ReferralModal } from './components/ReferralModal';
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { PaymentGatewayModal } from './components/PaymentGatewayModal';
 import { RecipeBundlesModal } from './components/RecipeBundlesModal';
+import { AddressSelectorModal } from './components/AddressSelectorModal';
 import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
 import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
 import {
@@ -23,6 +24,8 @@ import {
   signOutCustomer,
   AuthSession,
   fetchCustomerWallet,
+  CustomerSavedAddress,
+  fetchCustomerAddresses,
 } from './api/client';
 
 export const App: React.FC = () => {
@@ -68,6 +71,21 @@ export const App: React.FC = () => {
   // Authentication & MFA State
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [userSession, setUserSession] = useState<AuthSession | null>(getStoredCustomerSession());
+
+  // Delivery Address State
+  const [selectedAddress, setSelectedAddress] = useState<CustomerSavedAddress | null>(null);
+  const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
+
+  useEffect(() => {
+    fetchCustomerAddresses()
+      .then((addrs) => {
+        if (addrs && addrs.length > 0) {
+          const def = addrs.find((a) => a.isDefault) || addrs[0];
+          setSelectedAddress(def);
+        }
+      })
+      .catch(() => {});
+  }, [userSession]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -330,6 +348,8 @@ export const App: React.FC = () => {
         onOpenReferral={() => setIsReferralOpen(true)}
         onOpenSubscriptions={() => setIsSubscriptionsOpen(true)}
         onOpenRecipes={() => setIsRecipesOpen(true)}
+        selectedAddress={selectedAddress}
+        onOpenAddressModal={() => setIsAddressModalOpen(true)}
       />
 
       {/* 2. Top Slider Category Strip (Visible on Home view) */}
@@ -676,6 +696,17 @@ export const App: React.FC = () => {
         products={products}
         onAddIngredient={handleAddToCart}
         onShowToast={showToast}
+      />
+
+      {/* Customer Saved Delivery Addresses Management Modal */}
+      <AddressSelectorModal
+        isOpen={isAddressModalOpen}
+        onClose={() => setIsAddressModalOpen(false)}
+        selectedAddress={selectedAddress}
+        onSelectAddress={(addr) => {
+          setSelectedAddress(addr);
+          showToast(`📍 Selected ${addr.label} (${addr.street}) as delivery address`);
+        }}
       />
 
       {/* Toast Notification */}

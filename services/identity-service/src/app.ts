@@ -336,13 +336,22 @@ export function createApp(): express.Application {
         isDefault,
       } = req.body;
 
-      if (!customerId && req.headers.authorization) {
+      if (req.headers.authorization) {
         const token = req.headers.authorization.replace(/^Bearer\s+/i, '');
         const claims = authService.verifyToken(token);
-        if (claims?.userId) customerId = claims.userId;
+        if (claims?.userId && (!customerId || customerId === 'cust_default')) customerId = claims.userId;
+        if (claims?.phone && (!phone || phone === '+917774094369')) phone = claims.phone;
+        if (claims?.fullName && !recipientName) recipientName = claims.fullName;
       }
 
-      if (!customerId) customerId = 'cust_default';
+      if (!phone) {
+        phone = '+917774094369';
+      }
+
+      if (!customerId || customerId === 'cust_default') {
+        const clean10 = phone.replace(/[^0-9]/g, '').slice(-10);
+        customerId = clean10 ? `cust_${clean10}` : 'cust_default';
+      }
 
       if (!street || !pincode || !recipientName) {
         return res
@@ -352,9 +361,12 @@ export function createApp(): express.Application {
 
       // If marked default, unset existing default
       if (isDefault) {
+        const clean10 = phone.replace(/[^0-9]/g, '').slice(-10);
         await Database.query(`
-          UPDATE customer_addresses SET is_default = FALSE WHERE customer_id = $1
-        `, [customerId]).catch(() => {});
+          UPDATE customer_addresses 
+          SET is_default = FALSE 
+          WHERE customer_id = $1 OR phone ILIKE $2
+        `, [customerId, `%${clean10}%`]).catch(() => {});
       }
 
       const insertRes = await Database.query(`
@@ -378,7 +390,7 @@ export function createApp(): express.Application {
         customerId,
         label || 'HOME',
         recipientName,
-        phone || '+917774094369',
+        phone,
         flatNumber || '',
         street,
         landmark || '',

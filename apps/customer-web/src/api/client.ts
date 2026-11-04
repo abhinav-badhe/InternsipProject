@@ -332,6 +332,7 @@ export async function fetchLiveCustomerOrders(): Promise<CustomerOrder[]> {
 
 export interface CustomerSavedAddress {
   id?: string;
+  customerId?: string;
   label: 'HOME' | 'WORK' | 'OTHER';
   recipientName: string;
   phone: string;
@@ -347,11 +348,20 @@ export async function fetchCustomerAddresses(): Promise<CustomerSavedAddress[]> 
   try {
     const session = getStoredCustomerSession();
     const token = session?.token;
-    const res = await fetch('/api/v1/auth/customer/addresses', {
+    const phone = session?.user?.phone || '';
+    const userId = session?.user?.userId || '';
+
+    const params = new URLSearchParams();
+    if (phone) params.set('phone', phone);
+    if (userId) params.set('customerId', userId);
+
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`/api/v1/auth/customer/addresses${queryStr}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     const json = await res.json();
     if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+      localStorage.setItem('freshcart_saved_addresses', JSON.stringify(json.data));
       return json.data;
     }
   } catch (e) {
@@ -385,6 +395,14 @@ export async function fetchCustomerAddresses(): Promise<CustomerSavedAddress[]> 
 export async function saveCustomerAddress(address: CustomerSavedAddress): Promise<CustomerSavedAddress> {
   const session = getStoredCustomerSession();
   const token = session?.token;
+  const userPhone = address.phone || session?.user?.phone || '+917774094369';
+  const customerId = address.customerId || session?.user?.userId || `cust_${userPhone.replace(/[^0-9]/g, '').slice(-10)}`;
+
+  const payload = {
+    ...address,
+    customerId,
+    phone: userPhone,
+  };
 
   let saved = address;
   try {
@@ -394,7 +412,7 @@ export async function saveCustomerAddress(address: CustomerSavedAddress): Promis
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify(address),
+      body: JSON.stringify(payload),
     });
     const json = await res.json();
     if (json.success && json.data) {
@@ -425,6 +443,19 @@ export async function deleteCustomerAddress(id: string): Promise<void> {
   const existing = await fetchCustomerAddresses();
   const updated = existing.filter((a) => a.id !== id);
   localStorage.setItem('freshcart_saved_addresses', JSON.stringify(updated));
+}
+
+export async function setDefaultCustomerAddress(id: string): Promise<void> {
+  try {
+    const session = getStoredCustomerSession();
+    const token = session?.token;
+    await fetch(`/api/v1/auth/customer/addresses/${id}/default`, {
+      method: 'PUT',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch (e) {}
+
+  await fetchCustomerAddresses();
 }
 
 export async function executeRealCheckout(params: {

@@ -14,6 +14,8 @@ import {
   fetchCustomerAddresses,
   saveCustomerAddress,
   deleteCustomerAddress,
+  setDefaultCustomerAddress,
+  getStoredCustomerSession,
 } from '../api/client';
 
 interface AddressSelectorModalProps {
@@ -47,6 +49,13 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       loadAddresses();
+      const session = getStoredCustomerSession();
+      if (session?.user?.phone && !phone) {
+        setPhone(session.user.phone);
+      }
+      if (session?.user?.fullName && session.user.fullName !== 'Customer' && !recipientName) {
+        setRecipientName(session.user.fullName);
+      }
     }
   }, [isOpen]);
 
@@ -62,13 +71,16 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
       return;
     }
 
+    const session = getStoredCustomerSession();
+    const activePhone = phone || session?.user?.phone || '+917774094369';
+
     setIsSaving(true);
     try {
       const newAddr = await saveCustomerAddress({
         id: `addr_${Date.now()}`,
         label,
         recipientName,
-        phone: phone || '+917774094369',
+        phone: activePhone,
         flatNumber,
         street,
         landmark,
@@ -79,6 +91,10 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
 
       onSelectAddress(newAddr);
       setIsAddingNew(false);
+      setFlatNumber('');
+      setStreet('');
+      setLandmark('');
+      setIsDefault(false);
       await loadAddresses();
     } catch (err: any) {
       alert(`Failed to save address: ${err.message}`);
@@ -173,8 +189,22 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
                             <span>{addr.label}</span>
                           </span>
 
-                          {addr.isDefault && (
-                            <span className="text-[10px] text-[#007a55] font-bold">Default</span>
+                          {addr.isDefault ? (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">Default</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (addr.id) {
+                                  await setDefaultCustomerAddress(addr.id);
+                                  await loadAddresses();
+                                }
+                              }}
+                              className="text-[10px] text-slate-500 hover:text-[#007a55] underline cursor-pointer"
+                            >
+                              Set as Default
+                            </button>
                           )}
                         </div>
 

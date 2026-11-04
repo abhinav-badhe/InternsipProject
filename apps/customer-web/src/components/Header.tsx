@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk, ChefHat } from 'lucide-react';
-import { AuthSession } from '../api/client';
+import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk, ChefHat, MapPin, ChevronDown } from 'lucide-react';
+import { AuthSession, CustomerSavedAddress } from '../api/client';
 
 interface HeaderProps {
   cartCount: number;
@@ -20,6 +20,8 @@ interface HeaderProps {
   onOpenReferral?: () => void;
   onOpenSubscriptions?: () => void;
   onOpenRecipes?: () => void;
+  selectedAddress?: CustomerSavedAddress | null;
+  onOpenAddressModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,6 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenReferral,
   onOpenSubscriptions,
   onOpenRecipes,
+  selectedAddress,
+  onOpenAddressModal,
 }) => {
   const [showDisambiguation, setShowDisambiguation] = useState(false);
   const isSoapSearch = searchQuery.toLowerCase().trim() === 'soap';
@@ -66,6 +70,26 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
               <span className="text-[10px] text-gray-400 font-medium tracking-wide">
                 Omnichannel Grocery
+              </span>
+            </div>
+          </button>
+
+          {/* Delivery Address Pill (Blinkit / Zepto Quick Commerce style) */}
+          <button
+            onClick={onOpenAddressModal}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-200 hover:border-[#007a55] bg-gray-50/70 hover:bg-emerald-50/50 transition-all cursor-pointer text-left max-w-[210px] md:max-w-[250px] shadow-2xs"
+            title="Click to view or add saved delivery addresses"
+          >
+            <MapPin className="w-4 h-4 text-[#007a55] shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <span className="text-[10px] font-bold text-gray-900 flex items-center gap-1">
+                <span className="text-[#007a55]">Delivery in 10-15m</span>
+                <ChevronDown className="w-2.5 h-2.5 text-gray-400" />
+              </span>
+              <span className="text-[11px] text-gray-600 truncate font-medium">
+                {selectedAddress
+                  ? `${selectedAddress.label ? selectedAddress.label + ': ' : ''}${selectedAddress.flatNumber ? selectedAddress.flatNumber + ', ' : ''}${selectedAddress.street}`
+                  : 'Select delivery address'}
               </span>
             </div>
           </button>
@@ -237,15 +261,20 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* User Account / Sign In */}
           {userSession ? (
-            <div className="flex items-center gap-1 pl-1">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-[#007a55] font-semibold">
+            <div className="flex items-center gap-1.5 pl-1">
+              <button
+                onClick={onOpenAddressModal}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-xs text-[#007a55] font-semibold transition-colors cursor-pointer shadow-2xs"
+                title="Manage Saved Addresses"
+              >
                 <User className="w-3.5 h-3.5" />
                 <span className="max-w-[120px] truncate">
                   {userSession.user.fullName && userSession.user.fullName !== 'Customer'
                     ? userSession.user.fullName.split(' ')[0]
                     : (userSession.user.phone || 'My Account')}
                 </span>
-              </div>
+                <ChevronDown className="w-2.5 h-2.5 text-emerald-700" />
+              </button>
               <button
                 onClick={onSignOut}
                 title="Sign Out"
