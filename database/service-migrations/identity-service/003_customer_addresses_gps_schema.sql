@@ -21,3 +21,4 @@ CREATE TABLE IF NOT EXISTS customer_addresses (
 
 ALTER TABLE customer_addresses ADD COLUMN IF NOT EXISTS lat NUMERIC(10, 7);
 ALTER TABLE customer_addresses ADD COLUMN IF NOT EXISTS lng NUMERIC(10, 7);
+

@@ -428,30 +428,49 @@ export class WhatsAppBot {
         return this.executeOrderCheckout(session, msg, chosenAddr);
       }
 
-      // If text doesn't match an address option, re-prompt the customer nicely
-      let addrPrompt = `📍 *Select Delivery Address for Your Order:*\n\n`;
-      const buttons: any[] = [];
-      pending.forEach((addr: any, idx: number) => {
-        const icon = addr.label === 'WORK' ? '🏢' : '🏠';
-        const line = `${addr.flat_number ? addr.flat_number + ', ' : ''}${addr.street}, ${addr.city} - ${addr.pincode}`;
-        addrPrompt += `${idx + 1}️⃣ ${icon} *${addr.label}:* ${line}\n\n`;
-        buttons.push({
-          id: `addr_pick_${idx}`,
-          title: `${icon} Deliver to ${addr.label}`,
+      // If text doesn't match an address option, check if the customer sent a fresh search, cart command, or cancellation
+      if (
+        lowerText === 'cancel' ||
+        lowerText === 'reset' ||
+        lowerText === 'clear' ||
+        lowerText.startsWith('hi') ||
+        lowerText.startsWith('hello') ||
+        lowerText.includes('search') ||
+        lowerText.includes('browse') ||
+        (!['1', '2', '3'].includes(text.trim()) && !text.startsWith('addr_'))
+      ) {
+        // Customer typed a product query or item name (e.g. "Rice", "Wheat", "Milk", etc.)
+        session.stage = 'IDLE';
+        (session as any).pendingAddresses = undefined;
+        await this.saveSession(session);
+        // Continue below so the bot's product search / shopping list engine handles the message!
+      } else {
+        // Re-prompt the customer nicely
+        let addrPrompt = `📍 *Select Delivery Address for Your Order:*\n\n`;
+        const buttons: any[] = [];
+        pending.forEach((addr: any, idx: number) => {
+          const icon = addr.label === 'WORK' ? '🏢' : '🏠';
+          const locality = (addr.street || addr.city || '').split(',')[0].trim().slice(0, 7);
+          const line = `${addr.flat_number ? addr.flat_number + ', ' : ''}${addr.street}, ${addr.city} - ${addr.pincode}`;
+          addrPrompt += `${idx + 1}️⃣ ${icon} *${addr.label}:* ${line}\n\n`;
+          buttons.push({
+            id: `addr_pick_${idx}`,
+            title: `${idx + 1}️⃣ ${addr.label}${locality ? ` (${locality})` : ''}`.slice(0, 20),
+          });
         });
-      });
-      if (buttons.length < 3) {
-        buttons.push({ id: 'addr_new', title: '➕ Other / New Pin' });
-      }
-      addrPrompt += `━━━━━━━━━━━━━━━━━━━━━\n`;
-      addrPrompt += `👉 Tap a button or reply with the number (*1* or *2*) to confirm where to deliver:`;
+        if (buttons.length < 3) {
+          buttons.push({ id: 'addr_new', title: '➕ Add New Address' });
+        }
+        addrPrompt += `━━━━━━━━━━━━━━━━━━━━━\n`;
+        addrPrompt += `👉 Tap a button or reply with the number (*1* or *2*) to confirm where to deliver:`;
 
-      return this.sendAndLog(session.sessionId, {
-        toPhoneNumber: msg.fromPhoneNumber,
-        type: 'buttons',
-        bodyText: addrPrompt,
-        options: buttons,
-      });
+        return this.sendAndLog(session.sessionId, {
+          toPhoneNumber: msg.fromPhoneNumber,
+          type: 'buttons',
+          bodyText: addrPrompt,
+          options: buttons,
+        });
+      }
     }
 
     if (session.stage === ('AWAITING_ADDRESS' as any)) {
@@ -1121,16 +1140,17 @@ export class WhatsAppBot {
 
         savedAddresses.forEach((addr: any, idx: number) => {
           const icon = addr.label === 'WORK' ? '🏢' : '🏠';
+          const locality = (addr.street || addr.city || '').split(',')[0].trim().slice(0, 7);
           const line = `${addr.flat_number ? addr.flat_number + ', ' : ''}${addr.street}, ${addr.city} - ${addr.pincode}`;
           addrPrompt += `${idx + 1}️⃣ ${icon} *${addr.label}:* ${line}\n\n`;
           buttons.push({
             id: `addr_pick_${idx}`,
-            title: `${icon} Deliver to ${addr.label}`,
+            title: `${idx + 1}️⃣ ${addr.label}${locality ? ` (${locality})` : ''}`.slice(0, 20),
           });
         });
 
         if (buttons.length < 3) {
-          buttons.push({ id: 'addr_new', title: '➕ Other / New Pin' });
+          buttons.push({ id: 'addr_new', title: '➕ Add New Address' });
         }
 
         addrPrompt += `━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -2124,7 +2144,16 @@ export class WhatsAppBot {
             reply.options.map((o) => ({ id: o.id, title: o.title })),
             { headerText: reply.headerText, footerText: reply.footerText }
           );
-          providerMessageId = res.messageId;
+          if (res.success) {
+            providerMessageId = res.messageId;
+          } else {
+            logger.warn('Interactive buttons rejected by Meta, falling back to text message', {
+              to: reply.toPhoneNumber,
+              error: res.error,
+            });
+            const fallbackRes = await this.metaClient.sendTextMessage(reply.toPhoneNumber, reply.bodyText);
+            providerMessageId = fallbackRes.messageId;
+          }
         } else if (reply.type === 'list' && reply.options && reply.options.length > 0) {
           const res = await this.metaClient.sendInteractiveList(
             reply.toPhoneNumber,
@@ -2137,7 +2166,16 @@ export class WhatsAppBot {
               },
             ]
           );
-          providerMessageId = res.messageId;
+          if (res.success) {
+            providerMessageId = res.messageId;
+          } else {
+            logger.warn('Interactive list rejected by Meta, falling back to text message', {
+              to: reply.toPhoneNumber,
+              error: res.error,
+            });
+            const fallbackRes = await this.metaClient.sendTextMessage(reply.toPhoneNumber, reply.bodyText);
+            providerMessageId = fallbackRes.messageId;
+          }
         } else {
           const res = await this.metaClient.sendTextMessage(reply.toPhoneNumber, reply.bodyText);
           providerMessageId = res.messageId;

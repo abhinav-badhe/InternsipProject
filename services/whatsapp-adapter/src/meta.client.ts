@@ -94,13 +94,29 @@ export class WhatsAppCloudApiClient {
     const formattedPhone = this.formatPhone(toPhone);
 
     // Meta WhatsApp Cloud API limits quick-reply buttons to maximum 3
-    const safeButtons = buttons.slice(0, 3).map((btn) => ({
-      type: 'reply',
-      reply: {
-        id: btn.id.substring(0, 256),
-        title: btn.title.substring(0, 20), // Meta limit: 20 characters per button title
-      },
-    }));
+    // Meta strictly enforces: max 20 chars per button title, and NO duplicate titles!
+    const seenTitles = new Set<string>();
+    const safeButtons = buttons.slice(0, 3).map((btn, idx) => {
+      let title = (btn.title || '').trim().replace(/\s+/g, ' ');
+      if (title.length > 20) {
+        title = title.substring(0, 20).trim();
+      }
+      if (!title) {
+        title = `Option ${idx + 1}`;
+      }
+      if (seenTitles.has(title.toLowerCase())) {
+        const suffix = ` #${idx + 1}`;
+        title = `${title.slice(0, 20 - suffix.length)}${suffix}`;
+      }
+      seenTitles.add(title.toLowerCase());
+      return {
+        type: 'reply',
+        reply: {
+          id: (btn.id || `btn_${idx}`).substring(0, 256),
+          title,
+        },
+      };
+    });
 
     // Meta WhatsApp Cloud API strictly limits interactive body text to 1024 characters.
     // If text exceeds 1024 chars, send the detailed message via standard text message (supports 4096 chars)
@@ -273,17 +289,19 @@ export class WhatsAppCloudApiClient {
         const data: any = await res.json();
 
         if (!res.ok) {
+          const detailMsg = data?.error?.error_data?.details || data?.error?.message || `Meta API HTTP ${res.status}`;
           logger.error('Meta WhatsApp Cloud API error response', {
             status: res.status,
             error: data?.error?.message,
             code: data?.error?.code,
+            details: data?.error?.error_data?.details,
           });
           return {
             success: false,
             messageId: '',
             recipientPhone: toPhone,
             mock: false,
-            error: data?.error?.message || `Meta API HTTP ${res.status}`,
+            error: detailMsg,
           };
         }
 
