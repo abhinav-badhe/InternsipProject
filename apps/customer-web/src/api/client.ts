@@ -632,23 +632,14 @@ export async function fetchCustomerWallet(): Promise<CustomerWalletData> {
     console.warn('Using local fallback wallet state', err);
   }
 
-  const session = await getCustomerSession();
+  // Offline balances must never imply spendable funds.
   return {
-    walletId: 'w_demo',
-    customerId: session.user.userId,
-    balance: 100.0,
+    walletId: '',
+    customerId: getStoredCustomerSession()?.user.userId || '',
+    balance: 0,
     currency: 'INR',
-    isActive: true,
-    transactions: [
-      {
-        id: 'tx_welcome',
-        type: 'WELCOME_BONUS',
-        amount: 100.0,
-        balanceAfter: 100.0,
-        description: 'Welcome to FreshCart! Joining Bonus Credit',
-        createdAt: new Date().toISOString(),
-      },
-    ],
+    isActive: false,
+    transactions: [],
   };
 }
 

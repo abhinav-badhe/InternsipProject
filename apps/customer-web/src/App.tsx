@@ -72,7 +72,7 @@ export const App: React.FC = () => {
 
   // Feature 15: FreshCart Wallet & Cashback Modal State
   const [isWalletOpen, setIsWalletOpen] = useState(false);
-  const [walletBalance, setWalletBalance] = useState<number>(100);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
 
   // Feature 17: Referral Program Modal State
   const [isReferralOpen, setIsReferralOpen] = useState(false);
@@ -201,7 +201,7 @@ export const App: React.FC = () => {
       prev
         .map((item) => {
           if (item.variant.sku === sku) {
-            const newQty = item.quantity + delta;
+            const newQty = Math.min(item.quantity + delta, item.variant.availableStock);
             return newQty > 0 ? { ...item, quantity: newQty } : null;
           }
           return item;
@@ -328,6 +328,7 @@ export const App: React.FC = () => {
     return acc;
   }, {});
 
+  const cartQuantities = Object.fromEntries(cartItems.map((item) => [item.variant.sku, item.quantity]));
   const cartTotal = cartItems.reduce((acc, item) => acc + item.variant.price * item.quantity, 0);
   const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
 
@@ -337,7 +338,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fafafb] font-sans">
+    <div className="min-h-screen flex flex-col bg-background font-sans">
       {/* 1. Top Header with Browse Products Button */}
       <Header
         cartCount={cartCount}
@@ -370,6 +371,8 @@ export const App: React.FC = () => {
         onOpenAddressModal={() => setIsAddressModalOpen(true)}
       />
 
+      {!isBackendConnected && <div role="status" className="border-b border-border bg-surface-muted px-4 py-2 text-center text-xs text-muted-foreground">Catalog preview · Prices and availability are sample data.</div>}
+
       {/* 2. Top Slider Category Strip (Visible on Home view) */}
       {viewMode === 'home' && (
         <CategoryNav
@@ -386,7 +389,7 @@ export const App: React.FC = () => {
       {/* 3. Main Views */}
       {viewMode === 'browse' ? (
         /* DEDICATED SEARCH & FILTER BROWSE PAGE MATCHING REFERENCE IMAGE */
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+        <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
           {/* Page Title */}
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight mb-4">
             Search products
@@ -398,18 +401,19 @@ export const App: React.FC = () => {
             className="flex items-center gap-2 max-w-2xl mb-6"
           >
             <input
-              type="text"
+              aria-label="Search by title, brand, category, or SKU"
+              type="search"
               placeholder="Search by title, brand, category, or SKU"
               value={browseSearchInput}
               onChange={(e) => {
                 setBrowseSearchInput(e.target.value);
                 setSearchQuery(e.target.value); // Real-time live search filter!
               }}
-              className="flex-1 px-3.5 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55] transition-all placeholder:text-gray-400 shadow-2xs"
+              className="flex-1 px-3.5 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-gray-400 "
             />
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white hover:bg-[#006345] transition-colors shadow-2xs cursor-pointer shrink-0"
+              className="px-5 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer shrink-0"
             >
               Search
             </button>
@@ -420,15 +424,16 @@ export const App: React.FC = () => {
             {/* Left Filter Sidebar */}
             <aside className="w-full md:w-64 lg:w-72 shrink-0 space-y-4">
               {/* Card 1: Sort by & Stock Filter */}
-              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs space-y-3">
+              <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-900 mb-1.5">
                     Sort by
                   </label>
                   <select
+                    aria-label="Sort products"
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as any)}
-                    className="w-full px-2.5 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55] text-gray-800 cursor-pointer font-medium"
+                    className="w-full px-2.5 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-gray-800 cursor-pointer font-medium"
                   >
                     <option value="relevance">Relevance</option>
                     <option value="price_asc">Price: Low to High</option>
@@ -444,7 +449,7 @@ export const App: React.FC = () => {
                       type="checkbox"
                       checked={inStockOnly}
                       onChange={(e) => setInStockOnly(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 text-[#007a55] focus:ring-[#007a55] cursor-pointer"
+                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
                     />
                     <span className="text-xs text-gray-700 font-medium">In stock only</span>
                   </label>
@@ -452,14 +457,14 @@ export const App: React.FC = () => {
               </div>
 
               {/* Card 2: Categories List */}
-              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs">
+              <div className="bg-white border border-gray-200 rounded-xl p-4 ">
                 <h3 className="text-xs font-semibold text-gray-900 mb-2">Categories</h3>
                 <div className="space-y-0.5 text-xs max-h-[460px] overflow-y-auto pr-1">
                   <button
                     onClick={() => setSelectedCategoryId('ALL')}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
                       selectedCategoryId === 'ALL'
-                        ? 'text-[#007a55] font-bold bg-emerald-50'
+                        ? 'text-primary font-bold bg-emerald-50'
                         : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
                     }`}
                   >
@@ -478,7 +483,7 @@ export const App: React.FC = () => {
                           onClick={() => setSelectedCategoryId(cat.id)}
                           className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
                             isActive
-                              ? 'text-[#007a55] font-bold bg-emerald-50'
+                              ? 'text-primary font-bold bg-emerald-50'
                               : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
                           }`}
                         >
@@ -506,7 +511,7 @@ export const App: React.FC = () => {
                       setInStockOnly(false);
                       setSortBy('relevance');
                     }}
-                    className="text-xs text-[#007a55] font-semibold hover:underline cursor-pointer"
+                    className="text-xs text-primary font-semibold hover:underline cursor-pointer"
                   >
                     Reset all filters
                   </button>
@@ -514,7 +519,7 @@ export const App: React.FC = () => {
               </div>
 
               {filteredProducts.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-xl border border-gray-200 shadow-2xs">
+                <div className="text-center py-16 bg-white rounded-xl border border-gray-200 ">
                   <p className="text-sm font-semibold text-gray-700 mb-1">
                     No products match your criteria
                   </p>
@@ -528,7 +533,7 @@ export const App: React.FC = () => {
                       setBrowseSearchInput('');
                       setInStockOnly(false);
                     }}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white shadow-2xs hover:bg-[#006345] transition-colors cursor-pointer"
+                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer"
                   >
                     Reset Filters
                   </button>
@@ -537,16 +542,12 @@ export const App: React.FC = () => {
                 /* 3-Column Product Grid matching reference image */
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredProducts.map((product) => {
-                    const itemInCart = cartItems.find((i) =>
-                      product.variants.some((v) => v.sku === i.variant.sku)
-                    );
-                    const qty = itemInCart ? itemInCart.quantity : 0;
 
                     return (
                       <ProductCard
                         key={product.id}
                         product={product}
-                        cartQuantity={qty}
+                        cartQuantities={cartQuantities}
                         onAddToCart={handleAddToCart}
                         onUpdateQuantity={handleUpdateQuantity}
                         onOpenAlternatives={handleOpenAlternatives}
@@ -560,19 +561,19 @@ export const App: React.FC = () => {
         </main>
       ) : (
         /* HOME CATALOG VIEW */
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">
+        <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">
           {/* Results / Available Now Section Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-baseline gap-2">
-              <h2 className="text-base font-bold text-gray-900 tracking-tight">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">
                 {searchQuery ? `Results for "${searchQuery}"` : 'Available now'}
-              </h2>
+              </h1>
             </div>
             <button
               onClick={() => {
                 setViewMode('browse');
               }}
-              className="text-xs font-semibold text-[#007a55] hover:text-[#006345] transition-colors flex items-center gap-1 cursor-pointer"
+              className="text-xs font-semibold text-primary hover:text-primary-hover transition-colors flex items-center gap-1 cursor-pointer"
             >
               <span>Browse & Filter ({filteredProducts.length})</span>
               <span>&rarr;</span>
@@ -581,7 +582,7 @@ export const App: React.FC = () => {
 
           {/* 4-Column Product Grid for Home */}
           {filteredProducts.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-xl border border-gray-200 shadow-2xs">
+            <div className="text-center py-16 bg-white rounded-xl border border-gray-200 ">
               <p className="text-sm font-semibold text-gray-700 mb-1">
                 No products match your criteria
               </p>
@@ -594,7 +595,7 @@ export const App: React.FC = () => {
                   setSearchQuery('');
                   setBrowseSearchInput('');
                 }}
-                className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white shadow-2xs hover:bg-[#006345] transition-colors"
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary-hover transition-colors"
               >
                 Reset Filters
               </button>
@@ -602,16 +603,12 @@ export const App: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filteredProducts.map((product) => {
-                const itemInCart = cartItems.find((i) =>
-                  product.variants.some((v) => v.sku === i.variant.sku)
-                );
-                const qty = itemInCart ? itemInCart.quantity : 0;
 
                 return (
                   <ProductCard
                     key={product.id}
                     product={product}
-                    cartQuantity={qty}
+                    cartQuantities={cartQuantities}
                     onAddToCart={handleAddToCart}
                     onUpdateQuantity={handleUpdateQuantity}
                     onOpenAlternatives={handleOpenAlternatives}
@@ -729,7 +726,7 @@ export const App: React.FC = () => {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-4 right-4 z-50 bg-slate-900 text-white text-xs px-4 py-2.5 rounded shadow-lg flex items-center gap-2 border border-slate-700">
+        <div role="status" aria-live="polite" className="fixed bottom-4 left-4 sm:left-auto right-4 z-50 bg-slate-900 text-white text-xs px-4 py-2.5 rounded shadow-lg flex items-center gap-2 border border-slate-700">
           <Sparkles className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>

@@ -2,17 +2,44 @@
 @import "leaflet/dist/leaflet.css";
 
 @theme {
-  --color-primary: #007a55;
-  --color-primary-hover: #006345;
-  --color-sidebar: #ffffff;
-  --color-sidebar-hover: #f3f4f6;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --color-background: oklch(0.985 0.002 250);
+  --color-surface: oklch(1 0 0);
+  --color-surface-muted: oklch(0.97 0.004 250);
+  --color-foreground: oklch(0.16 0.015 255);
+  --color-muted-foreground: oklch(0.48 0.015 255);
+  --color-border: oklch(0.89 0.008 255);
+  --color-primary: oklch(0.46 0.08 195);
+  --color-primary-hover: oklch(0.39 0.07 195);
+  --color-primary-light: oklch(0.96 0.025 195);
+  --color-success: oklch(0.48 0.12 150);
+  --color-warning: oklch(0.51 0.12 75);
+  --color-destructive: oklch(0.55 0.19 25);
+  --color-sidebar: oklch(1 0 0);
+  --color-sidebar-hover: oklch(0.97 0.004 250);
+  --font-sans: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.5rem;
+  --radius-2xl: 0.5rem;
 }
 
-body {
-  font-family: var(--font-sans);
-  background-color: #f9fafb;
-  color: #111827;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer base {
+  body { @apply bg-background font-sans text-foreground antialiased; }
+  :where(button, a, input, select, textarea, summary):focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+  button:not(:disabled), summary { cursor: pointer; }
+  :disabled { cursor: not-allowed; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

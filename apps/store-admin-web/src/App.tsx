@@ -80,6 +80,7 @@ import {
   ShieldCheck,
   LogIn,
   LogOut,
+  Menu,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -764,6 +765,8 @@ export const App: React.FC = () => {
   const [activeNav, setActiveNav] = useState<
     'catalog' | 'inventory' | 'orders' | 'fulfillment' | 'invoices' | 'analytics' | 'whatsapp' | 'deliveries' | 'suppliers' | 'clv'
   >('inventory');
+
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false);
 
   // Core domain state
   const [variants, setVariants] = useState<ProductVariant[]>(INITIAL_VARIANTS);
@@ -1751,13 +1754,15 @@ export const App: React.FC = () => {
   const totalAvailableUnits = totalPhysicalUnits - totalReservedUnits;
 
   return (
-    <div className="min-h-screen bg-[#f9fafb] flex flex-col font-sans antialiased text-gray-900 text-xs">
+    <div className="min-h-screen bg-background flex flex-col font-sans antialiased text-gray-900 text-xs">
       {/* ========================================================= */}
       {/* TOP HEADER: Clean Seller Hub Header */}
       {/* ========================================================= */}
-      <header className="bg-white border-b border-gray-200 px-8 py-3.5 flex items-center justify-between sticky top-0 z-30">
+      <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-3 flex flex-wrap gap-3 items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          <span className="text-base font-bold text-gray-900 tracking-tight">Seller hub</span>
+          <button aria-label="Toggle store navigation" aria-expanded={isNavigationOpen} aria-controls="store-navigation" onClick={() => setIsNavigationOpen(!isNavigationOpen)} className="flex size-11 items-center justify-center rounded-md border border-border lg:hidden"><Menu className="size-4" /></button>
+          <span className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-white">FC</span>
+          <span className="text-base font-bold tracking-tight">Seller hub</span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -1768,14 +1773,14 @@ export const App: React.FC = () => {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-left transition-colors"
                 title="Account Details & 2FA"
               >
-                <div className="w-6 h-6 rounded-full bg-[#007a55]/10 text-[#007a55] flex items-center justify-center font-bold text-[10px]">
+                <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">
                   {adminSession.user.fullName.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex flex-col">
                   <span className="font-semibold text-gray-800 text-[11px] leading-tight">
                     {adminSession.user.fullName}
                   </span>
-                  <span className="text-[9px] text-[#007a55] font-medium leading-none flex items-center gap-0.5">
+                  <span className="text-[9px] text-primary font-medium leading-none flex items-center gap-0.5">
                     <ShieldCheck className="w-2.5 h-2.5" /> {adminSession.user.role} (2FA)
                   </span>
                 </div>
@@ -1807,7 +1812,7 @@ export const App: React.FC = () => {
             href="/delivery/login"
             target="_blank"
             rel="noreferrer"
-            className="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-[#007a55] font-semibold text-xs transition-colors shadow-2xs"
+            className="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-primary font-semibold text-xs transition-colors "
             title="Open Dedicated Delivery Partner Portal"
           >
             <Bike className="w-3.5 h-3.5 text-emerald-600" />
@@ -1818,7 +1823,7 @@ export const App: React.FC = () => {
             href="http://localhost:5173"
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-xs"
+            className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
           >
             <span>View storefront</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -1827,17 +1832,18 @@ export const App: React.FC = () => {
       </header>
 
       {/* ========================================================= */}
-      {/* TWO COLUMN WORKSPACE: REAL BACKEND MODULES ONLY */}
+      {/* TWO COLUMN WORKSPACE */}
       {/* ========================================================= */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex flex-1 flex-col lg:flex-row">
         {/* LEFT NAVIGATION: Real Store Architecture Modules */}
-        <aside className="w-60 bg-white border-r border-gray-200 flex flex-col shrink-0 py-4 px-3">
-          <nav className="space-y-1">
+        <aside id="store-navigation" className={`${isNavigationOpen ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-b border-border bg-surface px-3 py-4 lg:sticky lg:top-20 lg:flex lg:max-h-[calc(100dvh-5rem)] lg:w-60 lg:overflow-y-auto lg:self-start lg:border-r lg:border-b-0`}>
+          <nav aria-label="Store operations" className="space-y-1">
             <button
-              onClick={() => setActiveNav('inventory')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'inventory' ? 'page' : undefined}
+              onClick={() => { setActiveNav('inventory'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center justify-between px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'inventory'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1851,10 +1857,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('catalog')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'catalog' ? 'page' : undefined}
+              onClick={() => { setActiveNav('catalog'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'catalog'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1863,10 +1870,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('orders')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'orders' ? 'page' : undefined}
+              onClick={() => { setActiveNav('orders'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center justify-between px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'orders'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1882,10 +1890,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('fulfillment')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'fulfillment' ? 'page' : undefined}
+              onClick={() => { setActiveNav('fulfillment'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'fulfillment'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1894,10 +1903,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('invoices')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'invoices' ? 'page' : undefined}
+              onClick={() => { setActiveNav('invoices'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'invoices'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1906,10 +1916,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('analytics')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'analytics' ? 'page' : undefined}
+              onClick={() => { setActiveNav('analytics'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'analytics'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1918,10 +1929,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('whatsapp')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'whatsapp' ? 'page' : undefined}
+              onClick={() => { setActiveNav('whatsapp'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center justify-between px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'whatsapp'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1933,10 +1945,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('deliveries')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'deliveries' ? 'page' : undefined}
+              onClick={() => { setActiveNav('deliveries'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center justify-between px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'deliveries'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1950,10 +1963,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('suppliers')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'suppliers' ? 'page' : undefined}
+              onClick={() => { setActiveNav('suppliers'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center justify-between px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'suppliers'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1967,10 +1981,11 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveNav('clv')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-left text-xs font-medium transition-colors ${
+              aria-current={activeNav === 'clv' ? 'page' : undefined}
+              onClick={() => { setActiveNav('clv'); setIsNavigationOpen(false); }}
+              className={`w-full flex items-center justify-between px-3.5 min-h-11 py-2.5 rounded-md text-left text-[13px] font-medium transition-colors ${
                 activeNav === 'clv'
-                  ? 'bg-gray-100 text-gray-900 font-semibold'
+                  ? 'bg-primary-light text-primary font-semibold'
                   : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'
               }`}
             >
@@ -1986,7 +2001,8 @@ export const App: React.FC = () => {
         </aside>
 
         {/* MAIN DISPLAY AREA */}
-        <main className="flex-1 p-8 overflow-y-auto">
+        <main className="min-w-0 flex-1 p-4 sm:p-5 lg:p-6">
+          {!adminSession && <div role="status" className="mx-auto mb-4 max-w-7xl rounded-md border border-border bg-surface px-4 py-3 text-xs text-muted-foreground">Store preview · Orders, stock batches, and reports may contain sample data. Sign in to load your store records.</div>}
           {/* ========================================================= */}
           {/* 1. INVENTORY MODULE (Real inventory-service backend) */}
           {/* ========================================================= */}
@@ -2006,15 +2022,15 @@ export const App: React.FC = () => {
                 <div className="flex items-center gap-2.5">
                   <button
                     onClick={() => setIsReceiveStockOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-xs"
+                    className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
                   >
                     <PackagePlus className="w-4 h-4" />
-                    <span>+ Add product / listing</span>
+                    <span>Receive stock</span>
                   </button>
 
                   <button
                     onClick={handleTriggerTtlSweep}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors shadow-2xs"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors "
                     title="Release checkout holds where 15 minutes expired"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-gray-500" />
@@ -2024,12 +2040,12 @@ export const App: React.FC = () => {
               </div>
 
               {/* View Switcher: Visual Product Cards | FEFO Batches | Active Holds | Audit Ledger */}
-              <div className="flex border-b border-gray-200 space-x-6 text-xs font-medium">
+              <div className="flex overflow-x-auto whitespace-nowrap border-b border-border gap-6 pb-1 text-xs font-medium">
                 <button
                   onClick={() => setInventoryViewMode('cards')}
                   className={`pb-2.5 transition-colors ${
                     inventoryViewMode === 'cards'
-                      ? 'border-b-2 border-[#007a55] text-gray-900 font-bold'
+                      ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
                   }`}
                 >
@@ -2040,7 +2056,7 @@ export const App: React.FC = () => {
                   onClick={() => setInventoryViewMode('batches')}
                   className={`pb-2.5 transition-colors ${
                     inventoryViewMode === 'batches'
-                      ? 'border-b-2 border-[#007a55] text-gray-900 font-bold'
+                      ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
                   }`}
                 >
@@ -2051,7 +2067,7 @@ export const App: React.FC = () => {
                   onClick={() => setInventoryViewMode('holds')}
                   className={`pb-2.5 transition-colors ${
                     inventoryViewMode === 'holds'
-                      ? 'border-b-2 border-[#007a55] text-gray-900 font-bold'
+                      ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
                   }`}
                 >
@@ -2062,7 +2078,7 @@ export const App: React.FC = () => {
                   onClick={() => setInventoryViewMode('ledger')}
                   className={`pb-2.5 transition-colors ${
                     inventoryViewMode === 'ledger'
-                      ? 'border-b-2 border-[#007a55] text-gray-900 font-bold'
+                      ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
                   }`}
                 >
@@ -2082,7 +2098,7 @@ export const App: React.FC = () => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search by product, brand, or SKU"
-                        className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-md text-xs placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55] transition-colors shadow-2xs"
+                        className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-md text-xs placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors "
                       />
                       {searchQuery && (
                         <button
@@ -2099,7 +2115,7 @@ export const App: React.FC = () => {
                         onClick={() => setStockFilter('ALL')}
                         className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           stockFilter === 'ALL'
-                            ? 'bg-[#007a55] text-white shadow-2xs font-semibold'
+                            ? 'bg-primary text-white font-semibold'
                             : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                         }`}
                       >
@@ -2110,7 +2126,7 @@ export const App: React.FC = () => {
                         onClick={() => setStockFilter('IN_STOCK')}
                         className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           stockFilter === 'IN_STOCK'
-                            ? 'bg-[#007a55] text-white shadow-2xs font-semibold'
+                            ? 'bg-primary text-white font-semibold'
                             : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                         }`}
                       >
@@ -2121,7 +2137,7 @@ export const App: React.FC = () => {
                         onClick={() => setStockFilter('LOW_STOCK')}
                         className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           stockFilter === 'LOW_STOCK'
-                            ? 'bg-[#007a55] text-white shadow-2xs font-semibold'
+                            ? 'bg-primary text-white font-semibold'
                             : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                         }`}
                       >
@@ -2132,7 +2148,7 @@ export const App: React.FC = () => {
                         onClick={() => setStockFilter('OUT_OF_STOCK')}
                         className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           stockFilter === 'OUT_OF_STOCK'
-                            ? 'bg-[#007a55] text-white shadow-2xs font-semibold'
+                            ? 'bg-primary text-white font-semibold'
                             : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                         }`}
                       >
@@ -2154,7 +2170,7 @@ export const App: React.FC = () => {
                       return (
                         <div
                           key={item.sku}
-                          className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
+                          className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all"
                         >
                           {/* Card Header: Product Image, Title, Rating, SKU, Status Pill */}
                           <div className="flex items-start gap-3.5">
@@ -2184,7 +2200,7 @@ export const App: React.FC = () => {
                               </div>
                               {/* SKU & Variant Pack Size */}
                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                <span className="text-[10px] bg-emerald-50 text-[#007a55] font-semibold px-2 py-0.5 rounded border border-emerald-200">
+                                <span className="text-[10px] bg-emerald-50 text-primary font-semibold px-2 py-0.5 rounded border border-emerald-200">
                                   {item.packSize}
                                 </span>
                                 <span className="text-[10px] text-gray-400 font-mono tracking-tight uppercase">
@@ -2264,7 +2280,7 @@ export const App: React.FC = () => {
                                   setNewVarMrp(Math.round(item.price * 1.15));
                                   setIsAddVariantModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#e6f4ea] hover:bg-[#d5eedd] text-[#007a55] font-semibold text-xs transition-colors border border-[#a3d9b8] cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-light hover:bg-[#d5eedd] text-primary font-semibold text-xs transition-colors border border-border cursor-pointer whitespace-nowrap shrink-0 "
                                 title="Add another pack size/variant to this product"
                               >
                                 <Plus className="w-3 h-3 stroke-[2.5]" />
@@ -2280,12 +2296,12 @@ export const App: React.FC = () => {
                                 min={1}
                                 value={currentQty}
                                 onChange={(e) => handleCardQtyChange(item.sku, parseInt(e.target.value, 10))}
-                                className="w-10 border border-gray-200 rounded px-1 py-0.5 text-center text-xs text-gray-900 font-medium bg-gray-50/50 focus:outline-none focus:border-[#007a55]"
+                                className="w-10 border border-gray-200 rounded px-1 py-0.5 text-center text-xs text-gray-900 font-medium bg-gray-50/50 focus:outline-none focus:border-primary"
                               />
 
                               <button
                                 onClick={() => handleStockAdjustment(item.sku, currentQty)}
-                                className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded shadow-2xs transition-colors cursor-pointer"
+                                className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded transition-colors cursor-pointer"
                                 title="Add stock"
                               >
                                 +
@@ -2294,7 +2310,7 @@ export const App: React.FC = () => {
                               <button
                                 onClick={() => handleStockAdjustment(item.sku, -currentQty)}
                                 disabled={available <= 0}
-                                className={`w-6 h-6 flex items-center justify-center bg-white border border-gray-200 text-xs font-bold rounded shadow-2xs transition-colors ${
+                                className={`w-6 h-6 flex items-center justify-center bg-white border border-gray-200 text-xs font-bold rounded transition-colors ${
                                   available <= 0
                                     ? 'opacity-40 cursor-not-allowed text-gray-400'
                                     : 'hover:bg-gray-50 text-gray-700 cursor-pointer'
@@ -2314,7 +2330,7 @@ export const App: React.FC = () => {
 
               {/* SUBVIEW 2: FEFO BATCHES & SHELF ROTATION */}
               {inventoryViewMode === 'batches' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
                   <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                     <span className="font-semibold text-gray-900 text-xs">
                       First-Expired-First-Out (FEFO) Batch Dispatch Queue
@@ -2380,7 +2396,7 @@ export const App: React.FC = () => {
 
               {/* SUBVIEW 3: ACTIVE 15-MINUTE HOLDS */}
               {inventoryViewMode === 'holds' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
                   <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                     <span className="font-semibold text-gray-900 text-xs">
                       Active Customer Checkout Reservations (15-Minute Expiry)
@@ -2430,7 +2446,7 @@ export const App: React.FC = () => {
 
               {/* SUBVIEW 4: STOCK MOVEMENT AUDIT LEDGER */}
               {inventoryViewMode === 'ledger' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
                   <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
                     <span className="font-semibold text-gray-900 text-xs">
                       Immutable Stock Movement Audit Ledger
@@ -2492,7 +2508,7 @@ export const App: React.FC = () => {
 
                 <button
                   onClick={() => setIsAddProductOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-xs"
+                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
                 >
                   <PackagePlus className="w-4 h-4" />
                   <span>+ Add product / listing</span>
@@ -2507,7 +2523,7 @@ export const App: React.FC = () => {
                       onClick={() => setCatalogCategoryFilter('ALL')}
                       className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                         catalogCategoryFilter === 'ALL'
-                          ? 'bg-[#007a55] text-white font-semibold shadow-2xs'
+                          ? 'bg-primary text-white font-semibold '
                           : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                       }`}
                     >
@@ -2519,7 +2535,7 @@ export const App: React.FC = () => {
                         onClick={() => setCatalogCategoryFilter(c.id)}
                         className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           catalogCategoryFilter === c.id
-                            ? 'bg-[#007a55] text-white font-semibold shadow-2xs'
+                            ? 'bg-primary text-white font-semibold '
                             : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                         }`}
                       >
@@ -2545,7 +2561,7 @@ export const App: React.FC = () => {
                     return (
                       <div
                         key={item.sku}
-                        className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
+                        className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all"
                       >
                         {/* Top: Image, Details, Status Pill */}
                         <div className="flex items-start gap-3.5">
@@ -2635,7 +2651,7 @@ export const App: React.FC = () => {
                                 setNewVarMrp(Math.round(item.price * 1.15));
                                 setIsAddVariantModalOpen(true);
                               }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#e6f4ea] hover:bg-[#d5eedd] text-[#007a55] font-semibold text-xs transition-colors border border-[#a3d9b8] cursor-pointer whitespace-nowrap shadow-2xs"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-light hover:bg-[#d5eedd] text-primary font-semibold text-xs transition-colors border border-border cursor-pointer whitespace-nowrap "
                               title="Add another pack size/variant to this product"
                             >
                               <Plus className="w-3 h-3 stroke-[2.5]" />
@@ -2675,7 +2691,7 @@ export const App: React.FC = () => {
                 {orders.map((ord) => (
                   <div
                     key={ord.id}
-                    className="bg-white border border-gray-200 rounded-xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
+                    className="bg-white border border-gray-200 rounded-xl p-5"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-gray-100">
                       <div className="flex items-center gap-3">
@@ -2702,7 +2718,7 @@ export const App: React.FC = () => {
                         {ord.status === 'CONFIRMED' && (
                           <button
                             onClick={() => handleUpdateOrderStatus(ord.id, 'PACKED')}
-                            className="px-3 py-1.5 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-xs"
+                            className="px-3 py-1.5 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
                           >
                             Mark Packed
                           </button>
@@ -2710,7 +2726,7 @@ export const App: React.FC = () => {
                         {ord.status === 'PACKED' && (
                           <button
                             onClick={() => handleUpdateOrderStatus(ord.id, 'OUT_FOR_DELIVERY')}
-                            className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors shadow-xs"
+                            className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors "
                           >
                             Dispatch
                           </button>
@@ -2718,7 +2734,7 @@ export const App: React.FC = () => {
                         {ord.status === 'OUT_FOR_DELIVERY' && (
                           <button
                             onClick={() => handleUpdateOrderStatus(ord.id, 'DELIVERED')}
-                            className="px-3 py-1.5 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-xs"
+                            className="px-3 py-1.5 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
                           >
                             Mark Delivered
                           </button>
@@ -2727,7 +2743,7 @@ export const App: React.FC = () => {
                         {/* Send Billing Invoice via WhatsApp Button */}
                         <button
                           onClick={() => handleSendWhatsAppInvoice(ord)}
-                          className="px-3 py-1.5 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                          className="px-3 py-1.5 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                           title="Send detailed tax invoice and receipt to customer's WhatsApp"
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
@@ -2794,7 +2810,7 @@ export const App: React.FC = () => {
                     onClick={() => setFulfillmentViewMode('scanner')}
                     className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                       fulfillmentViewMode === 'scanner'
-                        ? 'bg-white text-gray-900 shadow-xs'
+                        ? 'bg-white text-gray-900 '
                         : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
@@ -2805,7 +2821,7 @@ export const App: React.FC = () => {
                     onClick={() => setFulfillmentViewMode('table')}
                     className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                       fulfillmentViewMode === 'table'
-                        ? 'bg-white text-gray-900 shadow-xs'
+                        ? 'bg-white text-gray-900 '
                         : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
@@ -2850,9 +2866,9 @@ export const App: React.FC = () => {
 
               {/* View 2: Classic Pick Tasks Table */}
               {fulfillmentViewMode === 'table' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold uppercase tracking-wider">
+                    <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold">
                       <tr>
                         <th className="py-3 px-4">Order #</th>
                         <th className="py-3 px-4">Item to Pick</th>
@@ -2896,7 +2912,7 @@ export const App: React.FC = () => {
                             {t.status === 'PENDING' && (
                               <button
                                 onClick={() => handleMarkTaskPicked(t.id)}
-                                className="px-3 py-1 rounded-md bg-[#007a55] hover:bg-[#006345] text-white text-[11px] font-medium shadow-xs transition-colors cursor-pointer"
+                                className="px-3 py-1 rounded-md bg-primary hover:bg-primary-hover text-white text-[11px] font-medium transition-colors cursor-pointer"
                               >
                                 Mark Picked
                               </button>
@@ -2905,13 +2921,13 @@ export const App: React.FC = () => {
                               <div className="flex items-center justify-end gap-2">
                                 <button
                                   onClick={() => handleRespondSubstitution(t.id, 'ACCEPTED')}
-                                  className="px-3 py-1 rounded-md bg-[#007a55] hover:bg-[#006345] text-white text-[11px] font-medium shadow-xs transition-colors"
+                                  className="px-3 py-1 rounded-md bg-primary hover:bg-primary-hover text-white text-[11px] font-medium transition-colors"
                                 >
                                   Accept
                                 </button>
                                 <button
                                   onClick={() => handleRespondSubstitution(t.id, 'REJECTED')}
-                                  className="px-3 py-1 rounded-md bg-white border border-gray-200 text-rose-700 hover:bg-rose-50 text-[11px] font-medium shadow-2xs transition-colors"
+                                  className="px-3 py-1 rounded-md bg-white border border-gray-200 text-rose-700 hover:bg-rose-50 text-[11px] font-medium transition-colors"
                                 >
                                   Reject
                                 </button>
@@ -2939,9 +2955,9 @@ export const App: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold uppercase tracking-wider">
+                  <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold">
                     <tr>
                       <th className="py-3 px-4">Invoice Number</th>
                       <th className="py-3 px-4">Order Number</th>
@@ -2959,21 +2975,21 @@ export const App: React.FC = () => {
                         <td className="py-3.5 px-4 text-gray-600">{inv.orderNumber}</td>
                         <td className="py-3.5 px-4 text-gray-800 font-medium">{inv.customerName}</td>
                         <td className="py-3.5 px-4 text-gray-800">₹{inv.taxableAmount.toFixed(2)}</td>
-                        <td className="py-3.5 px-4 text-[#007a55] font-semibold">₹{inv.totalTax.toFixed(2)}</td>
+                        <td className="py-3.5 px-4 text-primary font-semibold">₹{inv.totalTax.toFixed(2)}</td>
                         <td className="py-3.5 px-4 font-bold text-gray-900">₹{inv.grandTotal.toFixed(2)}</td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => handleSendWhatsAppInvoice(inv)}
-                              className="px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                              className="px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
                               title="Send Tax Invoice to Customer via WhatsApp"
                             >
-                              <MessageSquare className="w-3.5 h-3.5 text-[#007a55]" />
+                              <MessageSquare className="w-3.5 h-3.5 text-primary" />
                               <span>WhatsApp</span>
                             </button>
                             <button
                               onClick={() => window.print()}
-                              className="px-2.5 py-1.5 rounded-md bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium inline-flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                              className="px-2.5 py-1.5 rounded-md bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
                             >
                               <Printer className="w-3.5 h-3.5 text-gray-500" />
                               <span>Print</span>
@@ -3069,7 +3085,7 @@ export const App: React.FC = () => {
                               }}
                               className={`px-2.5 py-1 text-xs rounded transition-colors ${
                                 forecastHorizon === days
-                                  ? 'bg-[#007a55] text-white font-semibold shadow-xs'
+                                  ? 'bg-primary text-white font-semibold '
                                   : 'text-gray-600 hover:text-gray-900'
                               }`}
                             >
@@ -3082,10 +3098,10 @@ export const App: React.FC = () => {
                         <button
                           onClick={handleTrainModel}
                           disabled={isTrainingModel}
-                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors shadow-2xs disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors disabled:opacity-50"
                           title="Analyze recent store sales to identify purchase velocity and weekend shopping surges"
                         >
-                          <RefreshCw className={`w-3.5 h-3.5 text-[#007a55] ${isTrainingModel ? 'animate-spin' : ''}`} />
+                          <RefreshCw className={`w-3.5 h-3.5 text-primary ${isTrainingModel ? 'animate-spin' : ''}`} />
                           <span>{isTrainingModel ? 'Analyzing Sales...' : 'Update Sales AI'}</span>
                         </button>
 
@@ -3093,7 +3109,7 @@ export const App: React.FC = () => {
                         <button
                           onClick={() => handleGetForecast()}
                           disabled={isGeneratingForecast}
-                          className="flex items-center gap-2 px-4 py-2 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-xs disabled:opacity-50"
+                          className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors disabled:opacity-50"
                         >
                           <TrendingUp className={`w-4 h-4 ${isGeneratingForecast ? 'animate-spin' : ''}`} />
                           <span>{isGeneratingForecast ? 'Calculating...' : 'Calculate Demand'}</span>
@@ -3104,7 +3120,7 @@ export const App: React.FC = () => {
                     {/* Clean Status Notice */}
                     <div className="flex flex-wrap items-center justify-between gap-3 bg-emerald-50/80 border border-emerald-200/90 rounded-lg px-4 py-2.5 text-xs text-gray-800">
                       <div className="flex items-center gap-2.5">
-                        <CheckCircle2 className="w-4 h-4 text-[#007a55] shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
                         <span className="font-medium text-emerald-950">
                           Smart Stock Forecaster Active • Analyzing sales velocity and restocking lead times across {forecasts.length} products
                         </span>
@@ -3115,7 +3131,7 @@ export const App: React.FC = () => {
                             Model: <strong className="text-gray-700">{modelTrainingResult.selectedModelName || 'AutoML'}</strong> (Acc: {modelTrainingResult.accuracy ?? 84}%)
                           </span>
                         )}
-                        <span className="text-[11px] text-[#007a55] font-semibold bg-white px-2 py-0.5 rounded border border-emerald-200 shadow-2xs">
+                        <span className="text-[11px] text-primary font-semibold bg-white px-2 py-0.5 rounded border border-emerald-200 ">
                           Showing Next {forecastHorizon}-Day Predictions
                         </span>
                       </div>
@@ -3130,8 +3146,8 @@ export const App: React.FC = () => {
                         }}
                         className={`bg-white p-4 rounded-xl border cursor-pointer transition-all ${
                           forecastRiskFilter === 'ALL'
-                            ? 'border-[#007a55] ring-2 ring-[#007a55]/20 shadow-xs'
-                            : 'border-gray-200 hover:border-gray-300 shadow-2xs'
+                            ? 'border-primary ring-2 ring-primary/20 '
+                            : 'border-gray-200 hover:border-gray-300 '
                         }`}
                       >
                         <div className="text-[11px] text-gray-500 font-medium">Products Monitored</div>
@@ -3146,8 +3162,8 @@ export const App: React.FC = () => {
                         }}
                         className={`bg-white p-4 rounded-xl border cursor-pointer transition-all ${
                           forecastRiskFilter === 'URGENT'
-                            ? 'border-rose-500 ring-2 ring-rose-500/20 shadow-xs'
-                            : 'border-rose-200 hover:border-rose-300 shadow-2xs'
+                            ? 'border-rose-500 ring-2 ring-rose-500/20 '
+                            : 'border-rose-200 hover:border-rose-300 '
                         }`}
                       >
                         <div className="text-[11px] text-rose-700 font-medium flex items-center justify-between">
@@ -3165,8 +3181,8 @@ export const App: React.FC = () => {
                         }}
                         className={`bg-white p-4 rounded-xl border cursor-pointer transition-all ${
                           forecastRiskFilter === 'LOW'
-                            ? 'border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
-                            : 'border-amber-200 hover:border-amber-300 shadow-2xs'
+                            ? 'border-amber-500 ring-2 ring-amber-500/20 '
+                            : 'border-amber-200 hover:border-amber-300 '
                         }`}
                       >
                         <div className="text-[11px] text-amber-800 font-medium">Running Low</div>
@@ -3181,18 +3197,18 @@ export const App: React.FC = () => {
                         }}
                         className={`bg-white p-4 rounded-xl border cursor-pointer transition-all ${
                           forecastRiskFilter === 'NORMAL'
-                            ? 'border-[#007a55] ring-2 ring-[#007a55]/20 shadow-xs'
-                            : 'border-emerald-200 hover:border-emerald-300 shadow-2xs'
+                            ? 'border-primary ring-2 ring-primary/20 '
+                            : 'border-emerald-200 hover:border-emerald-300 '
                         }`}
                       >
-                        <div className="text-[11px] text-[#007a55] font-medium">Sufficient Stock</div>
-                        <div className="text-2xl font-bold text-[#007a55] mt-1">{normalCount}</div>
+                        <div className="text-[11px] text-primary font-medium">Sufficient Stock</div>
+                        <div className="text-2xl font-bold text-primary mt-1">{normalCount}</div>
                         <div className="text-[10px] text-emerald-600/80 mt-0.5">Healthy inventory levels</div>
                       </div>
                     </div>
 
                     {/* Search & Filter Toolbar */}
-                    <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="bg-white p-3.5 rounded-xl border border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div className="relative flex-1 max-w-md">
                         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
@@ -3203,7 +3219,7 @@ export const App: React.FC = () => {
                             setForecastPage(1);
                           }}
                           placeholder="Search product name, pack size, or SKU..."
-                          className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                          className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                         />
                       </div>
 
@@ -3223,7 +3239,7 @@ export const App: React.FC = () => {
                             }}
                             className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
                               forecastRiskFilter === btn.id
-                                ? 'bg-gray-900 text-white shadow-xs'
+                                ? 'bg-gray-900 text-white '
                                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                             }`}
                           >
@@ -3234,10 +3250,10 @@ export const App: React.FC = () => {
                     </div>
 
                     {/* Clean Shopkeeper Table with Defined Min-Width & No Clipping */}
-                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
                       <div className="overflow-x-auto w-full">
                         <table className="w-full text-left text-xs min-w-[1020px] divide-y divide-gray-200">
-                          <thead className="bg-gray-50/90 text-gray-500 text-[11px] font-semibold uppercase tracking-wider select-none">
+                          <thead className="bg-gray-50/90 text-gray-500 text-[11px] font-semibold select-none">
                             <tr>
                               <th className="py-3.5 px-4 min-w-[260px]">Product & Pack Size</th>
                               <th className="py-3.5 px-4 min-w-[140px]">Category</th>
@@ -3255,7 +3271,7 @@ export const App: React.FC = () => {
                                 <td colSpan={8} className="py-12 text-center text-gray-400">
                                   {isGeneratingForecast ? (
                                     <div className="flex flex-col items-center justify-center gap-2">
-                                      <RefreshCw className="w-5 h-5 text-[#007a55] animate-spin" />
+                                      <RefreshCw className="w-5 h-5 text-primary animate-spin" />
                                       <span className="text-xs text-gray-600">Calculating live ML demand forecasts across catalog...</span>
                                     </div>
                                   ) : (
@@ -3270,7 +3286,7 @@ export const App: React.FC = () => {
                                     <div className="font-semibold text-gray-900 leading-tight">{f.productName}</div>
                                     <div className="flex items-center gap-2 mt-1">
                                       {f.variantName && (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-[#007a55] border border-emerald-100 whitespace-nowrap">
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-primary border border-emerald-100 whitespace-nowrap">
                                           {f.variantName}
                                         </span>
                                       )}
@@ -3333,7 +3349,7 @@ export const App: React.FC = () => {
                                         Running Low
                                       </span>
                                     ) : (
-                                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-[#007a55] border border-emerald-200 uppercase tracking-wide">
+                                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-primary border border-emerald-200 uppercase tracking-wide">
                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                         Sufficient
                                       </span>
@@ -3343,7 +3359,7 @@ export const App: React.FC = () => {
                                     {f.recommendedReorderUnits && f.recommendedReorderUnits > 0 ? (
                                       <button
                                         onClick={() => handleQuickReorder(f.sku, f.recommendedReorderUnits!)}
-                                        className="px-3.5 py-1.5 rounded-md bg-[#007a55] hover:bg-[#006345] text-white text-xs font-semibold shadow-xs transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                                        className="px-3.5 py-1.5 rounded-md bg-primary hover:bg-primary-hover text-white text-xs font-semibold transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
                                         title={`Pre-fill reorder for ${f.recommendedReorderUnits} units`}
                                       >
                                         <PackagePlus className="w-3.5 h-3.5 shrink-0" />
@@ -3352,7 +3368,7 @@ export const App: React.FC = () => {
                                     ) : (
                                       <button
                                         onClick={() => handleQuickReorder(f.sku, 20)}
-                                        className="px-3.5 py-1.5 rounded-md bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium transition-colors shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap"
+                                        className="px-3.5 py-1.5 rounded-md bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
                                         title="Record incoming stock receipt for this item"
                                       >
                                         <PackagePlus className="w-3.5 h-3.5 text-gray-500 shrink-0" />
@@ -3387,7 +3403,7 @@ export const App: React.FC = () => {
                             <button
                               onClick={() => setForecastPage((p) => Math.max(1, p - 1))}
                               disabled={currentPage === 1}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs font-medium text-xs transition-colors"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs transition-colors"
                             >
                               <ChevronLeft className="w-3.5 h-3.5" />
                               <span>Previous</span>
@@ -3400,7 +3416,7 @@ export const App: React.FC = () => {
                             <button
                               onClick={() => setForecastPage((p) => Math.min(totalPages, p + 1))}
                               disabled={currentPage === totalPages}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs font-medium text-xs transition-colors"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs transition-colors"
                             >
                               <span>Next</span>
                               <ChevronRight className="w-3.5 h-3.5" />
@@ -3427,9 +3443,9 @@ export const App: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col h-[540px]">
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden flex flex-col h-[540px]">
                 {/* Chat Header */}
-                <div className="bg-[#007a55] text-white px-5 py-3.5 flex items-center justify-between">
+                <div className="bg-primary text-white px-5 py-3.5 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-bold text-xs">
                       FC
@@ -3443,14 +3459,14 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Messages Body */}
-                <div className="flex-1 bg-[#f9fafb] p-4 overflow-y-auto space-y-3">
+                <div className="flex-1 bg-background p-4 overflow-y-auto space-y-3">
                   {chatMessages.map((m, idx) => (
                     <div
                       key={idx}
                       className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}
                     >
                       <div
-                        className={`max-w-[80%] rounded-xl px-4 py-2.5 text-xs shadow-2xs whitespace-pre-wrap ${
+                        className={`max-w-[80%] rounded-xl px-4 py-2.5 text-xs whitespace-pre-wrap ${
                           m.sender === 'user'
                             ? 'bg-[#dcf8c6] text-gray-900 rounded-tr-none'
                             : 'bg-white text-gray-900 rounded-tl-none border border-gray-200/70'
@@ -3467,7 +3483,7 @@ export const App: React.FC = () => {
                             <button
                               key={i}
                               onClick={() => handleSendChatMessage(opt)}
-                              className="px-3 py-1 rounded-full bg-white hover:bg-emerald-50 text-[#007a55] text-[10px] font-semibold border border-emerald-200 shadow-2xs transition-colors"
+                              className="px-3 py-1 rounded-full bg-white hover:bg-emerald-50 text-primary text-[10px] font-semibold border border-emerald-200 transition-colors"
                             >
                               {opt}
                             </button>
@@ -3480,7 +3496,7 @@ export const App: React.FC = () => {
 
                 {/* Voice & Photo OCR Note Simulation Quick Chips */}
                 <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mr-1 flex items-center gap-1">
+                  <span className="text-[10px] font-semibold text-gray-400 mr-1 flex items-center gap-1">
                     <Mic className="w-3 h-3 text-amber-500" />
                     <span>Voice Presets:</span>
                   </span>
@@ -3499,7 +3515,7 @@ export const App: React.FC = () => {
                     </button>
                   ))}
 
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 ml-2 mr-1 flex items-center gap-1">
+                  <span className="text-[10px] font-semibold text-gray-400 ml-2 mr-1 flex items-center gap-1">
                     <Camera className="w-3 h-3 text-blue-500" />
                     <span>Photo OCR Lists:</span>
                   </span>
@@ -3526,7 +3542,7 @@ export const App: React.FC = () => {
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
                     placeholder="Type message, click Voice Note, or upload/send Shopping List Photo..."
-                    className="flex-1 px-3.5 py-2 border border-gray-200 rounded-md text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="flex-1 px-3.5 py-2 border border-gray-200 rounded-md text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                   <button
                     type="button"
@@ -3537,7 +3553,7 @@ export const App: React.FC = () => {
                         true
                       )
                     }
-                    className="p-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold shadow-xs shrink-0"
+                    className="p-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0"
                   >
                     <Mic className="w-4 h-4" />
                     <span className="hidden sm:inline">Voice</span>
@@ -3552,7 +3568,7 @@ export const App: React.FC = () => {
                         true
                       )
                     }
-                    className="p-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold shadow-xs shrink-0"
+                    className="p-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0"
                   >
                     <Camera className="w-4 h-4" />
                     <span className="hidden sm:inline">Photo OCR</span>
@@ -3560,7 +3576,7 @@ export const App: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSendChatMessage()}
-                    className="p-2 rounded-md bg-[#007a55] text-white hover:bg-[#006345] transition-colors cursor-pointer shadow-xs shrink-0"
+                    className="p-2 rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer shrink-0"
                   >
                     <Send className="w-4 h-4" />
                   </button>
@@ -3620,7 +3636,7 @@ export const App: React.FC = () => {
                       setFormBrand(cat.sampleBrands[0] || 'Brand');
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 >
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -3639,7 +3655,7 @@ export const App: React.FC = () => {
                     placeholder="e.g. Dettol Original Germ Protection Bathing Soap"
                     value={formProductName}
                     onChange={(e) => setFormProductName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -3650,7 +3666,7 @@ export const App: React.FC = () => {
                     required
                     value={formBrand}
                     onChange={(e) => setFormBrand(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -3661,7 +3677,7 @@ export const App: React.FC = () => {
                   <select
                     value={formStorageType}
                     onChange={(e) => setFormStorageType(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   >
                     <option value="ambient">Ambient (Room Temp)</option>
                     <option value="chilled">Chilled (Cold Storage 2-8°C)</option>
@@ -3676,7 +3692,7 @@ export const App: React.FC = () => {
                     min={1}
                     value={formShelfLifeDays}
                     onChange={(e) => setFormShelfLifeDays(parseInt(e.target.value, 10))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -3688,7 +3704,7 @@ export const App: React.FC = () => {
                         type="radio"
                         checked={formIsVeg}
                         onChange={() => setFormIsVeg(true)}
-                        className="text-[#007a55] focus:ring-[#007a55]"
+                        className="text-primary focus:ring-primary"
                       />
                       <span className="text-xs text-gray-700">Vegetarian</span>
                     </label>
@@ -3697,7 +3713,7 @@ export const App: React.FC = () => {
                         type="radio"
                         checked={!formIsVeg}
                         onChange={() => setFormIsVeg(false)}
-                        className="text-[#007a55] focus:ring-[#007a55]"
+                        className="text-primary focus:ring-primary"
                       />
                       <span className="text-xs text-gray-700">Non-Veg</span>
                     </label>
@@ -3711,7 +3727,7 @@ export const App: React.FC = () => {
               <div className="pt-2 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                    <h4 className="text-xs font-semibold text-gray-900">
                       Product Variants & Pricing ({formVariants.length})
                     </h4>
                     <p className="text-[11px] text-gray-500">
@@ -3721,7 +3737,7 @@ export const App: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleAddVariantRow}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-[#007a55] font-semibold text-xs transition-colors border border-emerald-200"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-primary font-semibold text-xs transition-colors border border-emerald-200"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Add Another Variant</span>
@@ -3736,7 +3752,7 @@ export const App: React.FC = () => {
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-full bg-[#007a55] text-white flex items-center justify-center text-[10px]">
+                          <span className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px]">
                             {idx + 1}
                           </span>
                           Variant #{idx + 1}
@@ -3764,7 +3780,7 @@ export const App: React.FC = () => {
                             placeholder="e.g. 500 g Pack, 1 kg Bag, 100 ml"
                             value={v.variantName}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'variantName', e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3778,7 +3794,7 @@ export const App: React.FC = () => {
                             placeholder="e.g. TATA-SALT-500G"
                             value={v.sku}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'sku', e.target.value.toUpperCase())}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-mono uppercase focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-mono uppercase focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3791,7 +3807,7 @@ export const App: React.FC = () => {
                             placeholder="Optional barcode"
                             value={v.barcode}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'barcode', e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-mono focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-mono focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
                       </div>
@@ -3807,7 +3823,7 @@ export const App: React.FC = () => {
                             required
                             value={v.price}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'price', parseFloat(e.target.value) || 0)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-semibold text-emerald-800 focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-semibold text-emerald-800 focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3821,7 +3837,7 @@ export const App: React.FC = () => {
                             required
                             value={v.mrp}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'mrp', parseFloat(e.target.value) || 0)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3835,7 +3851,7 @@ export const App: React.FC = () => {
                             required
                             value={v.initialStock}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'initialStock', parseInt(e.target.value, 10) || 0)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3850,12 +3866,12 @@ export const App: React.FC = () => {
                               step="any"
                               value={v.weight}
                               onChange={(e) => handleUpdateVariantRow(v.id, 'weight', parseFloat(e.target.value) || 1)}
-                              className="w-16 px-2 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                              className="w-16 px-2 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                             />
                             <select
                               value={v.unit}
                               onChange={(e) => handleUpdateVariantRow(v.id, 'unit', e.target.value)}
-                              className="flex-1 px-1 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                              className="flex-1 px-1 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                             >
                               <option value="g">g</option>
                               <option value="kg">kg</option>
@@ -3880,7 +3896,7 @@ export const App: React.FC = () => {
                     value={formZone}
                     onChange={(e) => setFormZone(e.target.value)}
                     placeholder="e.g. Zone A-01-R1"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -3891,7 +3907,7 @@ export const App: React.FC = () => {
                     placeholder="https://..."
                     value={formImageUrl}
                     onChange={(e) => setFormImageUrl(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -3910,7 +3926,7 @@ export const App: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-2xs"
+                    className="px-5 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
                   >
                     Save Product & All Variants to Catalog
                   </button>
@@ -3956,7 +3972,7 @@ export const App: React.FC = () => {
                     placeholder="e.g. 2 kg Bag, 1 Litre"
                     value={newVarName}
                     onChange={(e) => setNewVarName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
@@ -3970,7 +3986,7 @@ export const App: React.FC = () => {
                     placeholder="e.g. SUGAR-2KG"
                     value={newVarSku}
                     onChange={(e) => setNewVarSku(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs uppercase font-mono focus:ring-1 focus:ring-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs uppercase font-mono focus:ring-1 focus:ring-primary"
                   />
                 </div>
               </div>
@@ -3984,7 +4000,7 @@ export const App: React.FC = () => {
                     required
                     value={newVarPrice}
                     onChange={(e) => setNewVarPrice(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-bold text-emerald-800 focus:ring-1 focus:ring-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-bold text-emerald-800 focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
@@ -3996,7 +4012,7 @@ export const App: React.FC = () => {
                     required
                     value={newVarMrp}
                     onChange={(e) => setNewVarMrp(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
@@ -4008,7 +4024,7 @@ export const App: React.FC = () => {
                     required
                     value={newVarStock}
                     onChange={(e) => setNewVarStock(parseInt(e.target.value, 10) || 0)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary"
                   />
                 </div>
               </div>
@@ -4064,7 +4080,7 @@ export const App: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-md bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs transition-colors shadow-2xs"
+                  className="px-5 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
                 >
                   Add Variant & Price to Catalog
                 </button>
@@ -4096,7 +4112,7 @@ export const App: React.FC = () => {
                 <select
                   value={receiveSku}
                   onChange={(e) => setReceiveSku(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 >
                   {variants.map((v) => (
                     <option key={v.sku} value={v.sku}>
@@ -4114,7 +4130,7 @@ export const App: React.FC = () => {
                     required
                     value={receiveBatchNumber}
                     onChange={(e) => setReceiveBatchNumber(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -4125,7 +4141,7 @@ export const App: React.FC = () => {
                     min={1}
                     value={receiveQuantity}
                     onChange={(e) => setReceiveQuantity(parseInt(e.target.value, 10))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -4138,7 +4154,7 @@ export const App: React.FC = () => {
                     required
                     value={receiveExpiryDate}
                     onChange={(e) => setReceiveExpiryDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -4149,7 +4165,7 @@ export const App: React.FC = () => {
                     required
                     value={receiveLocationZone}
                     onChange={(e) => setReceiveLocationZone(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -4160,7 +4176,7 @@ export const App: React.FC = () => {
                   type="text"
                   value={receivePoRef}
                   onChange={(e) => setReceivePoRef(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 />
               </div>
 
@@ -4174,7 +4190,7 @@ export const App: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#007a55] hover:bg-[#006345] text-white rounded-md text-xs font-medium transition-colors shadow-2xs"
+                  className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-md text-xs font-medium transition-colors "
                 >
                   Confirm Receipt
                 </button>
@@ -4201,7 +4217,7 @@ export const App: React.FC = () => {
                 type="text"
                 value={targetZoneForMove}
                 onChange={(e) => setTargetZoneForMove(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#007a55] focus:border-[#007a55]"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
               />
             </div>
 
@@ -4214,7 +4230,7 @@ export const App: React.FC = () => {
               </button>
               <button
                 onClick={handleConfirmMoveZone}
-                className="px-3.5 py-1.5 bg-[#007a55] hover:bg-[#006345] text-white rounded-md text-xs font-medium transition-colors shadow-2xs"
+                className="px-3.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-md text-xs font-medium transition-colors "
               >
                 Confirm Relocation
               </button>
@@ -4240,7 +4256,7 @@ export const App: React.FC = () => {
       {/* TOAST NOTIFICATION */}
       {/* ========================================================= */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 bg-gray-900 text-white px-4 py-2.5 rounded-lg shadow-lg text-xs font-medium flex items-center gap-2 animate-fade-in border border-gray-700">
+        <div role="status" aria-live="polite" className="fixed bottom-5 left-4 sm:left-auto right-5 z-50 bg-gray-900 text-white px-4 py-2.5 rounded-lg shadow-lg text-xs font-medium flex items-center gap-2 animate-fade-in border border-gray-700">
           <Check className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>

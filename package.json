@@ -8,7 +8,7 @@
     "pnpm": ">=9.0.0"
   },
   "scripts": {
-    "build": "pnpm -r --filter=\"./packages/*\" run build",
+    "build": "pnpm -r run build",
     "setup:db": "node scripts/setup-db.mjs",
     "start:backend": "node scripts/start-backend.mjs",
     "start:web": "node scripts/start-web.mjs",
@@ -18,7 +18,7 @@
     "dev:gateway": "pnpm --filter @grocery/api-gateway dev",
     "lint": "pnpm -r run lint",
     "test": "pnpm -r run test",
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "tsc -b && pnpm --filter \"./apps/*\" exec tsc -b"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
@@ -30,5 +30,6 @@
   },
   "dependencies": {
     "axios": "^1.21.0"
-  }
+  },
+  "packageManager": "pnpm@11.15.1"
 }

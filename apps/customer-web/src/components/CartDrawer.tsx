@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Trash2,
@@ -34,6 +34,7 @@ import {
   SurgePricingStatus,
   ProductRecommendation,
 } from '../api/client';
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 import { AddressSelectorModal } from './AddressSelectorModal';
 
 export interface CartItem {
@@ -67,6 +68,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   isCheckingOut,
   onAddToCart,
 }) => {
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [slotTypeTab, setSlotTypeTab] = useState<'EXPRESS' | 'SCHEDULED'>('EXPRESS');
@@ -126,8 +128,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
   }, [items]);
 
-  if (!isOpen) return null;
-
   // Selected slot details
   const activeSlot = availableSlots.find((s) => s.id === selectedSlotId) || {
     id: selectedSlotId,
@@ -179,33 +179,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
-        onClick={onClose}
-      />
-
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-md bg-white shadow-xl flex flex-col justify-between border-l border-slate-200">
+    <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent className="gap-0" onOpenAutoFocus={() => { returnFocusRef.current = document.activeElement as HTMLElement; }} onCloseAutoFocus={(event) => { event.preventDefault(); returnFocusRef.current?.focus(); }} onEscapeKeyDown={(event) => { if (isAddressModalOpen) { event.preventDefault(); setIsAddressModalOpen(false); } }}>
           {/* Drawer Header */}
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-slate-900 text-base">Your Cart</h2>
-              <span className="text-xs text-slate-500">
-                {items.length} {items.length === 1 ? 'item' : 'items'}
-              </span>
+              <SheetTitle>Your cart</SheetTitle>
+              <SheetDescription>{items.length} {items.length === 1 ? 'item' : 'items'}</SheetDescription>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+
           </div>
 
           {/* Drawer Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
             {/* Free Delivery Bar */}
             {subtotal > 0 && (
               <div className="p-3 bg-emerald-50 rounded-md border border-emerald-200 text-xs">
@@ -216,7 +202,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   </div>
                 ) : (
                   <div>
-                    <div className="flex justify-between text-emerald-900 font-medium mb-1.5">
+                    <div className="flex flex-wrap gap-2 justify-between text-foreground font-medium mb-1.5">
                       <span>Add ₹{(freeShippingThreshold - subtotal).toFixed(2)} more for FREE delivery</span>
                       <span className="font-bold">₹{subtotal.toFixed(0)}/₹{freeShippingThreshold}</span>
                     </div>
@@ -243,7 +229,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </p>
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#007a55] text-white hover:bg-[#006345] transition-colors"
+                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary-hover transition-colors"
                 >
                   Start Shopping
                 </button>
@@ -252,7 +238,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               /* Items List */
               <div className="divide-y divide-slate-100">
                 {items.map(({ variant, product, quantity }) => (
-                  <div key={variant.sku} className="py-3 flex items-center justify-between gap-3">
+                  <div key={variant.sku} className="py-3 flex flex-wrap items-center justify-between gap-2">
                     <img
                       src={variant.imageUrl}
                       alt={product.name}
@@ -271,7 +257,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
                       <button
                         onClick={() => onUpdateQuantity(variant.sku, -1)}
-                        className="w-5 h-5 flex items-center justify-center text-slate-600 hover:text-slate-900"
+                        aria-label={`Decrease quantity of ${product.name}`}
+                        className="size-8 flex items-center justify-center text-slate-600 hover:text-slate-900"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
@@ -281,7 +268,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <button
                         onClick={() => onUpdateQuantity(variant.sku, 1)}
                         disabled={quantity >= variant.availableStock}
-                        className="w-5 h-5 flex items-center justify-center text-slate-600 hover:text-slate-900 disabled:opacity-30"
+                        aria-label={`Increase quantity of ${product.name}`}
+                        className="size-8 flex items-center justify-center text-slate-600 hover:text-slate-900 disabled:opacity-30"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -308,15 +296,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             {/* Delivery Address Selector (Feature 12) */}
             {items.length > 0 && (
               <div className="pt-2">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex flex-wrap gap-2 items-center justify-between mb-1.5">
                   <span className="text-xs font-semibold text-slate-800 flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-[#007a55]" />
+                    <MapPin className="w-3.5 h-3.5 text-primary" />
                     <span>Delivering To</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsAddressModalOpen(true)}
-                    className="text-[11px] font-bold text-[#007a55] hover:underline cursor-pointer"
+                    className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
                   >
                     Change
                   </button>
@@ -327,7 +315,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   className="p-3 bg-emerald-50/50 border border-emerald-200/80 rounded-xl cursor-pointer hover:bg-emerald-50 transition-colors flex items-center justify-between"
                 >
                   <div className="flex items-start gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-100 text-[#007a55] flex items-center justify-center shrink-0 mt-0.5">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-100 text-primary flex items-center justify-center shrink-0 mt-0.5">
                       {selectedAddress?.label === 'WORK' ? (
                         <Briefcase className="w-3.5 h-3.5" />
                       ) : (
@@ -369,22 +357,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       onClick={() => setSlotTypeTab('EXPRESS')}
                       className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                         slotTypeTab === 'EXPRESS'
-                          ? 'bg-white text-emerald-700 shadow-2xs'
+                          ? 'bg-white text-emerald-700 '
                           : 'text-slate-500 hover:text-slate-700'
                       }`}
                     >
-                      ⚡ Express
+                      Express
                     </button>
                     <button
                       type="button"
                       onClick={() => setSlotTypeTab('SCHEDULED')}
                       className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                         slotTypeTab === 'SCHEDULED'
-                          ? 'bg-white text-emerald-700 shadow-2xs'
+                          ? 'bg-white text-emerald-700 '
                           : 'text-slate-500 hover:text-slate-700'
                       }`}
                     >
-                      📅 Scheduled
+                      Scheduled
                     </button>
                   </div>
                 </div>
@@ -406,11 +394,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             isClosed
                               ? 'border-slate-200 bg-slate-100 opacity-50 cursor-not-allowed'
                               : isSelected
-                              ? 'border-emerald-600 bg-emerald-50/80 ring-1 ring-emerald-600 text-emerald-950 font-medium shadow-2xs'
+                              ? 'border-emerald-600 bg-emerald-50/80 ring-1 ring-emerald-600 text-emerald-950 font-medium '
                               : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
                           }`}
                         >
-                          <div className="flex items-center justify-between mb-1">
+                          <div className="flex flex-wrap gap-1 items-center justify-between mb-1">
                             <span className="font-bold text-xs flex items-center gap-1">
                               {slot.type === 'EXPRESS' ? (
                                 <Zap className="w-3 h-3 text-amber-500 shrink-0" />
@@ -452,10 +440,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </span>
 
                 <form onSubmit={(e) => handleApplyCoupon(e)} className="flex gap-2">
-                  <div className="relative flex-1">
+                  <div className="relative min-w-0 flex-1">
                     <Tag className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
+                      aria-label="Promo code"
                       placeholder="Enter promo code (e.g. WELCOME50)"
                       value={couponCode}
                       onChange={(e) => setCouponCode(e.target.value)}
@@ -482,7 +471,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           onClick={() => handleApplyCoupon(undefined, c.code)}
                           className={`px-2 py-1 rounded-md text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1 ${
                             isApplied
-                              ? 'bg-emerald-600 border-emerald-600 text-white shadow-2xs'
+                              ? 'bg-emerald-600 border-emerald-600 text-white '
                               : 'bg-emerald-50/70 hover:bg-emerald-100 border-emerald-200 text-emerald-800'
                           }`}
                           title={c.description}
@@ -516,7 +505,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
             {/* Feature 18: Dynamic Surge Pricing Notification */}
             {items.length > 0 && surgeStatus?.isSurgeActive && (
-              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900 shadow-2xs">
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900 ">
                 <div className="flex items-center gap-1.5 font-medium">
                   <Zap className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
                   <span>{surgeStatus.reasons[0] || 'Peak Demand / Rain Surge'}</span>
@@ -539,7 +528,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   {recommendations.map((rec, idx) => (
                     <div
                       key={idx}
-                      className="w-36 shrink-0 bg-white border border-slate-200 rounded-lg p-2 flex flex-col justify-between shadow-2xs hover:border-emerald-300 transition-colors"
+                      className="w-36 shrink-0 bg-white border border-slate-200 rounded-lg p-2 flex flex-col justify-between hover:border-emerald-300 transition-colors"
                     >
                       <div>
                         <div className="w-full h-16 bg-slate-100 rounded flex items-center justify-center overflow-hidden mb-1.5">
@@ -581,7 +570,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
           {/* Footer Bill & Checkout CTA */}
           {items.length > 0 && (
-            <div className="p-4 border-t border-slate-200 bg-slate-50/70 space-y-3">
+            <div className="shrink-0 border-t border-border bg-surface-muted p-4 space-y-3">
               {/* Feature 15: FreshCart Wallet Pay Option */}
               {walletBalance > 0 && (
                 <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50/70 flex items-center justify-between">
@@ -663,7 +652,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   )
                 }
                 disabled={isCheckingOut}
-                className="w-full py-2.5 rounded-lg bg-[#007a55] hover:bg-[#006345] disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-2.5 rounded-lg bg-primary hover:bg-primary-hover disabled:opacity-60 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>
@@ -672,9 +661,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </button>
             </div>
           )}
-        </div>
-      </div>
-
       {/* Address Selector & Management Modal */}
       <AddressSelectorModal
         isOpen={isAddressModalOpen}
@@ -682,6 +668,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         selectedAddress={selectedAddress}
         onSelectAddress={(addr) => setSelectedAddress(addr)}
       />
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 };

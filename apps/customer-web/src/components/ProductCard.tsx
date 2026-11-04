@@ -4,7 +4,7 @@ import { Plus, Minus, Star, ArrowRight } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
-  cartQuantity: number;
+  cartQuantities: Record<string, number>;
   onAddToCart: (variant: ProductVariant, product: Product) => void;
   onUpdateQuantity: (variantSku: string, delta: number) => void;
   onOpenAlternatives: (product: Product, variant: ProductVariant) => void;
@@ -12,7 +12,7 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({
   product,
-  cartQuantity,
+  cartQuantities,
   onAddToCart,
   onUpdateQuantity,
   onOpenAlternatives,
@@ -35,6 +35,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     }
   }, [product.id, product.variants]);
 
+  const cartQuantity = cartQuantities[selectedVariant.sku] || 0;
+
   const discountPercent =
     selectedVariant.mrp > selectedVariant.price
       ? Math.round(((selectedVariant.mrp - selectedVariant.price) / selectedVariant.mrp) * 100)
@@ -43,15 +45,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const isOutOfStock = selectedVariant.availableStock === 0;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 flex flex-col justify-between hover:border-gray-300 hover:shadow-xs transition-all">
+    <article aria-label={product.name} className="bg-surface rounded-lg border border-border p-3.5 flex flex-col justify-between hover:border-gray-300 transition-all">
       {/* 1. Staged Product Image Container */}
-      <div className="relative w-full h-44 bg-[#f5f6f8] rounded-xl overflow-hidden flex items-center justify-center p-3 mb-3">
+      <div className="relative w-full h-44 bg-surface-muted rounded-xl overflow-hidden flex items-center justify-center p-3 mb-3">
         <img
           src={selectedVariant.imageUrl}
           alt={product.name}
-          className="max-h-36 max-w-full object-contain mix-blend-multiply transition-transform duration-300 hover:scale-105"
+          className="max-h-36 max-w-full object-contain mix-blend-multiply "
           loading="lazy"
           onError={(e) => {
+            (e.target as HTMLImageElement).onerror = null;
             (e.target as HTMLImageElement).src =
               'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=500&auto=format&fit=crop&q=80';
           }}
@@ -59,7 +62,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Warm Peach Discount Badge (matching reference) */}
         {discountPercent > 0 && (
-          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#fef3ea] text-[#d97706] shadow-2xs">
+          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-surface-muted text-warning ">
             {discountPercent}% off
           </span>
         )}
@@ -75,7 +78,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 Out of Stock
               </span>
             ) : (
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#e6f4ea] text-[#007a55]">
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-primary-light text-primary">
                 In Stock
               </span>
             )}
@@ -85,7 +88,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           </div>
 
           {/* Product Title */}
-          <h3 className="font-medium text-gray-900 text-xs leading-snug line-clamp-1 mt-1" title={product.name}>
+          <h3 className="font-medium text-gray-900 text-sm leading-relaxed line-clamp-2 min-h-10 mt-1" title={product.name}>
             {product.name}
           </h3>
 
@@ -104,12 +107,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           {product.variants.length > 1 && (
             <div className="mt-2 mb-1">
               <select
+                aria-label={`Pack size for ${product.name}`}
                 value={selectedVariant.sku}
                 onChange={(e) => {
                   const found = product.variants.find((v) => v.sku === e.target.value);
                   if (found) setSelectedVariant(found);
                 }}
-                className="w-full text-[11px] bg-gray-50 border border-gray-200 rounded-md px-2 py-1 text-gray-700 focus:outline-none focus:border-[#007a55] cursor-pointer"
+                className="w-full text-[11px] bg-gray-50 border border-gray-200 rounded-md px-2 py-2 text-gray-700 focus:outline-none focus:border-primary cursor-pointer"
               >
                 {product.variants.map((v) => (
                   <option key={v.sku} value={v.sku}>
@@ -124,11 +128,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         {/* 3. Pricing Row & Add to Cart Action */}
         <div className="pt-2.5 mt-2 border-t border-gray-100 flex items-center justify-between">
           <div>
-            <div className="text-sm font-bold text-gray-900 leading-tight">
+            <div className="text-base font-bold text-foreground leading-tight">
               ₹{selectedVariant.price.toFixed(2)}
             </div>
             {selectedVariant.mrp > selectedVariant.price && (
-              <div className="text-[11px] text-gray-400 line-through leading-tight">
+              <div className="text-[11px] text-muted-foreground line-through leading-tight">
                 ₹{selectedVariant.mrp.toFixed(2)}
               </div>
             )}
@@ -138,27 +142,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           {isOutOfStock ? (
             <button
               onClick={() => onOpenAlternatives(product, selectedVariant)}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors shadow-2xs"
+              className="flex items-center gap-1 min-h-11 px-3 rounded-md text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors "
             >
               <span>Similar items</span>
               <ArrowRight className="w-3 h-3 text-gray-400" />
             </button>
           ) : cartQuantity > 0 ? (
-            <div className="flex items-center gap-1.5 bg-[#e6f4ea] border border-[#a3d9b8] rounded-lg px-2 py-1">
+            <div className="flex items-center gap-1.5 bg-primary-light border border-border rounded-md px-1">
               <button
                 onClick={() => onUpdateQuantity(selectedVariant.sku, -1)}
-                className="w-5 h-5 rounded flex items-center justify-center text-[#007a55] hover:bg-[#007a55]/10 transition-colors font-bold"
+                className="min-w-11 min-h-11 rounded flex items-center justify-center text-primary hover:bg-primary/10 transition-colors font-bold"
                 aria-label="Decrease quantity"
               >
                 <Minus className="w-3 h-3" />
               </button>
-              <span className="w-4 text-center text-xs font-bold text-[#007a55]">
+              <span className="w-4 text-center text-xs font-bold text-primary">
                 {cartQuantity}
               </span>
               <button
                 onClick={() => onUpdateQuantity(selectedVariant.sku, 1)}
                 disabled={cartQuantity >= selectedVariant.availableStock}
-                className="w-5 h-5 rounded flex items-center justify-center text-[#007a55] hover:bg-[#007a55]/10 disabled:opacity-30 transition-colors font-bold"
+                className="min-w-11 min-h-11 rounded flex items-center justify-center text-primary hover:bg-primary/10 disabled:opacity-30 transition-colors font-bold"
                 aria-label="Increase quantity"
               >
                 <Plus className="w-3 h-3" />
@@ -167,13 +171,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           ) : (
             <button
               onClick={() => onAddToCart(selectedVariant, product)}
-              className="flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#007a55] hover:bg-[#006345] text-white transition-colors shadow-2xs"
+              className="flex items-center gap-1 min-h-11 px-3 rounded-md text-xs font-semibold bg-primary hover:bg-primary-hover text-white transition-colors "
             >
               <span>Add to cart</span>
             </button>
           )}
         </div>
       </div>
-    </div>
+    </article>
   );
 };
