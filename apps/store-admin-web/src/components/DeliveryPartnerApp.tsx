@@ -130,8 +130,8 @@ export interface CompletedDelivery {
   earnings: number;
 }
 
-const API_BASE = 'http://localhost:3000/api/v1/fulfillment';
-const FALLBACK_API_BASE = 'http://localhost:3008/api/v1/fulfillment';
+const API_BASE = '/api/v1/fulfillment';
+const FALLBACK_API_BASE = 'http://localhost:3000/api/v1/fulfillment';
 
 export const DeliveryPartnerApp: React.FC<{ initialRoute?: string }> = ({ initialRoute }) => {
   // Navigation Route State

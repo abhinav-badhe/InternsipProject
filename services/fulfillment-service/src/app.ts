@@ -302,17 +302,26 @@ export function createApp(): express.Application {
           pl.zone,
           o.grand_total as "grandTotal",
           o.status as "orderStatus",
-          o.ready_for_pickup as "readyForPickup"
+          o.ready_for_pickup as "readyForPickup",
+          o.ready_for_pickup_at as "readyForPickupAt",
+          da.rider_id as "assignedRiderId",
+          da.rider_name as "assignedRiderName",
+          da.rider_phone as "assignedRiderPhone",
+          da.status as "deliveryStatus",
+          da.delivery_otp as "deliveryOtp",
+          da.assigned_at as "assignedAt"
         FROM pick_lists pl
         LEFT JOIN orders o ON pl.order_id = o.id OR pl.order_number = o.order_number
+        LEFT JOIN delivery_assignments da ON (o.id = da.order_id OR pl.order_id = da.order_id OR o.order_number = da.order_number) AND da.status != 'CANCELLED'
         WHERE pl.order_number = $1 OR pl.order_number = $2 OR REPLACE(pl.order_number, '#', '') = $2 OR pl.order_id::text = $2
+        ORDER BY da.created_at DESC NULLS LAST
         LIMIT 1
       `, [orderNumber, cleanOrderNumber]);
 
       if (pickListRes.rows.length === 0) {
         // Look up in orders table and auto-generate pick list
         const ordRes = await Database.query(`
-          SELECT o.id, o.order_number, o.customer_id, o.grand_total, o.status, o.ready_for_pickup
+          SELECT o.id, o.order_number, o.customer_id, o.grand_total, o.status, o.ready_for_pickup, o.ready_for_pickup_at
           FROM orders o
           WHERE o.id::text = $1 OR o.order_number = $1 OR o.order_number = $2
           LIMIT 1
@@ -355,10 +364,19 @@ export function createApp(): express.Application {
             pl.zone,
             o.grand_total as "grandTotal",
             o.status as "orderStatus",
-            o.ready_for_pickup as "readyForPickup"
+            o.ready_for_pickup as "readyForPickup",
+            o.ready_for_pickup_at as "readyForPickupAt",
+            da.rider_id as "assignedRiderId",
+            da.rider_name as "assignedRiderName",
+            da.rider_phone as "assignedRiderPhone",
+            da.status as "deliveryStatus",
+            da.delivery_otp as "deliveryOtp",
+            da.assigned_at as "assignedAt"
           FROM pick_lists pl
           LEFT JOIN orders o ON pl.order_id = o.id OR pl.order_number = o.order_number
+          LEFT JOIN delivery_assignments da ON (o.id = da.order_id OR pl.order_id = da.order_id OR o.order_number = da.order_number) AND da.status != 'CANCELLED'
           WHERE pl.id = $1
+          ORDER BY da.created_at DESC NULLS LAST
           LIMIT 1
         `, [newPlId]);
       }
@@ -1359,8 +1377,8 @@ export function createApp(): express.Application {
       // Check if order already has an active delivery assignment
       const daCheck = await Database.query(
         `SELECT id, rider_name, rider_phone, status FROM delivery_assignments 
-         WHERE order_id = $1 AND status NOT IN ('CANCELLED') LIMIT 1`,
-        [order.id]
+         WHERE (order_id = $1 OR order_number = $2) AND status NOT IN ('CANCELLED') LIMIT 1`,
+        [order.id, order.order_number]
       );
       if (daCheck.rows.length > 0) {
         const da = daCheck.rows[0];
@@ -1371,6 +1389,8 @@ export function createApp(): express.Application {
             readyForPickup: true,
             alreadyDelivered: true,
             riderName: da.rider_name,
+            riderPhone: da.rider_phone,
+            deliveryStatus: da.status,
             message: `Order was already delivered by ${da.rider_name}.`
           }, correlationId));
         }
@@ -1381,6 +1401,7 @@ export function createApp(): express.Application {
           readyForPickup: true,
           alreadyAssigned: true,
           riderName: da.rider_name,
+          riderPhone: da.rider_phone,
           deliveryStatus: da.status,
           message: `Order is already assigned to rider ${da.rider_name} (${da.status}).`
         }, correlationId));
