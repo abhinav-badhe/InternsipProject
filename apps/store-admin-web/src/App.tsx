@@ -169,6 +169,7 @@ export interface OrderRecord {
   taxTotal: number;
   deliveryFee: number;
   createdAt: string;
+  readyForPickup?: boolean;
   items: {
     sku: string;
     productName: string;
@@ -191,6 +192,8 @@ export interface PickListTask {
   substituteSku?: string;
   substituteName?: string;
   substituteDecision?: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  orderId?: string;
+  readyForPickup?: boolean;
 }
 
 export interface InvoiceRecord {
@@ -2815,17 +2818,31 @@ export const App: React.FC = () => {
               {fulfillmentViewMode === 'scanner' && (
                 <BarcodePickPackScanner
                   ordersInPicking={(() => {
-                    const fromTasks = Array.from(new Set(pickTasks.map((t) => t.orderNumber))).map((num) => ({
-                      orderNumber: num,
-                    }));
+                    const fromTasks = Array.from(new Set(pickTasks.map((t) => t.orderNumber))).map((num) => {
+                      const cleanNum = num.replace(/^#/, '');
+                      const matchedTask = pickTasks.find((t) => t.orderNumber === num);
+                      const matchedOrder = orders.find((o) => o.orderNumber === num || o.orderNumber === cleanNum);
+                      return {
+                        orderNumber: cleanNum,
+                        id: (matchedTask as any)?.orderId || matchedOrder?.id,
+                        readyForPickup: (matchedTask as any)?.readyForPickup || matchedOrder?.readyForPickup,
+                        orderStatus: (matchedTask as any)?.orderStatus || matchedOrder?.status,
+                      };
+                    });
                     if (fromTasks.length > 0) return fromTasks;
                     return orders
                       .filter((o) => o.status !== 'CANCELLED' && o.status !== 'DELIVERED')
-                      .map((o) => ({ orderNumber: o.orderNumber }));
+                      .map((o) => ({
+                        orderNumber: o.orderNumber.replace(/^#/, ''),
+                        id: o.id,
+                        readyForPickup: o.readyForPickup,
+                        orderStatus: o.status,
+                      }));
                   })()}
                   onOrderCompleted={(orderNumber) => {
-                    // Refresh fulfillment tasks
+                    // Refresh fulfillment tasks and orders
                     fetchLiveFulfillmentTasks().then((tasks) => setPickTasks(tasks));
+                    fetchLiveAdminOrders().then((liveOrders) => setOrders(liveOrders));
                   }}
                   onSwitchToFleet={() => setActiveNav('deliveries')}
                 />

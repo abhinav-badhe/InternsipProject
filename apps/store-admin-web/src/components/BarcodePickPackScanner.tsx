@@ -20,7 +20,12 @@ import {
 import { scanPickItemBarcode, fetchOrderPickList, markOrderReadyForDelivery } from '../api/adminClient';
 
 interface BarcodePickPackScannerProps {
-  ordersInPicking: Array<{ orderNumber: string; id?: string }>;
+  ordersInPicking: Array<{
+    orderNumber: string;
+    id?: string;
+    readyForPickup?: boolean;
+    orderStatus?: string;
+  }>;
   onOrderCompleted?: (orderNumber: string, bagCode: string) => void;
   onSwitchToFleet?: () => void;
 }
@@ -77,15 +82,21 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
   }, [selectedOrderNumber, lastScanResult]);
 
   const loadPickList = async (orderNum: string) => {
+    const cleanNum = (orderNum || '').replace(/^#/, '').trim();
+    if (!cleanNum) return;
     setIsLoadingOrder(true);
     setLastScanResult(null);
     setCompletedBagCode(null);
     setIsReadyForDelivery(false);
     try {
-      const data = await fetchOrderPickList(orderNum);
+      const data = await fetchOrderPickList(cleanNum);
       setPickListData(data);
       if (data?.isCompleted && data?.pickList) {
-        setCompletedBagCode(`BAG-${orderNum}-VERIFIED`);
+        setCompletedBagCode(`BAG-${cleanNum}-VERIFIED`);
+      }
+      const matched = ordersInPicking.find((o) => o.orderNumber.replace(/^#/, '') === cleanNum);
+      if (matched?.readyForPickup || data?.pickList?.readyForPickup || data?.pickList?.ready_for_pickup) {
+        setIsReadyForDelivery(true);
       }
     } catch (err) {
       console.error('Failed to load pick list', err);
@@ -95,10 +106,13 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
   };
 
   const handleMarkReadyForDelivery = async () => {
+    const cleanNum = (selectedOrderNumber || '').replace(/^#/, '').trim();
     const orderId =
       pickListData?.orderId ||
+      pickListData?.pickList?.orderId ||
       pickListData?.pickList?.order_id ||
-      ordersInPicking.find((o) => o.orderNumber === selectedOrderNumber)?.id;
+      ordersInPicking.find((o) => o.orderNumber.replace(/^#/, '') === cleanNum)?.id ||
+      cleanNum;
 
     if (!orderId) {
       alert(`Could not resolve orderId for ${selectedOrderNumber}. Please check order details.`);
@@ -107,8 +121,14 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
 
     try {
       setIsMarkingReady(true);
-      await markOrderReadyForDelivery(orderId);
+      const res = await markOrderReadyForDelivery(orderId);
       setIsReadyForDelivery(true);
+      playBeep('success');
+
+      if (onOrderCompleted) {
+        onOrderCompleted(cleanNum, completedBagCode || `BAG-${cleanNum}-VERIFIED`);
+      }
+
       if (onSwitchToFleet) {
         setTimeout(() => {
           onSwitchToFleet();
@@ -302,19 +322,24 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
             <span className="text-xs text-gray-400 italic">No orders currently waiting to be picked.</span>
           ) : (
             ordersInPicking.map((ord) => {
-              const isSelected = ord.orderNumber === selectedOrderNumber;
+              const cleanOrdNum = ord.orderNumber.replace(/^#/, '');
+              const cleanSelected = (selectedOrderNumber || '').replace(/^#/, '');
+              const isSelected = cleanOrdNum === cleanSelected;
               return (
                 <button
                   key={ord.orderNumber}
-                  onClick={() => setSelectedOrderNumber(ord.orderNumber)}
+                  onClick={() => setSelectedOrderNumber(cleanOrdNum)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     isSelected
-                      ? 'bg-[#007a55] text-white shadow-xs'
+                      ? 'bg-[#007a55] text-white shadow-xs ring-2 ring-[#007a55]/20'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   <Package className="w-3.5 h-3.5" />
-                  <span>#{ord.orderNumber}</span>
+                  <span>#{cleanOrdNum}</span>
+                  {ord.readyForPickup && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" title="Ready for Delivery" />
+                  )}
                 </button>
               );
             })
@@ -444,7 +469,7 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
                   Order Pick Progress
                 </span>
                 <h3 className="text-xl font-bold text-gray-900 mt-0.5">
-                  Order #{selectedOrderNumber || '—'}
+                  Order #{(selectedOrderNumber || '—').replace(/^#/, '')}
                 </h3>
               </div>
               <div className="text-right">
@@ -465,17 +490,23 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
 
             {/* Bag Completed / Seal Banner */}
             {completedBagCode && (
-              <div className="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-[#007a55] shrink-0">
-                    <CheckCircle2 className="w-6 h-6" />
+              <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50/40 to-emerald-50 border border-emerald-200 text-emerald-950 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
+                    <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                   </div>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-[#007a55]">
-                      Order Bag Packed & Sealed!
+                  <div className="min-w-0">
+                    <div className="text-xs font-black uppercase tracking-wider text-emerald-900 flex items-center gap-2">
+                      <span className="whitespace-nowrap">Order Bag Packed & Sealed!</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                        100% Verified
+                      </span>
                     </div>
-                    <div className="text-sm font-mono font-bold text-gray-900 mt-0.5">
-                      Bag Seal: {completedBagCode}
+                    <div className="text-xs font-mono text-slate-700 mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span className="font-semibold text-gray-500 whitespace-nowrap">Bag Seal:</span>
+                      <span className="font-bold text-emerald-900 bg-white px-2.5 py-0.5 rounded border border-emerald-200/80 shadow-2xs font-mono whitespace-nowrap">
+                        {completedBagCode}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -484,31 +515,32 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
                   <button
                     onClick={handleMarkReadyForDelivery}
                     disabled={isMarkingReady || isReadyForDelivery}
-                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:bg-gray-400 text-xs font-bold text-white flex items-center gap-2 cursor-pointer shadow-sm transition whitespace-nowrap"
                   >
                     {isMarkingReady ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : isReadyForDelivery ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                      <CheckCircle2 className="w-4 h-4 text-white" />
                     ) : (
-                      <Bike className="w-3.5 h-3.5" />
+                      <Bike className="w-4 h-4" />
                     )}
                     <span>{isReadyForDelivery ? 'Ready & Broadcasted!' : '🚀 Mark Ready for Delivery'}</span>
                   </button>
 
                   <button
                     onClick={() => window.print()}
-                    className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-xs font-bold text-[#007a55] hover:bg-emerald-100 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    className="px-3.5 py-2 rounded-xl border border-emerald-300 bg-white text-xs font-bold text-emerald-900 hover:bg-emerald-50 flex items-center gap-1.5 cursor-pointer shadow-2xs transition whitespace-nowrap"
                   >
-                    <Printer className="w-3.5 h-3.5" />
+                    <Printer className="w-4 h-4 text-emerald-700" />
                     <span>Print Label</span>
                   </button>
+
                   {onSwitchToFleet && (
                     <button
                       onClick={onSwitchToFleet}
-                      className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-95 text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer shadow-2xs transition whitespace-nowrap"
                     >
-                      <Bike className="w-3.5 h-3.5" />
+                      <Bike className="w-4 h-4 text-emerald-400" />
                       <span>Deliveries</span>
                     </button>
                   )}

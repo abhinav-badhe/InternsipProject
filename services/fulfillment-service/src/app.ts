@@ -93,7 +93,7 @@ export function createApp(): express.Application {
         }
       }
 
-      // 2. Query all pick tasks joined with pick list metadata
+      // 2. Query all active pick tasks joined with pick list and order metadata
       const tasksRes = await Database.query(`
         SELECT 
           pi.id,
@@ -103,10 +103,15 @@ export function createApp(): express.Application {
           pi.quantity_requested as "quantity",
           COALESCE(pl.zone, 'Zone A-01-R1') as "zone",
           pi.status,
+          o.id as "orderId",
+          o.status as "orderStatus",
+          o.ready_for_pickup as "readyForPickup",
           NULL as "substituteSku",
           NULL as "substituteDecision"
         FROM pick_items pi
         JOIN pick_lists pl ON pi.pick_list_id = pl.id
+        LEFT JOIN orders o ON pl.order_id = o.id OR pl.order_number = o.order_number
+        WHERE o.status IS NULL OR o.status NOT IN ('DELIVERED', 'CANCELLED')
         ORDER BY pl.created_at DESC, pi.created_at ASC
         LIMIT 100
       `);
@@ -285,8 +290,9 @@ export function createApp(): express.Application {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
       const orderNumber = req.params.orderNumber as string;
+      const cleanOrderNumber = (orderNumber || '').replace(/^#/, '').trim();
 
-      const pickListRes = await Database.query(`
+      let pickListRes = await Database.query(`
         SELECT 
           pl.id as "pickListId",
           pl.order_id as "orderId",
@@ -295,17 +301,66 @@ export function createApp(): express.Application {
           pl.status as "pickListStatus",
           pl.zone,
           o.grand_total as "grandTotal",
-          o.status as "orderStatus"
+          o.status as "orderStatus",
+          o.ready_for_pickup as "readyForPickup"
         FROM pick_lists pl
         LEFT JOIN orders o ON pl.order_id = o.id OR pl.order_number = o.order_number
-        WHERE pl.order_number = $1
+        WHERE pl.order_number = $1 OR pl.order_number = $2 OR REPLACE(pl.order_number, '#', '') = $2 OR pl.order_id::text = $2
         LIMIT 1
-      `, [orderNumber]);
+      `, [orderNumber, cleanOrderNumber]);
 
       if (pickListRes.rows.length === 0) {
-        return res
-          .status(404)
-          .json(errorResponse('NOT_FOUND', `No pick list found for order ${orderNumber}`, correlationId));
+        // Look up in orders table and auto-generate pick list
+        const ordRes = await Database.query(`
+          SELECT o.id, o.order_number, o.customer_id, o.grand_total, o.status, o.ready_for_pickup
+          FROM orders o
+          WHERE o.id::text = $1 OR o.order_number = $1 OR o.order_number = $2
+          LIMIT 1
+        `, [orderNumber, cleanOrderNumber]);
+
+        if (ordRes.rows.length === 0) {
+          return res
+            .status(404)
+            .json(errorResponse('NOT_FOUND', `No pick list or order found for ${orderNumber}`, correlationId));
+        }
+
+        const ord = ordRes.rows[0];
+        const newPlId = crypto.randomUUID();
+        await Database.query(`
+          INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
+          VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
+          ON CONFLICT DO NOTHING
+        `, [newPlId, ord.id, ord.order_number, ord.customer_id || 'cust_default']);
+
+        // Insert items from order_items
+        const oiRes = await Database.query(`
+          SELECT sku, product_name, quantity FROM order_items WHERE order_id = $1
+        `, [ord.id]);
+
+        for (const item of oiRes.rows) {
+          await Database.query(`
+            INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, quantity_picked, status)
+            VALUES ($1, $2, $3, $4, $5, 0, 'PENDING')
+          `, [crypto.randomUUID(), newPlId, item.sku, item.product_name, item.quantity]);
+        }
+
+        // Re-query newly created pick list
+        pickListRes = await Database.query(`
+          SELECT 
+            pl.id as "pickListId",
+            pl.order_id as "orderId",
+            pl.order_number as "orderNumber",
+            pl.customer_id as "customerId",
+            pl.status as "pickListStatus",
+            pl.zone,
+            o.grand_total as "grandTotal",
+            o.status as "orderStatus",
+            o.ready_for_pickup as "readyForPickup"
+          FROM pick_lists pl
+          LEFT JOIN orders o ON pl.order_id = o.id OR pl.order_number = o.order_number
+          WHERE pl.id = $1
+          LIMIT 1
+        `, [newPlId]);
       }
 
       const pickList = pickListRes.rows[0];
@@ -1286,24 +1341,57 @@ export function createApp(): express.Application {
   // Shopkeeper marks order "Ready for Delivery"
   app.post('/api/v1/fulfillment/orders/:orderId/ready-for-delivery', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { orderId } = req.params;
+      const orderId = req.params.orderId as string;
+      const cleanId = (orderId || '').replace(/^#/, '').trim();
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
       const ordRes = await Database.query(
-        `SELECT id, order_number, status, delivery_address, grand_total FROM orders WHERE id::text = $1 OR order_number = $1`,
-        [orderId]
+        `SELECT id, order_number, status, delivery_address, grand_total 
+         FROM orders 
+         WHERE id::text = $1 OR order_number = $1 OR order_number = $2`,
+        [orderId, cleanId]
       );
       if (ordRes.rows.length === 0) {
         return res.status(404).json(errorResponse('ORDER_NOT_FOUND', 'Order not found', correlationId));
       }
       const order = ordRes.rows[0];
 
+      // Check if order already has an active delivery assignment
+      const daCheck = await Database.query(
+        `SELECT id, rider_name, rider_phone, status FROM delivery_assignments 
+         WHERE order_id = $1 AND status NOT IN ('CANCELLED') LIMIT 1`,
+        [order.id]
+      );
+      if (daCheck.rows.length > 0) {
+        const da = daCheck.rows[0];
+        if (da.status === 'DELIVERED') {
+          return res.status(200).json(okResponse({
+            orderId: order.id,
+            orderNumber: order.order_number,
+            readyForPickup: true,
+            alreadyDelivered: true,
+            riderName: da.rider_name,
+            message: `Order was already delivered by ${da.rider_name}.`
+          }, correlationId));
+        }
+
+        return res.status(200).json(okResponse({
+          orderId: order.id,
+          orderNumber: order.order_number,
+          readyForPickup: true,
+          alreadyAssigned: true,
+          riderName: da.rider_name,
+          deliveryStatus: da.status,
+          message: `Order is already assigned to rider ${da.rider_name} (${da.status}).`
+        }, correlationId));
+      }
+
       // Mark order as ready for pickup and PACKED
       await Database.query(`
         UPDATE orders 
         SET ready_for_pickup = TRUE, 
             ready_for_pickup_at = NOW(),
-            status = CASE WHEN status IN ('CONFIRMED', 'PICKING') THEN 'PACKED' ELSE status END,
+            status = 'PACKED',
             updated_at = NOW()
         WHERE id = $1
       `, [order.id]);
@@ -1347,7 +1435,7 @@ export function createApp(): express.Application {
         LEFT JOIN order_items oi ON o.id = oi.order_id
         LEFT JOIN delivery_assignments da ON o.id = da.order_id AND da.status != 'CANCELLED'
         WHERE (o.ready_for_pickup = TRUE OR o.status IN ('PACKED', 'CONFIRMED'))
-          AND o.status NOT IN ('DISPATCHED', 'DELIVERED', 'CANCELLED')
+          AND o.status NOT IN ('DELIVERED', 'CANCELLED')
           AND da.id IS NULL
         GROUP BY o.id, o.order_number, o.status, o.grand_total, o.delivery_address, o.created_at, o.ready_for_pickup, o.ready_for_pickup_at
         ORDER BY COALESCE(o.ready_for_pickup_at, o.created_at) DESC
