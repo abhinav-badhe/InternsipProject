@@ -117,60 +117,10 @@ export class CheckoutSagaOrchestrator {
         );
       }
 
-      // Automatically create Pick List and Pick Items for warehouse fulfillment & packaging
-      try {
-        const pickListId = crypto.randomUUID();
-        await client.query(
-          `INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
-           VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
-           ON CONFLICT DO NOTHING`,
-          [pickListId, orderId, orderNumber, req.customerId]
-        );
-
-        for (const item of quote.items) {
-          const itemId = crypto.randomUUID();
-          await client.query(
-            `INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, status)
-             VALUES ($1, $2, $3, $4, $5, 'PENDING')
-             ON CONFLICT DO NOTHING`,
-            [itemId, pickListId, item.sku, item.productName, Math.round(Number(item.quantity) || 1)]
-          );
-        }
-      } catch (plErr: any) {
-        logger.warn('Fulfillment pick list auto-creation skipped', { error: plErr.message });
-      }
-
-      // Automatically generate Tax Invoice for accounting & billing
-      try {
-        const invoiceId = crypto.randomUUID();
-        const invoiceNumber = `INV-${new Date().getUTCFullYear()}-${orderNumber.slice(-6)}`;
-        const customerName = (req.deliveryAddress as any)?.recipientName || 'Verified Customer';
-        const halfTax = Number((quote.taxTotal / 2).toFixed(4));
-
-        await client.query(
-          `INSERT INTO invoices (
-            id, invoice_number, order_id, order_number, customer_id, customer_name,
-            currency, subtotal, discount_total, cgst_total, sgst_total, delivery_fee, grand_total, pdf_storage_key
-          ) VALUES ($1, $2, $3, $4, $5, $6, 'INR', $7, $8, $9, $10, $11, $12, $13)
-          ON CONFLICT DO NOTHING`,
-          [
-            invoiceId,
-            invoiceNumber,
-            orderId,
-            orderNumber,
-            req.customerId,
-            customerName,
-            quote.subtotal,
-            quote.discountTotal || 0,
-            halfTax,
-            halfTax,
-            quote.deliveryFee || 0,
-            quote.grandTotal,
-            `private/invoices/${invoiceNumber}.pdf`,
-          ]
-        );
-      } catch (invErr: any) {
-        logger.warn('Tax invoice auto-generation skipped', { error: invErr.message });
+      // For in-store POS transactions that are settled immediately, generate fulfillment and invoice right away.
+      // For online orders in AWAITING_PAYMENT, defer fulfillment and invoicing until payment is confirmed.
+      if ((req.channel as string) === 'POS' || (req.channel as string) === 'STORE') {
+        CheckoutSagaOrchestrator.generateFulfillmentAndInvoiceOnConfirm(orderId).catch(() => {});
       }
 
       // Log saga step
@@ -354,5 +304,79 @@ export class CheckoutSagaOrchestrator {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  /**
+   * Generates Pick List for warehouse fulfillment and Tax Invoice strictly upon payment confirmation
+   */
+  public static async generateFulfillmentAndInvoiceOnConfirm(orderId: string): Promise<void> {
+    const client = await Database.getClient();
+    try {
+      const ordRes = await client.query(
+        `SELECT id, order_number, customer_id, delivery_address, subtotal, discount_total, tax_total, delivery_fee, grand_total 
+         FROM orders WHERE id = $1`,
+        [orderId]
+      );
+      if (ordRes.rows.length === 0) return;
+      const order = ordRes.rows[0];
+
+      const itemsRes = await client.query(
+        `SELECT sku, product_name, quantity FROM order_items WHERE order_id = $1`,
+        [orderId]
+      );
+
+      // 1. Pick List & Items for Warehouse
+      const pickListId = crypto.randomUUID();
+      await client.query(
+        `INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
+         VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
+         ON CONFLICT DO NOTHING`,
+        [pickListId, order.id, order.order_number, order.customer_id]
+      );
+
+      for (const item of itemsRes.rows) {
+        const itemId = crypto.randomUUID();
+        await client.query(
+          `INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, status)
+           VALUES ($1, $2, $3, $4, $5, 'PENDING')
+           ON CONFLICT DO NOTHING`,
+          [itemId, pickListId, item.sku, item.product_name, Math.round(Number(item.quantity) || 1)]
+        );
+      }
+
+      // 2. Legal GST Tax Invoice for Accounting
+      const invoiceId = crypto.randomUUID();
+      const invoiceNumber = `INV-${new Date().getUTCFullYear()}-${order.order_number.slice(-6)}`;
+      const customerName = (order.delivery_address as any)?.recipientName || 'Verified Customer';
+      const taxVal = parseFloat(order.tax_total) || 0;
+      const halfTax = Number((taxVal / 2).toFixed(4));
+
+      await client.query(
+        `INSERT INTO invoices (
+          id, invoice_number, order_id, order_number, customer_id, customer_name,
+          currency, subtotal, discount_total, cgst_total, sgst_total, delivery_fee, grand_total, pdf_storage_key
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'INR', $7, $8, $9, $10, $11, $12, $13)
+        ON CONFLICT DO NOTHING`,
+        [
+          invoiceId,
+          invoiceNumber,
+          order.id,
+          order.order_number,
+          order.customer_id,
+          customerName,
+          parseFloat(order.subtotal) || 0,
+          parseFloat(order.discount_total) || 0,
+          halfTax,
+          halfTax,
+          parseFloat(order.delivery_fee) || 0,
+          parseFloat(order.grand_total) || 0,
+          `private/invoices/${invoiceNumber}.pdf`,
+        ]
+      );
+    } catch (err: any) {
+      logger.warn('Fulfillment & invoice creation notice', { orderId, error: err.message });
+    } finally {
+      client.release();
+    }
   }
 }

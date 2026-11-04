@@ -274,7 +274,7 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
   });
 
   // Pay Order using Wallet Balance (Atomically deducts balance)
-  app.post('/api/v1/payments/wallet/pay', async (req: Request, res: Response, next: NextFunction) => {
+  app.post(['/api/v1/payments/wallet/pay', '/api/v1/payments/wallet/deduct'], async (req: Request, res: Response, next: NextFunction) => {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
       const customerId =
@@ -425,13 +425,34 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
     }
   });
 
-  // Payment Provider Webhook Receiver (Acceptance Scenarios 3 & 4)
-  app.post('/webhook/payment', async (req: Request, res: Response, next: NextFunction) => {
+  // Payment Provider Webhook Receiver (Acceptance Scenarios 3 & 4 + Razorpay Webhooks)
+  app.post(['/webhook/payment', '/api/v1/payments/webhooks/razorpay', '/api/v1/payments/webhook'], async (req: Request, res: Response, next: NextFunction) => {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET || 'test_webhook_secret_key';
-      const signatureHeader = req.headers['x-webhook-signature'] as string | undefined;
+      const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.PAYMENT_WEBHOOK_SECRET || 'test_webhook_secret_key';
+      const signatureHeader = (req.headers['x-razorpay-signature'] || req.headers['x-webhook-signature']) as string | undefined;
       const rawBody = (req as any).rawBody || Buffer.from(JSON.stringify(req.body));
+
+      // Handle Razorpay direct webhook events (e.g. payment.captured, order.paid)
+      if (req.body?.event && req.body?.payload?.payment?.entity) {
+        const paymentEntity = req.body.payload.payment.entity;
+        const razorpayPaymentId = paymentEntity.id;
+        const notes = paymentEntity.notes || {};
+        const orderId = notes.orderId || notes.order_id || req.body.payload.order?.entity?.receipt;
+
+        if (orderId && ['payment.captured', 'order.paid'].includes(req.body.event)) {
+          await Database.query(
+            `UPDATE payment_attempts
+             SET status = 'PAID', provider_payment_id = $1, updated_at = NOW()
+             WHERE provider_session_id = $2 OR order_id = $3`,
+            [razorpayPaymentId, paymentEntity.order_id, orderId]
+          );
+
+          await orderClient.confirmOrderPayment(orderId, razorpayPaymentId).catch(() => {});
+          logger.info('Razorpay webhook processed payment capture', { orderId, razorpayPaymentId });
+          return res.status(200).json(okResponse({ event: req.body.event, orderId, status: 'CONFIRMED' }, correlationId));
+        }
+      }
 
       const outcome = await processor.handleWebhook({
         rawBody,

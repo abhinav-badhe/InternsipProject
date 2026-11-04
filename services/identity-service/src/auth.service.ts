@@ -109,7 +109,7 @@ export class AuthService {
     email?: string;
     phone?: string;
     password: string;
-    role?: 'CUSTOMER' | 'STORE_ADMIN';
+    role?: 'CUSTOMER' | 'STORE_ADMIN' | 'INVENTORY_STAFF' | 'PICKER' | 'DRIVER';
     enableMfa?: boolean;
   }): Promise<{ user: Omit<UserClaims, 'iat' | 'exp'>; token: string; mfaEnabled: boolean }> {
     const passwordHash = this.hashPassword(params.password);

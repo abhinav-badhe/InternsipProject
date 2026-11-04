@@ -46,3 +46,4 @@ CREATE TABLE IF NOT EXISTS wave_pick_items (
 CREATE INDEX IF NOT EXISTS idx_wave_status ON fulfillment_waves(status);
 CREATE INDEX IF NOT EXISTS idx_wave_orders_wave ON wave_orders(wave_id);
 CREATE INDEX IF NOT EXISTS idx_wave_items_wave ON wave_pick_items(wave_id);
+

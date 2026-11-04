@@ -38,3 +38,4 @@ CREATE TABLE IF NOT EXISTS eway_bills (
 
 CREATE INDEX IF NOT EXISTS idx_eway_order ON eway_bills(order_id);
 CREATE INDEX IF NOT EXISTS idx_eway_number ON eway_bills(eway_bill_number);
+

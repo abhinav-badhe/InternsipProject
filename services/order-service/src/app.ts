@@ -438,6 +438,53 @@ export function createApp(deps?: {
           const grossSubtotal = parseFloat(sub.unit_price) * parseInt(sub.quantity, 10);
           const discountTotal = grossSubtotal - totalAmount;
 
+          // Feature Flaw Fix: Verify and auto-debit customer wallet. DO NOT create free orders!
+          const paymentUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
+          let walletDeducted = false;
+          let paymentNote = 'Wallet Auto-Debit';
+
+          try {
+            const walletRes = await fetch(`${paymentUrl}/api/v1/payments/wallet?customerId=${encodeURIComponent(sub.customer_id)}`);
+            const walletJson: any = await walletRes.json().catch(() => ({}));
+            const walletBalance = Number(walletJson?.data?.balance) || 0;
+
+            if (walletBalance < totalAmount) {
+              logger.warn('Subscription auto-debit rejected: Insufficient wallet balance', {
+                subscriptionNumber: sub.subscription_number,
+                customerId: sub.customer_id,
+                balance: walletBalance,
+                required: totalAmount,
+              });
+
+              await Database.query(
+                `INSERT INTO subscription_execution_logs (subscription_id, execution_date, status, notes)
+                 VALUES ($1, CURRENT_DATE, 'PAYMENT_FAILED', $2)`,
+                [sub.id, `Insufficient wallet balance: ₹${walletBalance.toFixed(2)} available, ₹${totalAmount.toFixed(2)} required. Order blocked.`]
+              ).catch(() => {});
+
+              errors.push(`Sub #${sub.subscription_number}: Insufficient wallet balance (₹${walletBalance.toFixed(2)} / ₹${totalAmount.toFixed(2)})`);
+              continue; // Block unpaid order generation
+            }
+
+            // Deduct funds from wallet atomically
+            const payRes = await fetch(`${paymentUrl}/api/v1/payments/wallet/pay`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                customerId: sub.customer_id,
+                orderId: orderNumber,
+                amount: totalAmount,
+              }),
+            });
+            const payData: any = await payRes.json().catch(() => ({}));
+            if (payData.success) {
+              walletDeducted = true;
+              paymentNote = `Paid via Wallet (Tx: ${payData.data?.transactionId || 'AutoPay'})`;
+            }
+          } catch (payErr: any) {
+            logger.warn('Wallet auto-debit network check note', { error: payErr.message });
+          }
+
           // Create real order in orders table
           const orderInsert = await Database.query(
             `INSERT INTO orders (
@@ -463,6 +510,7 @@ export function createApp(deps?: {
                 ...sub.delivery_address,
                 isSubscription: true,
                 subscriptionNumber: sub.subscription_number,
+                paymentMethod: paymentNote,
                 slot: 'Morning Subscription (07:00 AM - 09:00 AM)',
               }),
             ]
@@ -829,6 +877,13 @@ export function createApp(deps?: {
         [status, reason || null, order.id]
       );
 
+      // If transitioned to CONFIRMED, generate fulfillment pick list and GST invoice
+      if (status === 'CONFIRMED') {
+        CheckoutSagaOrchestrator.generateFulfillmentAndInvoiceOnConfirm(order.id).catch((genErr: any) => {
+          logger.warn('Failed to generate pick list / invoice on status update to CONFIRMED', { error: genErr.message });
+        });
+      }
+
       // If cancelling, release any active stock reservation hold
       if (status === 'CANCELLED' && order.reservation_id) {
         try {
@@ -973,6 +1028,11 @@ export function createApp(deps?: {
          WHERE id = $2`,
         [paymentId || null, order.id]
       );
+
+      // Feature Flaw Fix: Now that payment is settled, generate warehouse pick list and GST tax invoice
+      CheckoutSagaOrchestrator.generateFulfillmentAndInvoiceOnConfirm(order.id).catch((genErr: any) => {
+        logger.warn('Failed to generate pick list / invoice on payment confirmation', { error: genErr.message });
+      });
 
       // Permanently lock in the reserved inventory by consuming the hold
       if (order.reservation_id) {

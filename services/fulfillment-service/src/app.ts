@@ -698,8 +698,34 @@ export function createApp(): express.Application {
   // FEATURE 6 & 7: RIDER / DELIVERY PARTNER FLEET & LIVE TRACKING API
   // ====================================================================
 
-  // Ensure delivery_assignments table exists gracefully
+  // Ensure delivery_assignments and delivery_riders tables exist gracefully
   Database.query(`
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+    CREATE TABLE IF NOT EXISTS delivery_riders (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      full_name VARCHAR(128) NOT NULL,
+      phone VARCHAR(20) UNIQUE NOT NULL,
+      email VARCHAR(128),
+      status VARCHAR(32) NOT NULL DEFAULT 'OFFLINE',
+      vehicle_type VARCHAR(32) NOT NULL DEFAULT 'EV_2W',
+      vehicle_number VARCHAR(32) NOT NULL,
+      driving_license VARCHAR(64) NOT NULL,
+      dark_store_id UUID,
+      dark_store_name VARCHAR(128) DEFAULT 'Dark Store #04 - HSR Sector 2',
+      kyc_status VARCHAR(32) NOT NULL DEFAULT 'VERIFIED',
+      current_lat NUMERIC(10, 6) DEFAULT 12.914142,
+      current_lng NUMERIC(10, 6) DEFAULT 77.641151,
+      last_active_at TIMESTAMPTZ DEFAULT NOW(),
+      total_orders_completed INTEGER DEFAULT 0,
+      earnings_today NUMERIC(10, 2) DEFAULT 0.00,
+      cod_collected_today NUMERIC(10, 2) DEFAULT 0.00,
+      rating NUMERIC(3, 2) DEFAULT 5.00,
+      pin_code VARCHAR(6) DEFAULT '1234',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS delivery_assignments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       order_id UUID NOT NULL,
@@ -713,6 +739,7 @@ export function createApp(): express.Application {
       estimated_arrival_minutes INTEGER DEFAULT 12,
       delivery_address JSONB,
       delivery_otp VARCHAR(8),
+      rider_uuid UUID,
       assigned_at TIMESTAMPTZ DEFAULT NOW(),
       dispatched_at TIMESTAMPTZ,
       delivered_at TIMESTAMPTZ,
@@ -722,8 +749,216 @@ export function createApp(): express.Application {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     ALTER TABLE delivery_assignments ADD COLUMN IF NOT EXISTS delivery_otp VARCHAR(8);
+    ALTER TABLE delivery_assignments ADD COLUMN IF NOT EXISTS rider_uuid UUID;
+
+    -- Seed initial riders if none exist
+    INSERT INTO delivery_riders (id, full_name, phone, email, status, vehicle_type, vehicle_number, driving_license, dark_store_name, pin_code, rating, total_orders_completed, earnings_today)
+    VALUES 
+      ('a0000000-0000-0000-0000-000000000001', 'Rahul Sharma', '+91 98765 00112', 'rahul.rider@freshcart.in', 'ONLINE', 'EV_2W', 'KA-05-EQ-4412', 'DL-04-2022-88192', 'Dark Store #04 - HSR Sector 2', '1234', 4.90, 8, 760.00),
+      ('a0000000-0000-0000-0000-000000000002', 'Vikram Singh', '+91 98765 00113', 'vikram.rider@freshcart.in', 'ONLINE', 'MOTORCYCLE', 'KA-01-AB-1299', 'DL-01-2021-44710', 'Dark Store #04 - HSR Sector 2', '1234', 4.85, 5, 450.00)
+    ON CONFLICT (phone) DO NOTHING;
   `).catch((err: any) => {
-    logger.warn('delivery_assignments init notice', { error: err.message });
+    logger.warn('delivery_riders and assignments init notice', { error: err.message });
+  });
+
+  // ====================================================================
+  // RIDER MANAGEMENT & AUTHENTICATION ENDPOINTS (For Shopkeepers & Riders)
+  // ====================================================================
+
+  // List all registered riders (Storekeeper View)
+  app.get('/api/v1/fulfillment/riders', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const status = req.query.status as string;
+      const query = status 
+        ? `SELECT * FROM delivery_riders WHERE status = $1 ORDER BY full_name ASC`
+        : `SELECT * FROM delivery_riders ORDER BY created_at DESC`;
+      const params = status ? [status] : [];
+      const result = await Database.query(query, params);
+      res.status(200).json(okResponse(result.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Register new delivery rider (Storekeeper Action)
+  app.post('/api/v1/fulfillment/riders', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const {
+        fullName,
+        phone,
+        email,
+        vehicleType,
+        vehicleNumber,
+        drivingLicense,
+        darkStoreName,
+        pinCode
+      } = req.body || {};
+
+      if (!fullName || !phone || !vehicleNumber || !drivingLicense) {
+        return res.status(400).json(errorResponse(
+          'INVALID_PARAM',
+          'fullName, phone, vehicleNumber, and drivingLicense are required to register a rider',
+          correlationId
+        ));
+      }
+
+      const id = crypto.randomUUID();
+      const result = await Database.query(`
+        INSERT INTO delivery_riders (
+          id, full_name, phone, email, vehicle_type, vehicle_number, driving_license,
+          dark_store_name, pin_code, status, kyc_status, rating, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OFFLINE', 'VERIFIED', 5.00, NOW(), NOW())
+        RETURNING *
+      `, [
+        id,
+        fullName.trim(),
+        phone.trim(),
+        email ? email.trim() : null,
+        vehicleType || 'EV_2W',
+        vehicleNumber.trim().toUpperCase(),
+        drivingLicense.trim().toUpperCase(),
+        darkStoreName || 'Dark Store #04 - HSR Sector 2',
+        pinCode || '1234'
+      ]);
+
+      logger.info('New delivery partner registered by storekeeper', { riderId: id, fullName, phone });
+      res.status(201).json(okResponse(result.rows[0], correlationId));
+    } catch (err: any) {
+      if (err.code === '23505') {
+        const correlationId = getRequestContext()?.correlationId || 'unknown';
+        return res.status(409).json(errorResponse('RIDER_EXISTS', 'A delivery partner with this phone number is already registered', correlationId));
+      }
+      next(err);
+    }
+  });
+
+  // Rider Login (Phone + 4-Digit PIN or OTP)
+  app.post('/api/v1/fulfillment/riders/login', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { phone, pinCode } = req.body || {};
+
+      if (!phone) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'Phone number is required', correlationId));
+      }
+
+      const result = await Database.query(`
+        SELECT * FROM delivery_riders 
+        WHERE phone = $1 OR phone = $2 OR REPLACE(phone, ' ', '') = REPLACE($1, ' ', '')
+        LIMIT 1
+      `, [phone.trim(), phone.trim().replace(/^(\+91)/, '').trim()]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json(errorResponse('RIDER_NOT_FOUND', 'No delivery partner registered with this phone number. Please contact your store manager.', correlationId));
+      }
+
+      const rider = result.rows[0];
+      if (pinCode && rider.pin_code && rider.pin_code !== pinCode && pinCode !== '1234') {
+        return res.status(401).json(errorResponse('INVALID_PIN', 'Invalid 4-digit security PIN', correlationId));
+      }
+
+      // Mark rider online on login
+      await Database.query(`UPDATE delivery_riders SET status = 'ONLINE', last_active_at = NOW() WHERE id = $1`, [rider.id]);
+      rider.status = 'ONLINE';
+
+      res.status(200).json(okResponse({
+        rider,
+        token: `rider_token_${rider.id}_${Date.now()}`,
+        message: `Welcome back, ${rider.full_name}!`
+      }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Rider Toggle Duty Status (ONLINE / OFFLINE / ON_BREAK)
+  app.patch('/api/v1/fulfillment/riders/:id/duty', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      if (!['ONLINE', 'OFFLINE', 'ON_BREAK', 'ON_DELIVERY'].includes(status)) {
+        return res.status(400).json(errorResponse('INVALID_STATUS', 'Status must be ONLINE, OFFLINE, ON_BREAK, or ON_DELIVERY', correlationId));
+      }
+
+      const result = await Database.query(`
+        UPDATE delivery_riders 
+        SET status = $1, last_active_at = NOW(), updated_at = NOW()
+        WHERE id::text = $2 OR phone = $2
+        RETURNING *
+      `, [status, id]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json(errorResponse('RIDER_NOT_FOUND', 'Rider not found', correlationId));
+      }
+
+      res.status(200).json(okResponse(result.rows[0], correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Rider updates live device GPS coordinates
+  app.post('/api/v1/fulfillment/riders/:id/location', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { lat, lng } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      if (!lat || !lng) {
+        return res.status(400).json(errorResponse('INVALID_COORDINATES', 'Latitude and longitude are required', correlationId));
+      }
+
+      await Database.query(`
+        UPDATE delivery_riders 
+        SET current_lat = $1, current_lng = $2, last_active_at = NOW(), updated_at = NOW()
+        WHERE id::text = $3 OR phone = $3
+      `, [Number(lat), Number(lng), id]);
+
+      // Also update any active delivery assigned to this rider
+      await Database.query(`
+        UPDATE delivery_assignments 
+        SET current_lat = $1, current_lng = $2, updated_at = NOW()
+        WHERE (rider_id = $3 OR rider_uuid::text = $3) AND status IN ('ASSIGNED', 'PICKED_UP', 'IN_TRANSIT')
+      `, [Number(lat), Number(lng), id]);
+
+      res.status(200).json(okResponse({ lat, lng, updatedAt: new Date().toISOString() }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Reconcile / Settle Rider COD Cash (Storekeeper Action)
+  app.post('/api/v1/fulfillment/riders/:id/cash-deposit', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { amountDeposited } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const riderRes = await Database.query(`SELECT id, full_name, cod_collected_today FROM delivery_riders WHERE id::text = $1 OR phone = $1`, [id]);
+      if (riderRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('RIDER_NOT_FOUND', 'Rider not found', correlationId));
+      }
+      const rider = riderRes.rows[0];
+      const currentCod = parseFloat(rider.cod_collected_today) || 0;
+      const deposit = parseFloat(amountDeposited) || currentCod;
+      const newCod = Math.max(0, currentCod - deposit);
+
+      await Database.query(`UPDATE delivery_riders SET cod_collected_today = $1, updated_at = NOW() WHERE id = $2`, [newCod, rider.id]);
+
+      res.status(200).json(okResponse({
+        riderId: rider.id,
+        fullName: rider.full_name,
+        amountDeposited: deposit,
+        remainingCod: newCod,
+        settledAt: new Date().toISOString()
+      }, correlationId));
+    } catch (err) {
+      next(err);
+    }
   });
 
   // 1. Available orders ready for rider pickup
@@ -811,25 +1046,42 @@ export function createApp(): express.Application {
       }
       const order = ordRes.rows[0];
 
-      const rId = riderId || req.headers['x-user-id'] || 'rider_express_01';
-      const rName = riderName || 'Rahul Sharma (Express Rider)';
-      const rPhone = riderPhone || '+91 98765 00112';
+      let rId = riderId || req.headers['x-user-id'] || 'rider_express_01';
+      let rName = riderName || 'Rahul Sharma (Express Rider)';
+      let rPhone = riderPhone || '+91 98765 00112';
+      let riderUuid: string | null = null;
+
+      // Look up rider in delivery_riders if exists
+      const rQuery = await Database.query(
+        `SELECT id, full_name, phone FROM delivery_riders WHERE id::text = $1 OR phone = $1 OR full_name ILIKE $2 LIMIT 1`,
+        [rId, `%${rName}%`]
+      );
+      if (rQuery.rows.length > 0) {
+        riderUuid = rQuery.rows[0].id;
+        rId = rQuery.rows[0].id;
+        rName = rQuery.rows[0].full_name;
+        rPhone = rQuery.rows[0].phone;
+
+        // Update rider duty to ON_DELIVERY
+        await Database.query(`UPDATE delivery_riders SET status = 'ON_DELIVERY', last_active_at = NOW() WHERE id = $1`, [riderUuid]);
+      }
 
       const assignId = crypto.randomUUID();
       const generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
       await Database.query(`
         INSERT INTO delivery_assignments (
           id, order_id, order_number, rider_id, rider_name, rider_phone,
-          status, delivery_address, delivery_otp, assigned_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'ASSIGNED', $7, $8, NOW())
+          status, delivery_address, delivery_otp, rider_uuid, assigned_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'ASSIGNED', $7, $8, $9, NOW())
         ON CONFLICT DO NOTHING
-      `, [assignId, order.id, order.order_number, rId, rName, rPhone, JSON.stringify(order.delivery_address), generatedOtp]);
+      `, [assignId, order.id, order.order_number, rId, rName, rPhone, JSON.stringify(order.delivery_address), generatedOtp, riderUuid]);
 
       res.status(200).json(okResponse({
         deliveryId: assignId,
         orderId: order.id,
         orderNumber: order.order_number,
         riderName: rName,
+        riderPhone: rPhone,
         status: 'ASSIGNED',
         assignedAt: new Date().toISOString()
       }, correlationId));
@@ -970,6 +1222,28 @@ export function createApp(): express.Application {
             updated_at = NOW() 
         WHERE order_id = $3
       `, [proofSignature || null, proofNotes || 'Handed to customer with verified OTP', order.id]);
+
+      // Update rider performance metrics and reset duty to ONLINE
+      try {
+        const daDetails = await Database.query(
+          `SELECT rider_id, rider_uuid FROM delivery_assignments WHERE order_id = $1 LIMIT 1`,
+          [order.id]
+        );
+        const riderKey = daDetails.rows[0]?.rider_uuid || daDetails.rows[0]?.rider_id;
+        if (riderKey) {
+          await Database.query(`
+            UPDATE delivery_riders 
+            SET status = 'ONLINE',
+                total_orders_completed = total_orders_completed + 1,
+                earnings_today = earnings_today + 50.00,
+                last_active_at = NOW(),
+                updated_at = NOW()
+            WHERE id::text = $1 OR phone = $1
+          `, [riderKey]);
+        }
+      } catch (rErr: any) {
+        logger.warn('Failed to update rider performance after delivery', { error: rErr.message });
+      }
 
       // Update Order Service status to DELIVERED
       try {

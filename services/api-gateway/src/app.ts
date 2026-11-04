@@ -105,6 +105,14 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
       headers['x-hub-signature'] = req.headers['x-hub-signature'] as string;
     }
 
+    // Preserve Razorpay & Payment Gateway webhook signatures
+    if (req.headers['x-razorpay-signature']) {
+      headers['x-razorpay-signature'] = req.headers['x-razorpay-signature'] as string;
+    }
+    if (req.headers['x-webhook-signature']) {
+      headers['x-webhook-signature'] = req.headers['x-webhook-signature'] as string;
+    }
+
     try {
       if (config?.dispatcher) {
         const result = await config.dispatcher(targetBaseUrl, req.method, path, headers, req.body);
@@ -186,7 +194,7 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   });
 
   // 7. Payment Service (Wallet, Payment Intents, Webhooks) -> payment-service
-  app.use('/api/v1/payments*', (req: Request, res: Response) => {
+  app.use(['/api/v1/payments*', '/webhook/payment*'], (req: Request, res: Response) => {
     if (req.headers.authorization) {
       return authMiddleware.authenticate(req, res, () => {
         forwardRequest(urls.payment, req, res);

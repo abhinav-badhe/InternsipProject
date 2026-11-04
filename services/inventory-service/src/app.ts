@@ -12,6 +12,21 @@ import { okResponse, errorResponse, ReserveStockRequest } from '@grocery/contrac
 const logger = createLogger('inventory-service:api');
 const inventoryRepo = new InventoryRepository();
 
+// Background worker: Periodically clean up expired stock reservations (Releases zombie stock holds)
+const expiryWorkerInterval = setInterval(async () => {
+  try {
+    const released = await inventoryRepo.releaseExpiredReservations();
+    if (released > 0) {
+      logger.info('Background worker released expired stock reservations', { releasedCount: released });
+    }
+  } catch (err: any) {
+    logger.warn('Error running reservation expiry worker', { error: err.message });
+  }
+}, 30_000);
+if (typeof expiryWorkerInterval?.unref === 'function') {
+  expiryWorkerInterval.unref();
+}
+
 export function createApp(): express.Application {
   const app = express();
   app.use(express.json());
