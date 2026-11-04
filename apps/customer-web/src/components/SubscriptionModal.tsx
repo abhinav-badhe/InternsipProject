@@ -138,32 +138,33 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const discountedPrice = selectedProduct.unitPrice * 0.9;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60  flex items-center justify-center p-4">
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden ">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-teal-700 p-6 text-white relative">
+        <div className="bg-primary p-5 text-white relative">
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white cursor-pointer"
+            aria-label="Close subscriptions"
+            className="absolute top-2 right-2 flex size-11 items-center justify-center rounded-md bg-white/10 hover:bg-white/20 transition-colors text-white cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
 
           <div className="flex items-center gap-2 mb-2">
-            <Milk className="w-5 h-5 text-blue-200" />
-            <span className="text-xs uppercase tracking-wider font-bold text-blue-200">
+            <Milk className="w-5 h-5 text-white/80" />
+            <span className="text-xs font-semibold text-white/80">
               FreshCart Daily Subscription
             </span>
           </div>
 
-          <div className="flex items-baseline justify-between">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
-              <h3 className="text-2xl font-extrabold tracking-tight">Daily Milk & Essentials</h3>
-              <p className="text-xs text-blue-100 mt-1">
+              <h3 className="text-2xl font-bold tracking-tight">Daily Milk & Essentials</h3>
+              <p className="text-xs text-white/80 mt-1">
                 Fresh morning doorstep delivery at 7 AM. Pause or cancel anytime.
               </p>
             </div>
-            <div className="bg-blue-400/20 border border-blue-300/30 px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold text-blue-100">
+            <div className="bg-blue-400/20 border border-blue-300/30 px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold text-white/80">
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
               <span>Save 10% Extra</span>
             </div>
@@ -234,7 +235,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                           key={sub.id}
                           className={`p-3.5 rounded-xl border transition-all ${
                             isActive
-                              ? 'border-indigo-200 bg-white shadow-2xs'
+                              ? 'border-indigo-200 bg-white '
                               : 'border-slate-200 bg-slate-50 opacity-75'
                           }`}
                         >
@@ -319,7 +320,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                     type="button"
                     disabled={isExecutingBatch}
                     onClick={handleRunBatchNow}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 "
                   >
                     <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                     <span>{isExecutingBatch ? 'Executing...' : 'Run Morning Batch'}</span>
@@ -441,7 +442,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 type="button"
                 disabled={isCreating}
                 onClick={handleCreate}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Sparkles className="w-4 h-4 text-amber-300" />
                 <span>

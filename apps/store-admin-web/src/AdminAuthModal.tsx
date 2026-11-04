@@ -111,10 +111,10 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50  animate-in fade-in duration-150">
       <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden relative">
         {/* Header Bar */}
-        <div className="bg-[#007a55] px-6 py-4 text-white flex items-center justify-between">
+        <div className="bg-primary px-6 py-4 text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
               <ShieldCheck className="w-5 h-5 text-white" />
@@ -156,7 +156,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                 }}
                 className={`flex-1 pb-2.5 flex items-center justify-center gap-1.5 transition-colors ${
                   mode === 'signin'
-                    ? 'border-b-2 border-[#007a55] text-[#007a55] font-semibold'
+                    ? 'border-b-2 border-primary text-primary font-semibold'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -171,7 +171,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                 }}
                 className={`flex-1 pb-2.5 flex items-center justify-center gap-1.5 transition-colors ${
                   mode === 'register'
-                    ? 'border-b-2 border-[#007a55] text-[#007a55] font-semibold'
+                    ? 'border-b-2 border-primary text-primary font-semibold'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -201,7 +201,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="adminshopkepper@gmail.com"
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55]"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
@@ -218,7 +218,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••••••"
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55]"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
@@ -236,7 +236,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                         setEmail('adminshopkepper@gmail.com');
                         setPassword('Shopkeeper@123');
                       }}
-                      className="text-[#007a55] hover:underline font-semibold text-xs ml-2"
+                      className="text-primary hover:underline font-semibold text-xs ml-2"
                     >
                       Fill
                     </button>
@@ -262,7 +262,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-2.5 px-4 bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-2.5 px-4 bg-primary hover:bg-primary-hover text-white font-medium text-xs rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <span>Authenticating...</span>
@@ -288,7 +288,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       placeholder="e.g. Rahul Sharma"
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55]"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
@@ -305,7 +305,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="e.g. rahul@mystore.com"
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55]"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
@@ -321,7 +321,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="+91 98765 43210"
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55]"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
@@ -333,7 +333,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                   <select
                     value={role}
                     onChange={(e: any) => setRole(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55] bg-white"
+                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white"
                   >
                     <option value="STORE_ADMIN">Store Administrator (Full Permissions)</option>
                     <option value="FULFILLMENT_STAFF">Fulfillment & Packing Staff</option>
@@ -353,20 +353,20 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Create secure password"
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55] focus:ring-1 focus:ring-[#007a55]"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-[11px]">
-                  <ShieldCheck className="w-4 h-4 text-[#007a55] shrink-0" />
+                  <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
                   <span>Enforces 2FA verification for all merchant identities</span>
                 </div>
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-2.5 px-4 bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-2.5 px-4 bg-primary hover:bg-primary-hover text-white font-medium text-xs rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isLoading ? 'Creating Identity...' : 'Register Account'}
                 </button>
@@ -377,7 +377,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
           /* Step 2: Multi-Factor Authentication OTP Challenge */
           <div className="p-6">
             <div className="text-center mb-5">
-              <div className="w-12 h-12 bg-emerald-100 text-[#007a55] rounded-full flex items-center justify-center mx-auto mb-3">
+              <div className="w-12 h-12 bg-emerald-100 text-primary rounded-full flex items-center justify-center mx-auto mb-3">
                 <KeyRound className="w-6 h-6" />
               </div>
               <h4 className="text-sm font-bold text-gray-900">Two-Factor Security Verification</h4>
@@ -393,7 +393,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setOtpCode(demoOtp)}
-                    className="text-xs text-[#007a55] font-bold hover:underline"
+                    className="text-xs text-primary font-bold hover:underline"
                   >
                     Auto-Fill
                   </button>
@@ -423,7 +423,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                   onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                   placeholder="000000"
                   autoFocus
-                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-[#007a55]"
+                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-primary"
                 />
               </div>
 
@@ -438,7 +438,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                 <button
                   type="submit"
                   disabled={isLoading || otpCode.length < 6}
-                  className="flex-1 py-2 px-3 bg-[#007a55] hover:bg-[#006345] text-white font-medium text-xs rounded-lg transition-colors shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 py-2 px-3 bg-primary hover:bg-primary-hover text-white font-medium text-xs rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isLoading ? 'Verifying...' : 'Verify & Enter'}
                 </button>

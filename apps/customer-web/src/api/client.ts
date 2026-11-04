@@ -233,7 +233,7 @@ export async function fetchLiveCategories(): Promise<Category[]> {
 export async function fetchLiveProducts(): Promise<Product[]> {
   const res = await fetch('/api/v1/catalog/products?limit=5000');
   const json = await res.json();
-  const rawList = json.data?.items || json.data?.products || [];
+  const rawList = Array.isArray(json.data) ? json.data : json.data?.items || json.data?.products || [];
   if (!json.success || rawList.length === 0) return [];
 
   // Default fallback lookups only if backend has 0/null

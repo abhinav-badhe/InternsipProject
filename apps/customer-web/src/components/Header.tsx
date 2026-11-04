@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Search, ShoppingCart, X, Store, FileText, SlidersHorizontal, User, LogOut, Wallet, Gift, Milk, ChefHat, MapPin, ChevronDown, Bike } from 'lucide-react';
+import { ScrollRail } from './ScrollRail';
 import { AuthSession, CustomerSavedAddress } from '../api/client';
 
 interface HeaderProps {
@@ -48,12 +49,12 @@ export const Header: React.FC<HeaderProps> = ({
   const [showDisambiguation, setShowDisambiguation] = useState(false);
   const isSoapSearch = searchQuery.toLowerCase().trim() === 'soap';
 
-  const secondaryAction = "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground";
+  const secondaryAction = "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground";
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50 focus:rounded-md focus:bg-surface focus:p-3">Skip to products</a>
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 lg:gap-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-4 sm:px-6 lg:gap-6 lg:px-8">
         <button
           aria-label="FreshCart home"
           onClick={() => { onSelectCategory('ALL'); onSearchChange(''); onToggleBrowse('home'); }}
@@ -62,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white">FC</span>
           <span className="text-xl font-bold tracking-tight text-foreground">FreshCart</span>
         </button>
-        <button onClick={onOpenAddressModal} className="order-4 flex min-h-11 w-full items-center gap-2 border-t border-border pt-2 text-left sm:order-none sm:w-auto sm:max-w-48 sm:border-0 sm:pt-0">
+        <button onClick={onOpenAddressModal} className="order-4 flex min-h-11 w-full items-center gap-2 border-t border-border pt-2 text-left sm:order-none sm:w-auto sm:max-w-48 sm:border-0 sm:pt-0 sm:rounded-md sm:px-2 sm:hover:bg-surface-muted">
           <MapPin aria-hidden="true" className="size-4 shrink-0 text-primary" />
           <span className="min-w-0">
             <span className="block text-xs font-semibold text-foreground">Deliver to <ChevronDown aria-hidden="true" className="inline size-3" /></span>
@@ -77,7 +78,7 @@ export const Header: React.FC<HeaderProps> = ({
             onFocus={() => { if (isSoapSearch) setShowDisambiguation(true); }}
             onKeyDown={(e) => { if (e.key === 'Escape') setShowDisambiguation(false); if (e.key === 'Enter') { onToggleBrowse('browse'); setShowDisambiguation(false); } }}
             aria-expanded={showDisambiguation} aria-controls={showDisambiguation ? 'search-categories' : undefined}
-            className="h-11 w-full rounded-md border border-border bg-surface-muted pl-10 pr-10 text-sm placeholder:text-muted-foreground focus:border-primary focus:bg-surface" />
+            className="h-11 w-full rounded-md border border-transparent bg-surface-muted pl-10 pr-10 text-sm placeholder:text-muted-foreground transition-colors hover:border-border focus:border-primary focus:bg-surface" />
           {searchQuery && <button aria-label="Clear search" onClick={() => { onSearchChange(''); setShowDisambiguation(false); }} className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted-foreground"><X className="size-4" /></button>}
           {showDisambiguation && (
             <div id="search-categories" className="absolute inset-x-0 top-full z-50 mt-2 rounded-lg border border-border bg-surface p-4 shadow-lg">
@@ -99,7 +100,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
       <nav aria-label="Store services" className="border-t border-border">
-        <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <ScrollRail label="Store services">
           <button onClick={() => onToggleBrowse(isBrowseMode ? 'home' : 'browse')} aria-pressed={isBrowseMode} className={`${secondaryAction} ${isBrowseMode ? 'bg-primary-light text-primary' : ''}`}><SlidersHorizontal aria-hidden="true" className="size-4" />Browse products</button>
           <button onClick={onOpenOrders} className={secondaryAction}><FileText aria-hidden="true" className="size-4" />My orders</button>
           <button onClick={onOpenWallet} className={secondaryAction}><Wallet aria-hidden="true" className="size-4" />Wallet · ₹{(walletBalance || 0).toFixed(0)}</button>
@@ -108,6 +110,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button onClick={onOpenReferral} className={secondaryAction}><Gift aria-hidden="true" className="size-4" />Refer a friend</button>
           <a href="/delivery/login" className={secondaryAction}><Bike aria-hidden="true" className="size-4" />Delivery partner</a>
           <a href="http://localhost:5174" target="_blank" rel="noopener noreferrer" className={`${secondaryAction} lg:ml-auto`}><Store aria-hidden="true" className="size-4" />Seller hub</a>
+          </ScrollRail>
         </div>
       </nav>
     </header>

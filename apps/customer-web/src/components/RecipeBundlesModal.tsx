@@ -75,12 +75,12 @@ export const RecipeBundlesModal: React.FC<RecipeBundlesModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60  flex items-center justify-center p-4">
       <div className="relative bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-200 max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="bg-gradient-to-r from-orange-600 via-amber-600 to-amber-700 text-white p-5 flex items-center justify-between">
+        <div className="bg-primary text-white p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center backdrop-blur-xs">
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center ">
               <ChefHat className="w-6 h-6 text-amber-200" />
             </div>
             <div>
@@ -97,7 +97,8 @@ export const RecipeBundlesModal: React.FC<RecipeBundlesModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-amber-100 hover:text-white hover:bg-white/10 transition-colors"
+            aria-label="Close recipes"
+            className="flex size-11 shrink-0 items-center justify-center rounded-md text-amber-100 hover:text-white hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -122,7 +123,7 @@ export const RecipeBundlesModal: React.FC<RecipeBundlesModalProps> = ({
                     onClick={() => setSelectedRecipeId(r.id)}
                     className={`p-3 rounded-xl border transition-all cursor-pointer flex gap-3 ${
                       isSelected
-                        ? 'bg-white border-orange-500 shadow-xs ring-1 ring-orange-500/30'
+                        ? 'bg-white border-orange-500 ring-1 ring-orange-500/30'
                         : 'bg-white/80 border-slate-200 hover:border-slate-300'
                     }`}
                   >
@@ -238,7 +239,7 @@ export const RecipeBundlesModal: React.FC<RecipeBundlesModalProps> = ({
                   </div>
                   <button
                     onClick={() => handleAddAllToCart(activeRecipe)}
-                    className="px-5 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                    className="px-5 py-2.5 bg-primary hover:bg-primary-hover text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
                   >
                     <ShoppingBag className="w-4 h-4" />
                     <span>Add All {activeRecipe.ingredients.length} to Cart</span>

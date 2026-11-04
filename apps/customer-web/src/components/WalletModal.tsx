@@ -77,28 +77,29 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60  flex items-center justify-center p-4">
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden ">
         {/* Header */}
-        <div className="bg-gradient-to-r from-[#004d35] via-[#007a55] to-[#059669] p-6 text-white relative">
+        <div className="bg-primary p-5 text-white relative">
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white"
+            aria-label="Close wallet"
+            className="absolute top-2 right-2 flex size-11 items-center justify-center rounded-md bg-white/10 hover:bg-white/20 transition-colors text-white"
           >
             <X className="w-5 h-5" />
           </button>
 
           <div className="flex items-center gap-2 mb-2">
-            <Wallet className="w-5 h-5 text-emerald-200" />
-            <span className="text-xs uppercase tracking-wider font-bold text-emerald-200">
+            <Wallet className="w-5 h-5 text-white/80" />
+            <span className="text-xs font-semibold text-white/80">
               FreshCart Wallet & Cashback
             </span>
           </div>
 
-          <div className="flex items-baseline justify-between">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
               <span className="text-xs text-emerald-100">Available Balance</span>
-              <div className="text-3xl font-extrabold tracking-tight mt-0.5">
+              <div className="text-3xl font-bold tracking-tight mt-0.5">
                 ₹{wallet ? wallet.balance.toFixed(2) : '0.00'}
               </div>
             </div>
@@ -133,7 +134,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                 key={amt}
                 disabled={isToppingUp}
                 onClick={() => handleTopup(amt)}
-                className="py-2 rounded-lg border border-emerald-200 bg-white hover:bg-emerald-50 text-emerald-800 font-bold text-xs transition-colors shadow-2xs hover:border-emerald-300 cursor-pointer disabled:opacity-50"
+                className="py-2 rounded-lg border border-emerald-200 bg-white hover:bg-emerald-50 text-emerald-800 font-bold text-xs transition-colors hover:border-emerald-300 cursor-pointer disabled:opacity-50"
               >
                 +₹{amt}
               </button>
@@ -151,7 +152,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
             <button
               disabled={isToppingUp || !customAmount || parseFloat(customAmount) <= 0}
               onClick={() => handleTopup(parseFloat(customAmount))}
-              className="px-4 py-2 bg-[#007a55] hover:bg-[#006345] text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+              className="px-4 py-2 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
             >
               {isToppingUp ? 'Adding...' : 'Add Funds'}
             </button>

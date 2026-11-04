@@ -47,6 +47,7 @@ export const App: React.FC = () => {
     return <DeliveryPartnerApp />;
   }
 
+  const [visibleProductCount, setVisibleProductCount] = useState(24);
   const [viewMode, setViewMode] = useState<'home' | 'browse'>('home');
   const [selectedCategoryId, setSelectedCategoryId] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -179,6 +180,8 @@ export const App: React.FC = () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => { setVisibleProductCount(24); }, [searchQuery, selectedCategoryId, sortBy, inStockOnly]);
 
   // Cart Management
   const handleAddToCart = (variant: ProductVariant, product: Product) => {
@@ -371,7 +374,7 @@ export const App: React.FC = () => {
         onOpenAddressModal={() => setIsAddressModalOpen(true)}
       />
 
-      {!isBackendConnected && <div role="status" className="border-b border-border bg-surface-muted px-4 py-2 text-center text-xs text-muted-foreground">Catalog preview · Prices and availability are sample data.</div>}
+      {!isBackendConnected && <div role="status" className="border-b border-border bg-surface-muted px-4 py-1.5 text-center text-xs text-muted-foreground">Catalog preview · Prices and availability are sample data.</div>}
 
       {/* 2. Top Slider Category Strip (Visible on Home view) */}
       {viewMode === 'home' && (
@@ -409,11 +412,11 @@ export const App: React.FC = () => {
                 setBrowseSearchInput(e.target.value);
                 setSearchQuery(e.target.value); // Real-time live search filter!
               }}
-              className="flex-1 px-3.5 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-gray-400 "
+              className="flex-1 min-w-0 px-3.5 py-3 text-sm bg-surface border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-gray-400 "
             />
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer shrink-0"
+              className="min-h-11 px-5 py-2 rounded-md text-sm font-semibold bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer shrink-0"
             >
               Search
             </button>
@@ -422,9 +425,9 @@ export const App: React.FC = () => {
           {/* Two-Column Responsive Flex Layout (Prevents Overflow & Squeezing) */}
           <div className="flex flex-col md:flex-row gap-6 items-start">
             {/* Left Filter Sidebar */}
-            <aside className="w-full md:w-64 lg:w-72 shrink-0 space-y-4">
+            <aside className="w-full md:w-56 shrink-0 space-y-4 md:sticky md:top-40">
               {/* Card 1: Sort by & Stock Filter */}
-              <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+              <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-900 mb-1.5">
                     Sort by
@@ -457,9 +460,9 @@ export const App: React.FC = () => {
               </div>
 
               {/* Card 2: Categories List */}
-              <div className="bg-white border border-gray-200 rounded-xl p-4 ">
+              <div className="bg-surface border border-border rounded-lg p-4 ">
                 <h3 className="text-xs font-semibold text-gray-900 mb-2">Categories</h3>
-                <div className="space-y-0.5 text-xs max-h-[460px] overflow-y-auto pr-1">
+                <div className="space-y-0.5 text-xs max-h-60 md:max-h-[460px] overflow-y-auto overscroll-y-contain pr-2">
                   <button
                     onClick={() => setSelectedCategoryId('ALL')}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
@@ -540,8 +543,8 @@ export const App: React.FC = () => {
                 </div>
               ) : (
                 /* 3-Column Product Grid matching reference image */
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredProducts.map((product) => {
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                  {filteredProducts.slice(0, visibleProductCount).map((product) => {
 
                     return (
                       <ProductCard
@@ -561,11 +564,11 @@ export const App: React.FC = () => {
         </main>
       ) : (
         /* HOME CATALOG VIEW */
-        <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">
+        <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex-1 w-full">
           {/* Results / Available Now Section Header */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div className="flex items-baseline gap-2">
-              <h1 className="text-xl font-bold text-foreground tracking-tight">
+              <h1 className="text-2xl font-bold text-foreground tracking-tight">
                 {searchQuery ? `Results for "${searchQuery}"` : 'Available now'}
               </h1>
             </div>
@@ -601,8 +604,8 @@ export const App: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredProducts.map((product) => {
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+              {filteredProducts.slice(0, visibleProductCount).map((product) => {
 
                 return (
                   <ProductCard
@@ -618,6 +621,13 @@ export const App: React.FC = () => {
             </div>
           )}
         </main>
+      )}
+
+      {filteredProducts.length > visibleProductCount && (
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-center gap-3 px-4 pb-8 text-xs text-muted-foreground">
+          <span>Showing {visibleProductCount} of {filteredProducts.length} products</span>
+          <button onClick={() => setVisibleProductCount((count) => count + 24)} className="min-h-11 rounded-md border border-border bg-surface px-4 font-semibold text-foreground transition-colors hover:bg-surface-muted">Show more products</button>
+        </div>
       )}
 
       {/* Cart Drawer */}

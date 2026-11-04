@@ -98,28 +98,29 @@ export const ReferralModal: React.FC<ReferralModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60  flex items-center justify-center p-4">
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden ">
         {/* Header */}
-        <div className="bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-500 p-6 text-white relative">
+        <div className="bg-primary p-5 text-white relative">
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white cursor-pointer"
+            aria-label="Close referrals"
+            className="absolute top-2 right-2 flex size-11 items-center justify-center rounded-md bg-white/10 hover:bg-white/20 transition-colors text-white cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
 
           <div className="flex items-center gap-2 mb-2">
             <Gift className="w-5 h-5 text-amber-200" />
-            <span className="text-xs uppercase tracking-wider font-bold text-amber-100">
+            <span className="text-xs font-semibold text-white/80">
               Refer & Earn Program
             </span>
           </div>
 
-          <h3 className="text-2xl font-extrabold tracking-tight">
+          <h3 className="text-2xl font-bold tracking-tight">
             Give ₹100, Get ₹100
           </h3>
-          <p className="text-xs text-amber-100 mt-1">
+          <p className="text-xs text-white/80 mt-1">
             Invite your friends & neighbors to FreshCart. They get ₹100 off their first order, and you get ₹100 wallet cashback!
           </p>
         </div>
@@ -156,8 +157,8 @@ export const ReferralModal: React.FC<ReferralModalProps> = ({
           {/* User's Referral Code Card */}
           <div className="p-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/40 space-y-3">
             <span className="block text-xs font-bold text-slate-700">Your Exclusive Referral Code</span>
-            <div className="flex items-center justify-between bg-white px-3.5 py-2.5 rounded-lg border border-amber-200 shadow-2xs">
-              <span className="font-mono text-base font-extrabold tracking-wider text-slate-900">
+            <div className="flex items-center justify-between bg-white px-3.5 py-2.5 rounded-lg border border-amber-200 ">
+              <span className="font-mono text-base font-bold tracking-wider text-slate-900">
                 {isLoading ? 'Loading...' : details?.referralCode}
               </span>
               <button
@@ -173,7 +174,7 @@ export const ReferralModal: React.FC<ReferralModalProps> = ({
             <button
               type="button"
               onClick={handleShareWhatsApp}
-              className="w-full py-2.5 rounded-lg bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-2.5 rounded-lg bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <Share2 className="w-4 h-4" />
               <span>Share Code on WhatsApp</span>

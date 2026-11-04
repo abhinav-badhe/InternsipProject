@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Product, ProductVariant } from '../data/catalog';
-import { Plus, Minus, Star, ArrowRight } from 'lucide-react';
+import { Plus, Minus, Star, ArrowRight, Package } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
@@ -35,6 +35,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     }
   }, [product.id, product.variants]);
 
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+
   const cartQuantity = cartQuantities[selectedVariant.sku] || 0;
 
   const discountPercent =
@@ -42,139 +44,52 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       ? Math.round(((selectedVariant.mrp - selectedVariant.price) / selectedVariant.mrp) * 100)
       : 0;
 
-  const isOutOfStock = selectedVariant.availableStock === 0;
+  const isOutOfStock = selectedVariant.availableStock <= 0;
 
   return (
-    <article aria-label={product.name} className="bg-surface rounded-lg border border-border p-3.5 flex flex-col justify-between hover:border-gray-300 transition-all">
-      {/* 1. Staged Product Image Container */}
-      <div className="relative w-full h-44 bg-surface-muted rounded-xl overflow-hidden flex items-center justify-center p-3 mb-3">
-        <img
-          src={selectedVariant.imageUrl}
-          alt={product.name}
-          className="max-h-36 max-w-full object-contain mix-blend-multiply "
-          loading="lazy"
-          onError={(e) => {
-            (e.target as HTMLImageElement).onerror = null;
-            (e.target as HTMLImageElement).src =
-              'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=500&auto=format&fit=crop&q=80';
-          }}
-        />
-
-        {/* Warm Peach Discount Badge (matching reference) */}
-        {discountPercent > 0 && (
-          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-surface-muted text-warning ">
-            {discountPercent}% off
-          </span>
-        )}
+    <article aria-label={product.name} className="@container flex min-w-0 flex-col rounded-lg border border-border bg-surface p-3 transition-colors hover:border-primary/30 sm:p-4">
+      <div className="relative mb-3 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-md bg-surface-muted p-4">
+        {selectedVariant.imageUrl && failedImageUrl !== selectedVariant.imageUrl ? (
+          <img src={selectedVariant.imageUrl} alt={product.name} loading="lazy"
+            className="h-full max-w-full object-contain mix-blend-multiply"
+            onError={() => setFailedImageUrl(selectedVariant.imageUrl)} />
+        ) : <Package role="img" aria-label="Product image unavailable" className="size-12 text-muted-foreground/40" strokeWidth={1} />}
+        {discountPercent > 0 && <span className="absolute left-2 top-2 rounded bg-surface px-2 py-1 text-xs font-semibold text-warning">{discountPercent}% off</span>}
       </div>
-
-      {/* 2. Product Meta & Details */}
-      <div className="flex-1 flex flex-col justify-between">
-        <div>
-          {/* Stock Status Badge & Pack Size */}
-          <div className="flex items-center gap-1.5 flex-wrap mb-1">
-            {isOutOfStock ? (
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 text-gray-500">
-                Out of Stock
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-primary-light text-primary">
-                In Stock
-              </span>
-            )}
-            <span className="text-[11px] text-gray-500 font-medium">
-              {selectedVariant.packSize || selectedVariant.name}
-            </span>
+      <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-1.5 text-xs">
+        <span className="truncate text-muted-foreground">{selectedVariant.packSize || selectedVariant.name}</span>
+        <span className={isOutOfStock ? 'text-muted-foreground' : 'text-primary'}>{isOutOfStock ? 'Out of stock' : 'In stock'}</span>
+      </div>
+      <h3 className="min-h-10 line-clamp-2 text-[13px] font-semibold leading-5 text-foreground" title={product.name}>{product.name}</h3>
+      <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
+        <span className="truncate">{product.brand}</span>
+        <span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="size-3 fill-warning/20 text-warning" /><span className="text-foreground">{product.rating}</span><span>({product.reviewCount})</span></span>
+      </div>
+      <div className="mt-auto pt-3">
+        {product.variants.length > 1 && (
+          <select aria-label={`Pack size for ${product.name}`} value={selectedVariant.sku}
+            onChange={(event) => { const variant = product.variants.find((item) => item.sku === event.target.value); if (variant) setSelectedVariant(variant); }}
+            className="mb-3 min-h-10 w-full min-w-0 rounded-md border border-border bg-surface px-2 text-xs text-muted-foreground transition-colors hover:border-primary/40 focus:border-primary">
+            {product.variants.map((variant) => <option key={variant.sku} value={variant.sku}>{variant.name} — ₹{variant.price.toFixed(2)}</option>)}
+          </select>
+        )}
+        <div className="flex flex-col justify-between gap-3 border-t border-border pt-3 @min-[240px]:flex-row @min-[240px]:items-center">
+          <div className="flex flex-wrap items-baseline gap-2 @min-[240px]:flex-col @min-[240px]:gap-0.5">
+            <span className="text-xl font-bold tabular-nums tracking-tight text-foreground">₹{selectedVariant.price.toFixed(2)}</span>
+            {selectedVariant.mrp > selectedVariant.price && <span className="text-xs tabular-nums text-muted-foreground line-through">₹{selectedVariant.mrp.toFixed(2)}</span>}
           </div>
-
-          {/* Product Title */}
-          <h3 className="font-medium text-gray-900 text-sm leading-relaxed line-clamp-2 min-h-10 mt-1" title={product.name}>
-            {product.name}
-          </h3>
-
-          {/* Brand & Star Rating */}
-          <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-0.5">
-            <span className="font-medium text-gray-600">{product.brand}</span>
-            <span className="text-gray-300">•</span>
-            <div className="flex items-center gap-0.5 text-amber-500">
-              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-              <span className="font-medium text-gray-700">{product.rating}</span>
-            </div>
-            <span className="text-gray-400">({product.reviewCount})</span>
-          </div>
-
-          {/* Multi-variant Pack Selector (if more than 1 variant) */}
-          {product.variants.length > 1 && (
-            <div className="mt-2 mb-1">
-              <select
-                aria-label={`Pack size for ${product.name}`}
-                value={selectedVariant.sku}
-                onChange={(e) => {
-                  const found = product.variants.find((v) => v.sku === e.target.value);
-                  if (found) setSelectedVariant(found);
-                }}
-                className="w-full text-[11px] bg-gray-50 border border-gray-200 rounded-md px-2 py-2 text-gray-700 focus:outline-none focus:border-primary cursor-pointer"
-              >
-                {product.variants.map((v) => (
-                  <option key={v.sku} value={v.sku}>
-                    {v.name} — ₹{v.price.toFixed(2)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-
-        {/* 3. Pricing Row & Add to Cart Action */}
-        <div className="pt-2.5 mt-2 border-t border-gray-100 flex items-center justify-between">
-          <div>
-            <div className="text-base font-bold text-foreground leading-tight">
-              ₹{selectedVariant.price.toFixed(2)}
-            </div>
-            {selectedVariant.mrp > selectedVariant.price && (
-              <div className="text-[11px] text-muted-foreground line-through leading-tight">
-                ₹{selectedVariant.mrp.toFixed(2)}
-              </div>
-            )}
-          </div>
-
-          {/* Action Button */}
           {isOutOfStock ? (
-            <button
-              onClick={() => onOpenAlternatives(product, selectedVariant)}
-              className="flex items-center gap-1 min-h-11 px-3 rounded-md text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors "
-            >
-              <span>Similar items</span>
-              <ArrowRight className="w-3 h-3 text-gray-400" />
+            <button onClick={() => onOpenAlternatives(product, selectedVariant)} className="flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-xs font-semibold text-foreground transition-colors hover:bg-surface-muted">
+              Similar items <ArrowRight aria-hidden="true" className="size-3.5" />
             </button>
           ) : cartQuantity > 0 ? (
-            <div className="flex items-center gap-1.5 bg-primary-light border border-border rounded-md px-1">
-              <button
-                onClick={() => onUpdateQuantity(selectedVariant.sku, -1)}
-                className="min-w-11 min-h-11 rounded flex items-center justify-center text-primary hover:bg-primary/10 transition-colors font-bold"
-                aria-label="Decrease quantity"
-              >
-                <Minus className="w-3 h-3" />
-              </button>
-              <span className="w-4 text-center text-xs font-bold text-primary">
-                {cartQuantity}
-              </span>
-              <button
-                onClick={() => onUpdateQuantity(selectedVariant.sku, 1)}
-                disabled={cartQuantity >= selectedVariant.availableStock}
-                className="min-w-11 min-h-11 rounded flex items-center justify-center text-primary hover:bg-primary/10 disabled:opacity-30 transition-colors font-bold"
-                aria-label="Increase quantity"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
+            <div className="flex items-center justify-between gap-1 rounded-md border border-primary/20 bg-primary-light @min-[240px]:justify-center">
+              <button onClick={() => onUpdateQuantity(selectedVariant.sku, -1)} aria-label="Decrease quantity" className="flex size-11 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"><Minus aria-hidden="true" className="size-3.5" /></button>
+              <span aria-live="polite" className="min-w-4 text-center text-sm font-semibold tabular-nums text-primary">{cartQuantity}</span>
+              <button onClick={() => onUpdateQuantity(selectedVariant.sku, 1)} disabled={cartQuantity >= selectedVariant.availableStock} aria-label="Increase quantity" className="flex size-11 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10 disabled:opacity-30"><Plus aria-hidden="true" className="size-3.5" /></button>
             </div>
           ) : (
-            <button
-              onClick={() => onAddToCart(selectedVariant, product)}
-              className="flex items-center gap-1 min-h-11 px-3 rounded-md text-xs font-semibold bg-primary hover:bg-primary-hover text-white transition-colors "
-            >
-              <span>Add to cart</span>
-            </button>
+            <button onClick={() => onAddToCart(selectedVariant, product)} className="flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-white transition-colors hover:bg-primary-hover"><Plus aria-hidden="true" className="size-3.5" />Add to cart</button>
           )}
         </div>
       </div>

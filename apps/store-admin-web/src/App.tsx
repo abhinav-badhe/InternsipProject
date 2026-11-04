@@ -768,6 +768,9 @@ export const App: React.FC = () => {
 
   const [isNavigationOpen, setIsNavigationOpen] = useState(false);
 
+  const [visibleInventoryCount, setVisibleInventoryCount] = useState(24);
+  const [visibleCatalogCount, setVisibleCatalogCount] = useState(24);
+
   // Core domain state
   const [variants, setVariants] = useState<ProductVariant[]>(INITIAL_VARIANTS);
   const [fefoBatches, setFefoBatches] = useState<FefoBatch[]>(INITIAL_FEFO_BATCHES);
@@ -1724,6 +1727,9 @@ export const App: React.FC = () => {
     }
   };
 
+  useEffect(() => { setVisibleInventoryCount(24); }, [searchQuery, stockFilter, inventoryViewMode]);
+  useEffect(() => { setVisibleCatalogCount(24); }, [catalogCategoryFilter]);
+
   // Filtered inventory variants
   const filteredVariants = variants.filter((v) => {
     const available = v.stock - v.reserved;
@@ -1758,7 +1764,7 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       {/* TOP HEADER: Clean Seller Hub Header */}
       {/* ========================================================= */}
-      <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-3 flex flex-wrap gap-3 items-center justify-between sticky top-0 z-30">
+      <header className="bg-white border-b border-border px-4 lg:px-6 py-3 lg:min-h-[73px] flex flex-wrap gap-3 items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button aria-label="Toggle store navigation" aria-expanded={isNavigationOpen} aria-controls="store-navigation" onClick={() => setIsNavigationOpen(!isNavigationOpen)} className="flex size-11 items-center justify-center rounded-md border border-border lg:hidden"><Menu className="size-4" /></button>
           <span className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-white">FC</span>
@@ -1770,7 +1776,7 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsAdminAuthOpen(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-left transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border hover:bg-gray-50 text-left transition-colors"
                 title="Account Details & 2FA"
               >
                 <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">
@@ -1836,7 +1842,7 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       <div className="flex flex-1 flex-col lg:flex-row">
         {/* LEFT NAVIGATION: Real Store Architecture Modules */}
-        <aside id="store-navigation" className={`${isNavigationOpen ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-b border-border bg-surface px-3 py-4 lg:sticky lg:top-20 lg:flex lg:max-h-[calc(100dvh-5rem)] lg:w-60 lg:overflow-y-auto lg:self-start lg:border-r lg:border-b-0`}>
+        <aside id="store-navigation" className={`${isNavigationOpen ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-b border-border bg-surface px-3 py-4 lg:sticky lg:top-[73px] lg:flex lg:max-h-[calc(100dvh-73px)] lg:w-56 lg:overflow-y-auto lg:self-start lg:border-r lg:border-b-0 lg:min-h-[calc(100dvh-73px)]`}>
           <nav aria-label="Store operations" className="space-y-1">
             <button
               aria-current={activeNav === 'inventory' ? 'page' : undefined}
@@ -1957,9 +1963,7 @@ export const App: React.FC = () => {
                 <Bike className={`w-4 h-4 ${activeNav === 'deliveries' ? 'text-gray-900' : 'text-gray-500'}`} />
                 <span>Rider Fleet & Delivery</span>
               </div>
-              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
-                Live
-              </span>
+
             </button>
 
             <button
@@ -1975,9 +1979,7 @@ export const App: React.FC = () => {
                 <Building2 className={`w-4 h-4 ${activeNav === 'suppliers' ? 'text-gray-900' : 'text-gray-500'}`} />
                 <span>Suppliers & POs</span>
               </div>
-              <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded">
-                ML Auto
-              </span>
+
             </button>
 
             <button
@@ -1993,15 +1995,13 @@ export const App: React.FC = () => {
                 <Users className={`w-4 h-4 ${activeNav === 'clv' ? 'text-gray-900' : 'text-gray-500'}`} />
                 <span>Customer CLV & Churn</span>
               </div>
-              <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded">
-                AI RFM
-              </span>
+
             </button>
           </nav>
         </aside>
 
         {/* MAIN DISPLAY AREA */}
-        <main className="min-w-0 flex-1 p-4 sm:p-5 lg:p-6">
+        <main className="min-w-0 flex-1 p-4 sm:p-5 lg:p-7">
           {!adminSession && <div role="status" className="mx-auto mb-4 max-w-7xl rounded-md border border-border bg-surface px-4 py-3 text-xs text-muted-foreground">Store preview · Orders, stock batches, and reports may contain sample data. Sign in to load your store records.</div>}
           {/* ========================================================= */}
           {/* 1. INVENTORY MODULE (Real inventory-service backend) */}
@@ -2015,11 +2015,11 @@ export const App: React.FC = () => {
                     Inventory ({variants.length})
                   </h1>
                   <p className="text-gray-500 text-xs mt-1">
-                    Your offers with live prices and stock levels.
+                    Manage stock levels, reservations, and warehouse movements.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <button
                     onClick={() => setIsReceiveStockOpen(true)}
                     className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "
@@ -2030,7 +2030,7 @@ export const App: React.FC = () => {
 
                   <button
                     onClick={handleTriggerTtlSweep}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors "
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-border text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors "
                     title="Release checkout holds where 15 minutes expired"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-gray-500" />
@@ -2040,10 +2040,11 @@ export const App: React.FC = () => {
               </div>
 
               {/* View Switcher: Visual Product Cards | FEFO Batches | Active Holds | Audit Ledger */}
-              <div className="flex overflow-x-auto whitespace-nowrap border-b border-border gap-6 pb-1 text-xs font-medium">
+              <div className="flex flex-wrap border-b border-border gap-x-5 gap-y-1 text-[13px] font-medium">
                 <button
                   onClick={() => setInventoryViewMode('cards')}
-                  className={`pb-2.5 transition-colors ${
+                  aria-pressed={inventoryViewMode === 'cards'}
+                  className={`min-h-11 pb-2.5 transition-colors ${
                     inventoryViewMode === 'cards'
                       ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
@@ -2053,8 +2054,9 @@ export const App: React.FC = () => {
                 </button>
 
                 <button
+                  aria-pressed={inventoryViewMode === 'batches'}
                   onClick={() => setInventoryViewMode('batches')}
-                  className={`pb-2.5 transition-colors ${
+                  className={`min-h-11 pb-2.5 transition-colors ${
                     inventoryViewMode === 'batches'
                       ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
@@ -2064,8 +2066,9 @@ export const App: React.FC = () => {
                 </button>
 
                 <button
+                  aria-pressed={inventoryViewMode === 'holds'}
                   onClick={() => setInventoryViewMode('holds')}
-                  className={`pb-2.5 transition-colors ${
+                  className={`min-h-11 pb-2.5 transition-colors ${
                     inventoryViewMode === 'holds'
                       ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
@@ -2075,8 +2078,9 @@ export const App: React.FC = () => {
                 </button>
 
                 <button
+                  aria-pressed={inventoryViewMode === 'ledger'}
                   onClick={() => setInventoryViewMode('ledger')}
-                  className={`pb-2.5 transition-colors ${
+                  className={`min-h-11 pb-2.5 transition-colors ${
                     inventoryViewMode === 'ledger'
                       ? 'border-b-2 border-primary text-gray-900 font-bold'
                       : 'text-gray-500 hover:text-gray-800'
@@ -2091,75 +2095,81 @@ export const App: React.FC = () => {
                 <div className="space-y-5">
                   {/* Search and Filter Pills */}
                   <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative flex-1 min-w-[280px] max-w-sm">
-                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                    <div className="relative w-full min-w-0 sm:flex-1 sm:max-w-sm">
+                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
+                        aria-label="Search inventory"
                         placeholder="Search by product, brand, or SKU"
-                        className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-md text-xs placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors "
+                        className="min-h-11 w-full pl-9 pr-8 py-2 bg-white border border-border rounded-md text-xs placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors "
                       />
                       {searchQuery && (
                         <button
                           onClick={() => setSearchQuery('')}
-                          className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600"
+                          aria-label="Clear inventory search"
+                          className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted-foreground hover:text-foreground"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
+                        aria-pressed={stockFilter === 'ALL'}
                         onClick={() => setStockFilter('ALL')}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        className={`min-h-11 px-3.5 py-2 rounded-md text-xs font-medium transition-colors ${
                           stockFilter === 'ALL'
-                            ? 'bg-primary text-white font-semibold'
-                            : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'bg-primary-light text-primary font-semibold'
+                            : 'bg-white border border-border text-gray-600 hover:bg-gray-50'
                         }`}
                       >
                         All
                       </button>
 
                       <button
+                        aria-pressed={stockFilter === 'IN_STOCK'}
                         onClick={() => setStockFilter('IN_STOCK')}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        className={`min-h-11 px-3.5 py-2 rounded-md text-xs font-medium transition-colors ${
                           stockFilter === 'IN_STOCK'
-                            ? 'bg-primary text-white font-semibold'
-                            : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'bg-primary-light text-primary font-semibold'
+                            : 'bg-white border border-border text-gray-600 hover:bg-gray-50'
                         }`}
                       >
-                        Active
+                        In stock
                       </button>
 
                       <button
+                        aria-pressed={stockFilter === 'LOW_STOCK'}
                         onClick={() => setStockFilter('LOW_STOCK')}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        className={`min-h-11 px-3.5 py-2 rounded-md text-xs font-medium transition-colors ${
                           stockFilter === 'LOW_STOCK'
-                            ? 'bg-primary text-white font-semibold'
-                            : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'bg-primary-light text-primary font-semibold'
+                            : 'bg-white border border-border text-gray-600 hover:bg-gray-50'
                         }`}
                       >
                         Low stock
                       </button>
 
                       <button
+                        aria-pressed={stockFilter === 'OUT_OF_STOCK'}
                         onClick={() => setStockFilter('OUT_OF_STOCK')}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        className={`min-h-11 px-3.5 py-2 rounded-md text-xs font-medium transition-colors ${
                           stockFilter === 'OUT_OF_STOCK'
-                            ? 'bg-primary text-white font-semibold'
-                            : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'bg-primary-light text-primary font-semibold'
+                            : 'bg-white border border-border text-gray-600 hover:bg-gray-50'
                         }`}
                       >
-                        Inactive
+                        Out of stock
                       </button>
                     </div>
                   </div>
 
                   {/* 3-Column Grid of Inventory Cards matching Reference Image */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {filteredVariants.map((item) => {
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filteredVariants.slice(0, visibleInventoryCount).map((item) => {
                       const available = Math.max(0, item.stock - item.reserved);
                       const currentQty = getCardQty(item.sku);
                       const discountPercent =
@@ -2170,67 +2180,46 @@ export const App: React.FC = () => {
                       return (
                         <div
                           key={item.sku}
-                          className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all"
+                          className="bg-surface border border-border rounded-lg p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all"
                         >
-                          {/* Card Header: Product Image, Title, Rating, SKU, Status Pill */}
+                          {/* Product identity */}
                           <div className="flex items-start gap-3.5">
                             {/* Product Image Thumbnail */}
-                            <div className="w-16 h-20 rounded-md bg-gray-50/80 border border-gray-100 flex items-center justify-center overflow-hidden shrink-0 p-1">
+                            <div className="w-14 h-16 rounded-md bg-gray-50/80 border border-border flex items-center justify-center overflow-hidden shrink-0 p-1">
                               <img
                                 src={item.imageUrl}
                                 alt={item.productName}
                                 className="w-full h-full object-contain"
                                 onError={(e) => {
+                                  (e.target as HTMLImageElement).onerror = null;
                                   (e.target as HTMLImageElement).src =
                                     'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?w=100&auto=format&fit=crop&q=80';
                                 }}
                               />
                             </div>
 
-                            {/* Details: Title, Rating, SKU */}
+                            {/* Product name, pack size, and SKU */}
                             <div className="flex-1 min-w-0 pr-1">
-                              <h3 className="font-bold text-gray-900 text-sm line-clamp-1 leading-snug">
+                              <h3 className="font-bold text-gray-900 text-sm line-clamp-2 leading-5 min-h-10">
                                 {item.productName}
                               </h3>
-                              {/* Star Rating and review count */}
-                              <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-600">
-                                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
-                                <span className="font-semibold text-gray-800">4.8</span>
-                                <span className="text-gray-400 font-normal">(3)</span>
-                              </div>
                               {/* SKU & Variant Pack Size */}
                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                <span className="text-[10px] bg-emerald-50 text-primary font-semibold px-2 py-0.5 rounded border border-emerald-200">
+                                <span className="text-xs text-muted-foreground">
                                   {item.packSize}
                                 </span>
-                                <span className="text-[10px] text-gray-400 font-mono tracking-tight uppercase">
+                                <span className="break-all text-xs text-muted-foreground font-mono">
                                   {item.sku}
                                 </span>
                               </div>
                             </div>
 
-                            {/* Status Badge */}
-                            <div className="shrink-0">
-                              {available > 5 ? (
-                                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 uppercase tracking-wide">
-                                  ACTIVE
-                                </span>
-                              ) : available > 0 ? (
-                                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200/80 uppercase tracking-wide">
-                                  ACTIVE
-                                </span>
-                              ) : (
-                                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/80 uppercase tracking-wide">
-                                  OUT OF STOCK
-                                </span>
-                              )}
-                            </div>
                           </div>
 
                           {/* Card Middle: Price, MRP, Discount, Stock availability text */}
-                          <div className="mt-3.5 pt-3 border-t border-gray-100">
+                          <div className="mt-3.5 pt-3 border-t border-border">
                             <div className="flex items-baseline gap-2">
-                              <span className="text-base sm:text-lg font-bold text-gray-900">
+                              <span className="text-xl tabular-nums tracking-tight font-bold text-gray-900">
                                 ₹{item.price.toFixed(2)}
                               </span>
                               {item.mrp && item.mrp > item.price && (
@@ -2260,11 +2249,11 @@ export const App: React.FC = () => {
                           </div>
 
                           {/* Card Bottom: Deactivate / + Variant / Stock Adjustment controls */}
-                          <div className="mt-3.5 pt-3 border-t border-gray-100 flex items-center justify-between gap-2 text-xs">
+                          <div className="mt-3.5 pt-3 border-t border-border flex flex-wrap items-center justify-between gap-3 text-xs">
                             <div className="flex items-center gap-2 text-gray-600 shrink-0">
                               <button
                                 onClick={() => handleStockAdjustment(item.sku, available > 0 ? -available : 10)}
-                                className="hover:text-gray-900 font-medium transition-colors text-xs cursor-pointer"
+                                className="hover:text-gray-900 min-h-9 font-medium transition-colors text-xs cursor-pointer"
                                 title={available > 0 ? 'Mark inactive / clear stock' : 'Activate with 10 units'}
                               >
                                 {available > 0 ? 'Deactivate' : 'Activate'}
@@ -2280,7 +2269,7 @@ export const App: React.FC = () => {
                                   setNewVarMrp(Math.round(item.price * 1.15));
                                   setIsAddVariantModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-light hover:bg-[#d5eedd] text-primary font-semibold text-xs transition-colors border border-border cursor-pointer whitespace-nowrap shrink-0 "
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-light hover:bg-primary/10 text-primary font-semibold text-xs transition-colors border border-border cursor-pointer whitespace-nowrap shrink-0 "
                                 title="Add another pack size/variant to this product"
                               >
                                 <Plus className="w-3 h-3 stroke-[2.5]" />
@@ -2292,16 +2281,18 @@ export const App: React.FC = () => {
                             <div className="flex items-center gap-1 shrink-0">
                               <span className="text-[11px] text-gray-400 font-medium">Stock:</span>
                               <input
+                                aria-label={`Stock adjustment for ${item.productName}`}
                                 type="number"
                                 min={1}
                                 value={currentQty}
                                 onChange={(e) => handleCardQtyChange(item.sku, parseInt(e.target.value, 10))}
-                                className="w-10 border border-gray-200 rounded px-1 py-0.5 text-center text-xs text-gray-900 font-medium bg-gray-50/50 focus:outline-none focus:border-primary"
+                                className="h-9 w-12 border border-border rounded px-1 py-0.5 text-center text-xs text-gray-900 font-medium bg-gray-50/50 focus:outline-none focus:border-primary"
                               />
 
                               <button
                                 onClick={() => handleStockAdjustment(item.sku, currentQty)}
-                                className="w-6 h-6 flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded transition-colors cursor-pointer"
+                                className="size-9 flex items-center justify-center bg-white border border-border hover:bg-gray-50 text-gray-700 text-xs font-bold rounded transition-colors cursor-pointer"
+                                aria-label={`Add stock for ${item.productName}`}
                                 title="Add stock"
                               >
                                 +
@@ -2310,11 +2301,12 @@ export const App: React.FC = () => {
                               <button
                                 onClick={() => handleStockAdjustment(item.sku, -currentQty)}
                                 disabled={available <= 0}
-                                className={`w-6 h-6 flex items-center justify-center bg-white border border-gray-200 text-xs font-bold rounded transition-colors ${
+                                className={`size-9 flex items-center justify-center bg-white border border-border text-xs font-bold rounded transition-colors ${
                                   available <= 0
                                     ? 'opacity-40 cursor-not-allowed text-gray-400'
                                     : 'hover:bg-gray-50 text-gray-700 cursor-pointer'
                                 }`}
+                                aria-label={`Remove stock for ${item.productName}`}
                                 title="Remove stock"
                               >
                                 -
@@ -2325,79 +2317,93 @@ export const App: React.FC = () => {
                       );
                     })}
                   </div>
+                  {filteredVariants.length > visibleInventoryCount && (
+                    <div className="flex flex-wrap items-center justify-center gap-3 p-3 text-xs text-muted-foreground">
+                      <span>Showing {visibleInventoryCount} of {filteredVariants.length} products</span>
+                      <button onClick={() => setVisibleInventoryCount((count) => count + 24)} className="min-h-11 rounded-md border border-border bg-surface px-4 font-semibold text-foreground transition-colors hover:bg-surface-muted">Show more products</button>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* SUBVIEW 2: FEFO BATCHES & SHELF ROTATION */}
               {inventoryViewMode === 'batches' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
-                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                <div className="bg-surface border border-border rounded-lg overflow-hidden ">
+                  <div className="px-4 py-3 bg-gray-50 border-b border-border flex items-center justify-between">
                     <span className="font-semibold text-gray-900 text-xs">
                       First-Expired-First-Out (FEFO) Batch Dispatch Queue
                     </span>
                     <span className="text-gray-500 text-[11px]">Dark Store Racks HSR-02</span>
                   </div>
 
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50/50 text-gray-500 border-b border-gray-200">
-                      <tr>
-                        <th className="py-2.5 px-4">Batch Number</th>
-                        <th className="py-2.5 px-4">Product Name / SKU</th>
-                        <th className="py-2.5 px-4">Shelf Location</th>
-                        <th className="py-2.5 px-4">Expiry Date</th>
-                        <th className="py-2.5 px-4">Days Left</th>
-                        <th className="py-2.5 px-4">Stock on Hand</th>
-                        <th className="py-2.5 px-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {fefoBatches.map((b) => (
-                        <tr key={b.batchNumber} className="hover:bg-gray-50/60">
-                          <td className="py-2.5 px-4 font-mono font-semibold text-gray-900">{b.batchNumber}</td>
-                          <td className="py-2.5 px-4">
-                            <div className="font-medium text-gray-800">{b.productName}</div>
-                            <div className="text-[10px] text-gray-400 font-mono">{b.sku}</div>
-                          </td>
-                          <td className="py-2.5 px-4 text-gray-700 font-mono">
-                            <span className="px-1.5 py-0.5 rounded bg-gray-100 border border-gray-200">
-                              {b.locationZone}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-4 text-gray-800">{b.expiryDate}</td>
-                          <td className="py-2.5 px-4">
-                            {b.daysToExpiry <= 30 ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-                                {b.daysToExpiry} days (Expiring Soon)
-                              </span>
-                            ) : (
-                              <span className="text-gray-700">{b.daysToExpiry} days</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4 font-bold text-gray-900">{b.quantityOnHand} units</td>
-                          <td className="py-2.5 px-4 text-right">
-                            <button
-                              onClick={() => {
-                                setSelectedBatchForMove(b);
-                                setTargetZoneForMove(b.locationZone);
-                                setIsMoveZoneOpen(true);
-                              }}
-                              className="px-2.5 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium inline-flex items-center gap-1"
-                            >
-                              <ArrowRightLeft className="w-3 h-3" />
-                              <span>Relocate Rack</span>
-                            </button>
-                          </td>
+                  <div role="region" aria-label="Stock batches" tabIndex={0} className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[760px] text-left text-xs">
+                      <thead className="bg-gray-50/50 text-gray-500 border-b border-border">
+                        <tr>
+                          <th className="py-2.5 px-4">Batch Number</th>
+                          <th className="py-2.5 px-4">Product Name / SKU</th>
+                          <th className="py-2.5 px-4">Shelf Location</th>
+                          <th className="py-2.5 px-4">Expiry Date</th>
+                          <th className="py-2.5 px-4">Days Left</th>
+                          <th className="py-2.5 px-4">Stock on Hand</th>
+                          <th className="py-2.5 px-4 text-right">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {fefoBatches.slice(0, visibleInventoryCount).map((b) => (
+                          <tr key={b.batchNumber} className="hover:bg-gray-50/60">
+                            <td className="py-2.5 px-4 font-mono font-semibold text-gray-900">{b.batchNumber}</td>
+                            <td className="py-2.5 px-4">
+                              <div className="font-medium text-gray-800">{b.productName}</div>
+                              <div className="text-[10px] text-gray-400 font-mono">{b.sku}</div>
+                            </td>
+                            <td className="py-2.5 px-4 text-gray-700 font-mono">
+                              <span className="px-1.5 py-0.5 rounded bg-gray-100 border border-border">
+                                {b.locationZone}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4 text-gray-800">{b.expiryDate}</td>
+                            <td className="py-2.5 px-4">
+                              {b.daysToExpiry <= 30 ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                                  {b.daysToExpiry} days (Expiring Soon)
+                                </span>
+                              ) : (
+                                <span className="text-gray-700">{b.daysToExpiry} days</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-4 font-bold text-gray-900">{b.quantityOnHand} units</td>
+                            <td className="py-2.5 px-4 text-right">
+                              <button
+                                onClick={() => {
+                                  setSelectedBatchForMove(b);
+                                  setTargetZoneForMove(b.locationZone);
+                                  setIsMoveZoneOpen(true);
+                                }}
+                                className="px-2.5 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium inline-flex items-center gap-1"
+                              >
+                                <ArrowRightLeft className="w-3 h-3" />
+                                <span>Relocate Rack</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {fefoBatches.length > visibleInventoryCount && (
+                    <div className="flex flex-wrap items-center justify-center gap-3 p-3 text-xs text-muted-foreground">
+                      <span>Showing {visibleInventoryCount} of {fefoBatches.length} batches</span>
+                      <button onClick={() => setVisibleInventoryCount((count) => count + 24)} className="min-h-11 rounded-md border border-border bg-surface px-4 font-semibold text-foreground transition-colors hover:bg-surface-muted">Show more batches</button>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* SUBVIEW 3: ACTIVE 15-MINUTE HOLDS */}
               {inventoryViewMode === 'holds' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
-                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                <div className="bg-surface border border-border rounded-lg overflow-hidden ">
+                  <div className="px-4 py-3 bg-gray-50 border-b border-border flex items-center justify-between">
                     <span className="font-semibold text-gray-900 text-xs">
                       Active Customer Checkout Reservations (15-Minute Expiry)
                     </span>
@@ -2410,82 +2416,86 @@ export const App: React.FC = () => {
                     </button>
                   </div>
 
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50/50 text-gray-500 border-b border-gray-200">
-                      <tr>
-                        <th className="py-2.5 px-4">Hold ID</th>
-                        <th className="py-2.5 px-4">Order Reference</th>
-                        <th className="py-2.5 px-4">Product Name</th>
-                        <th className="py-2.5 px-4">Quantity Held</th>
-                        <th className="py-2.5 px-4">Expires At</th>
-                        <th className="py-2.5 px-4 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {reservations.map((r) => (
-                        <tr key={r.id} className="hover:bg-gray-50/60">
-                          <td className="py-2.5 px-4 font-mono font-semibold text-gray-900">{r.id}</td>
-                          <td className="py-2.5 px-4 text-gray-700">{r.orderNumber} ({r.channel})</td>
-                          <td className="py-2.5 px-4 font-medium text-gray-800">{r.productName}</td>
-                          <td className="py-2.5 px-4 font-bold text-amber-700">{r.quantity} units</td>
-                          <td className="py-2.5 px-4 text-gray-500">{r.expiresAt}</td>
-                          <td className="py-2.5 px-4 text-right">
-                            <button
-                              onClick={() => handleForceReleaseReservation(r.id)}
-                              className="px-2.5 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-medium"
-                            >
-                              Release Hold
-                            </button>
-                          </td>
+                  <div role="region" aria-label="Stock reservations" tabIndex={0} className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[760px] text-left text-xs">
+                      <thead className="bg-gray-50/50 text-gray-500 border-b border-border">
+                        <tr>
+                          <th className="py-2.5 px-4">Hold ID</th>
+                          <th className="py-2.5 px-4">Order Reference</th>
+                          <th className="py-2.5 px-4">Product Name</th>
+                          <th className="py-2.5 px-4">Quantity Held</th>
+                          <th className="py-2.5 px-4">Expires At</th>
+                          <th className="py-2.5 px-4 text-right">Action</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {reservations.map((r) => (
+                          <tr key={r.id} className="hover:bg-gray-50/60">
+                            <td className="py-2.5 px-4 font-mono font-semibold text-gray-900">{r.id}</td>
+                            <td className="py-2.5 px-4 text-gray-700">{r.orderNumber} ({r.channel})</td>
+                            <td className="py-2.5 px-4 font-medium text-gray-800">{r.productName}</td>
+                            <td className="py-2.5 px-4 font-bold text-amber-700">{r.quantity} units</td>
+                            <td className="py-2.5 px-4 text-gray-500">{r.expiresAt}</td>
+                            <td className="py-2.5 px-4 text-right">
+                              <button
+                                onClick={() => handleForceReleaseReservation(r.id)}
+                                className="px-2.5 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-medium"
+                              >
+                                Release Hold
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
               {/* SUBVIEW 4: STOCK MOVEMENT AUDIT LEDGER */}
               {inventoryViewMode === 'ledger' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
-                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                <div className="bg-surface border border-border rounded-lg overflow-hidden ">
+                  <div className="px-4 py-3 bg-gray-50 border-b border-border">
                     <span className="font-semibold text-gray-900 text-xs">
                       Immutable Stock Movement Audit Ledger
                     </span>
                   </div>
 
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50/50 text-gray-500 border-b border-gray-200">
-                      <tr>
-                        <th className="py-2.5 px-4">Timestamp</th>
-                        <th className="py-2.5 px-4">Product / SKU</th>
-                        <th className="py-2.5 px-4">Adjustment Delta</th>
-                        <th className="py-2.5 px-4">Stock After</th>
-                        <th className="py-2.5 px-4">Reason</th>
-                        <th className="py-2.5 px-4">Location</th>
-                        <th className="py-2.5 px-4">Staff / Source</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {stockMovements.map((m) => (
-                        <tr key={m.id} className="hover:bg-gray-50/60">
-                          <td className="py-2.5 px-4 text-gray-500">{m.timestamp}</td>
-                          <td className="py-2.5 px-4">
-                            <div className="font-medium text-gray-900">{m.productName}</div>
-                            <div className="text-[10px] text-gray-400 font-mono">{m.sku}</div>
-                          </td>
-                          <td className="py-2.5 px-4 font-bold">
-                            <span className={m.delta > 0 ? 'text-emerald-700' : m.delta < 0 ? 'text-rose-700' : 'text-gray-600'}>
-                              {m.delta > 0 ? `+${m.delta}` : m.delta}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-4 font-semibold text-gray-800">{m.balanceAfter}</td>
-                          <td className="py-2.5 px-4 text-gray-700">{m.reason}</td>
-                          <td className="py-2.5 px-4 text-gray-500">{m.locationZone}</td>
-                          <td className="py-2.5 px-4 text-gray-500">{m.actor}</td>
+                  <div role="region" aria-label="Stock movement ledger" tabIndex={0} className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[760px] text-left text-xs">
+                      <thead className="bg-gray-50/50 text-gray-500 border-b border-border">
+                        <tr>
+                          <th className="py-2.5 px-4">Timestamp</th>
+                          <th className="py-2.5 px-4">Product / SKU</th>
+                          <th className="py-2.5 px-4">Adjustment Delta</th>
+                          <th className="py-2.5 px-4">Stock After</th>
+                          <th className="py-2.5 px-4">Reason</th>
+                          <th className="py-2.5 px-4">Location</th>
+                          <th className="py-2.5 px-4">Staff / Source</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {stockMovements.map((m) => (
+                          <tr key={m.id} className="hover:bg-gray-50/60">
+                            <td className="py-2.5 px-4 text-gray-500">{m.timestamp}</td>
+                            <td className="py-2.5 px-4">
+                              <div className="font-medium text-gray-900">{m.productName}</div>
+                              <div className="text-[10px] text-gray-400 font-mono">{m.sku}</div>
+                            </td>
+                            <td className="py-2.5 px-4 font-bold">
+                              <span className={m.delta > 0 ? 'text-emerald-700' : m.delta < 0 ? 'text-rose-700' : 'text-gray-600'}>
+                                {m.delta > 0 ? `+${m.delta}` : m.delta}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4 font-semibold text-gray-800">{m.balanceAfter}</td>
+                            <td className="py-2.5 px-4 text-gray-700">{m.reason}</td>
+                            <td className="py-2.5 px-4 text-gray-500">{m.locationZone}</td>
+                            <td className="py-2.5 px-4 text-gray-500">{m.actor}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -2524,7 +2534,7 @@ export const App: React.FC = () => {
                       className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                         catalogCategoryFilter === 'ALL'
                           ? 'bg-primary text-white font-semibold '
-                          : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                          : 'bg-white border border-border text-gray-600 hover:bg-gray-50'
                       }`}
                     >
                       All
@@ -2536,7 +2546,7 @@ export const App: React.FC = () => {
                         className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                           catalogCategoryFilter === c.id
                             ? 'bg-primary text-white font-semibold '
-                            : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                            : 'bg-white border border-border text-gray-600 hover:bg-gray-50'
                         }`}
                       >
                         {c.name}
@@ -2551,7 +2561,7 @@ export const App: React.FC = () => {
 
                 {/* 3-Column Grid of Product Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {catalogVariants.map((item) => {
+                  {catalogVariants.slice(0, visibleCatalogCount).map((item) => {
                     const available = Math.max(0, item.stock - item.reserved);
                     const discountPercent =
                       item.mrp && item.mrp > item.price
@@ -2561,11 +2571,11 @@ export const App: React.FC = () => {
                     return (
                       <div
                         key={item.sku}
-                        className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all"
+                        className="bg-surface border border-border rounded-lg p-4 sm:p-5 flex flex-col justify-between hover:border-gray-300 transition-all"
                       >
                         {/* Top: Image, Details, Status Pill */}
                         <div className="flex items-start gap-3.5">
-                          <div className="w-16 h-20 rounded-md bg-gray-50/80 border border-gray-100 flex items-center justify-center overflow-hidden shrink-0 p-1">
+                          <div className="w-16 h-20 rounded-md bg-gray-50/80 border border-border flex items-center justify-center overflow-hidden shrink-0 p-1">
                             <img
                               src={item.imageUrl}
                               alt={item.productName}
@@ -2605,7 +2615,7 @@ export const App: React.FC = () => {
                         </div>
 
                         {/* Middle: Price, MRP, Discount, Stock status */}
-                        <div className="mt-3.5 pt-3 border-t border-gray-100">
+                        <div className="mt-3.5 pt-3 border-t border-border">
                           <div className="flex items-baseline gap-2">
                             <span className="text-base sm:text-lg font-bold text-gray-900">
                               ₹{item.price.toFixed(2)}
@@ -2636,7 +2646,7 @@ export const App: React.FC = () => {
                         </div>
 
                         {/* Bottom: Deactivate & Variant & Price & Shelf Zone */}
-                        <div className="mt-3.5 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-600">
+                        <div className="mt-3.5 pt-3 border-t border-border flex flex-wrap gap-3 items-center justify-between text-xs text-gray-600">
                           <div className="flex items-center gap-2.5">
                             <span className="hover:text-gray-900 font-medium cursor-pointer transition-colors">
                               Deactivate
@@ -2663,7 +2673,7 @@ export const App: React.FC = () => {
                             </span>
                           </div>
 
-                          <span className="font-mono text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-100">
+                          <span className="font-mono text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-border">
                             {item.zone}
                           </span>
                         </div>
@@ -2671,6 +2681,12 @@ export const App: React.FC = () => {
                     );
                   })}
                 </div>
+                  {catalogVariants.length > visibleCatalogCount && (
+                    <div className="flex flex-wrap items-center justify-center gap-3 p-3 text-xs text-muted-foreground">
+                      <span>Showing {visibleCatalogCount} of {catalogVariants.length} listings</span>
+                      <button onClick={() => setVisibleCatalogCount((count) => count + 24)} className="min-h-11 rounded-md border border-border bg-surface px-4 font-semibold text-foreground transition-colors hover:bg-surface-muted">Show more listings</button>
+                    </div>
+                  )}
               </div>
             </div>
           )}
@@ -2691,9 +2707,9 @@ export const App: React.FC = () => {
                 {orders.map((ord) => (
                   <div
                     key={ord.id}
-                    className="bg-white border border-gray-200 rounded-xl p-5"
+                    className="bg-surface border border-border rounded-lg p-5"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-gray-100">
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-border">
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-sm text-gray-900">{ord.orderNumber}</span>
                         <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 uppercase tracking-wide">
@@ -2804,7 +2820,7 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Sub-view switcher: Barcode Scanner vs Pick Table */}
-                <div className="flex items-center gap-1.5 p-1 bg-gray-100 rounded-lg border border-gray-200 shrink-0">
+                <div className="flex items-center gap-1.5 p-1 bg-gray-100 rounded-lg border border-border shrink-0">
                   <button
                     type="button"
                     onClick={() => setFulfillmentViewMode('scanner')}
@@ -2866,78 +2882,80 @@ export const App: React.FC = () => {
 
               {/* View 2: Classic Pick Tasks Table */}
               {fulfillmentViewMode === 'table' && (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold">
-                      <tr>
-                        <th className="py-3 px-4">Order #</th>
-                        <th className="py-3 px-4">Item to Pick</th>
-                        <th className="py-3 px-4">Shelf Zone</th>
-                        <th className="py-3 px-4">Qty</th>
-                        <th className="py-3 px-4">Status & Substitutions</th>
-                        <th className="py-3 px-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {pickTasks.map((t) => (
-                        <tr key={t.id} className="hover:bg-gray-50/60 transition-colors">
-                          <td className="py-3.5 px-4 font-semibold text-gray-900">{t.orderNumber}</td>
-                          <td className="py-3.5 px-4">
-                            <div className="font-medium text-gray-900">{t.productName}</div>
-                            <div className="text-[11px] text-gray-400 font-mono mt-0.5">{t.sku}</div>
-                          </td>
-                          <td className="py-3.5 px-4 text-gray-600 font-mono">{t.zone}</td>
-                          <td className="py-3.5 px-4 font-bold text-gray-900">{t.quantity}</td>
-                          <td className="py-3.5 px-4">
-                            {t.status === 'SUBSTITUTION_PROPOSED' ? (
-                              <div>
-                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/80 uppercase tracking-wide">
-                                  Substitute Proposed: {t.substituteName}
-                                </span>
-                                <div className="text-[10px] text-gray-400 mt-1">Awaiting customer approval</div>
-                              </div>
-                            ) : (
-                              <span
-                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                                  t.status === 'PICKED'
-                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
-                                    : 'bg-gray-100 text-gray-700'
-                                }`}
-                              >
-                                {t.status}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            {t.status === 'PENDING' && (
-                              <button
-                                onClick={() => handleMarkTaskPicked(t.id)}
-                                className="px-3 py-1 rounded-md bg-primary hover:bg-primary-hover text-white text-[11px] font-medium transition-colors cursor-pointer"
-                              >
-                                Mark Picked
-                              </button>
-                            )}
-                            {t.status === 'SUBSTITUTION_PROPOSED' && t.substituteDecision === 'PENDING' && (
-                              <div className="flex items-center justify-end gap-2">
-                                <button
-                                  onClick={() => handleRespondSubstitution(t.id, 'ACCEPTED')}
-                                  className="px-3 py-1 rounded-md bg-primary hover:bg-primary-hover text-white text-[11px] font-medium transition-colors"
-                                >
-                                  Accept
-                                </button>
-                                <button
-                                  onClick={() => handleRespondSubstitution(t.id, 'REJECTED')}
-                                  className="px-3 py-1 rounded-md bg-white border border-gray-200 text-rose-700 hover:bg-rose-50 text-[11px] font-medium transition-colors"
-                                >
-                                  Reject
-                                </button>
-                              </div>
-                            )}
-                          </td>
+                <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                  <div role="region" aria-label="Catalog products" tabIndex={0} className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[760px] text-left text-xs">
+                      <thead className="bg-gray-50/80 text-gray-500 border-b border-border text-[11px] font-semibold">
+                        <tr>
+                          <th className="py-3 px-4">Order #</th>
+                          <th className="py-3 px-4">Item to Pick</th>
+                          <th className="py-3 px-4">Shelf Zone</th>
+                          <th className="py-3 px-4">Qty</th>
+                          <th className="py-3 px-4">Status & Substitutions</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {pickTasks.map((t) => (
+                          <tr key={t.id} className="hover:bg-gray-50/60 transition-colors">
+                            <td className="py-3.5 px-4 font-semibold text-gray-900">{t.orderNumber}</td>
+                            <td className="py-3.5 px-4">
+                              <div className="font-medium text-gray-900">{t.productName}</div>
+                              <div className="text-[11px] text-gray-400 font-mono mt-0.5">{t.sku}</div>
+                            </td>
+                            <td className="py-3.5 px-4 text-gray-600 font-mono">{t.zone}</td>
+                            <td className="py-3.5 px-4 font-bold text-gray-900">{t.quantity}</td>
+                            <td className="py-3.5 px-4">
+                              {t.status === 'SUBSTITUTION_PROPOSED' ? (
+                                <div>
+                                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/80 uppercase tracking-wide">
+                                    Substitute Proposed: {t.substituteName}
+                                  </span>
+                                  <div className="text-[10px] text-gray-400 mt-1">Awaiting customer approval</div>
+                                </div>
+                              ) : (
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                                    t.status === 'PICKED'
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                                      : 'bg-gray-100 text-gray-700'
+                                  }`}
+                                >
+                                  {t.status}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              {t.status === 'PENDING' && (
+                                <button
+                                  onClick={() => handleMarkTaskPicked(t.id)}
+                                  className="px-3 py-1 rounded-md bg-primary hover:bg-primary-hover text-white text-[11px] font-medium transition-colors cursor-pointer"
+                                >
+                                  Mark Picked
+                                </button>
+                              )}
+                              {t.status === 'SUBSTITUTION_PROPOSED' && t.substituteDecision === 'PENDING' && (
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => handleRespondSubstitution(t.id, 'ACCEPTED')}
+                                    className="px-3 py-1 rounded-md bg-primary hover:bg-primary-hover text-white text-[11px] font-medium transition-colors"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => handleRespondSubstitution(t.id, 'REJECTED')}
+                                    className="px-3 py-1 rounded-md bg-white border border-border text-rose-700 hover:bg-rose-50 text-[11px] font-medium transition-colors"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -2955,51 +2973,53 @@ export const App: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50/80 text-gray-500 border-b border-gray-200 text-[11px] font-semibold">
-                    <tr>
-                      <th className="py-3 px-4">Invoice Number</th>
-                      <th className="py-3 px-4">Order Number</th>
-                      <th className="py-3 px-4">Customer Name</th>
-                      <th className="py-3 px-4">Taxable Amount</th>
-                      <th className="py-3 px-4">GST (CGST + SGST)</th>
-                      <th className="py-3 px-4">Grand Total</th>
-                      <th className="py-3 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {invoices.map((inv) => (
-                      <tr key={inv.invoiceId} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="py-3.5 px-4 font-mono font-semibold text-gray-900">{inv.invoiceNumber}</td>
-                        <td className="py-3.5 px-4 text-gray-600">{inv.orderNumber}</td>
-                        <td className="py-3.5 px-4 text-gray-800 font-medium">{inv.customerName}</td>
-                        <td className="py-3.5 px-4 text-gray-800">₹{inv.taxableAmount.toFixed(2)}</td>
-                        <td className="py-3.5 px-4 text-primary font-semibold">₹{inv.totalTax.toFixed(2)}</td>
-                        <td className="py-3.5 px-4 font-bold text-gray-900">₹{inv.grandTotal.toFixed(2)}</td>
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleSendWhatsAppInvoice(inv)}
-                              className="px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
-                              title="Send Tax Invoice to Customer via WhatsApp"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5 text-primary" />
-                              <span>WhatsApp</span>
-                            </button>
-                            <button
-                              onClick={() => window.print()}
-                              className="px-2.5 py-1.5 rounded-md bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
-                            >
-                              <Printer className="w-3.5 h-3.5 text-gray-500" />
-                              <span>Print</span>
-                            </button>
-                          </div>
-                        </td>
+              <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                <div role="region" aria-label="Product categories" tabIndex={0} className="max-w-full overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[760px] text-left text-xs">
+                    <thead className="bg-gray-50/80 text-gray-500 border-b border-border text-[11px] font-semibold">
+                      <tr>
+                        <th className="py-3 px-4">Invoice Number</th>
+                        <th className="py-3 px-4">Order Number</th>
+                        <th className="py-3 px-4">Customer Name</th>
+                        <th className="py-3 px-4">Taxable Amount</th>
+                        <th className="py-3 px-4">GST (CGST + SGST)</th>
+                        <th className="py-3 px-4">Grand Total</th>
+                        <th className="py-3 px-4 text-right">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {invoices.map((inv) => (
+                        <tr key={inv.invoiceId} className="hover:bg-gray-50/60 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-semibold text-gray-900">{inv.invoiceNumber}</td>
+                          <td className="py-3.5 px-4 text-gray-600">{inv.orderNumber}</td>
+                          <td className="py-3.5 px-4 text-gray-800 font-medium">{inv.customerName}</td>
+                          <td className="py-3.5 px-4 text-gray-800">₹{inv.taxableAmount.toFixed(2)}</td>
+                          <td className="py-3.5 px-4 text-primary font-semibold">₹{inv.totalTax.toFixed(2)}</td>
+                          <td className="py-3.5 px-4 font-bold text-gray-900">₹{inv.grandTotal.toFixed(2)}</td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleSendWhatsAppInvoice(inv)}
+                                className="px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Send Tax Invoice to Customer via WhatsApp"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                                <span>WhatsApp</span>
+                              </button>
+                              <button
+                                onClick={() => window.print()}
+                                className="px-2.5 py-1.5 rounded-md bg-white border border-border hover:bg-gray-50 text-gray-700 text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Printer className="w-3.5 h-3.5 text-gray-500" />
+                                <span>Print</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -3074,7 +3094,7 @@ export const App: React.FC = () => {
 
                       <div className="flex items-center gap-2.5 flex-wrap">
                         {/* Forecast Window Toggle */}
-                        <div className="flex items-center bg-gray-100 p-0.5 rounded-md border border-gray-200">
+                        <div className="flex items-center bg-gray-100 p-0.5 rounded-md border border-border">
                           <span className="text-[11px] font-medium text-gray-500 px-2">Window:</span>
                           {[7, 14, 30].map((days) => (
                             <button
@@ -3098,7 +3118,7 @@ export const App: React.FC = () => {
                         <button
                           onClick={handleTrainModel}
                           disabled={isTrainingModel}
-                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white border border-border text-gray-700 hover:bg-gray-50 text-xs font-medium transition-colors disabled:opacity-50"
                           title="Analyze recent store sales to identify purchase velocity and weekend shopping surges"
                         >
                           <RefreshCw className={`w-3.5 h-3.5 text-primary ${isTrainingModel ? 'animate-spin' : ''}`} />
@@ -3147,7 +3167,7 @@ export const App: React.FC = () => {
                         className={`bg-white p-4 rounded-xl border cursor-pointer transition-all ${
                           forecastRiskFilter === 'ALL'
                             ? 'border-primary ring-2 ring-primary/20 '
-                            : 'border-gray-200 hover:border-gray-300 '
+                            : 'border-border hover:border-gray-300 '
                         }`}
                       >
                         <div className="text-[11px] text-gray-500 font-medium">Products Monitored</div>
@@ -3208,7 +3228,7 @@ export const App: React.FC = () => {
                     </div>
 
                     {/* Search & Filter Toolbar */}
-                    <div className="bg-white p-3.5 rounded-xl border border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="bg-white p-3.5 rounded-xl border border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div className="relative flex-1 max-w-md">
                         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
@@ -3219,7 +3239,7 @@ export const App: React.FC = () => {
                             setForecastPage(1);
                           }}
                           placeholder="Search product name, pack size, or SKU..."
-                          className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                          className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                         />
                       </div>
 
@@ -3250,8 +3270,8 @@ export const App: React.FC = () => {
                     </div>
 
                     {/* Clean Shopkeeper Table with Defined Min-Width & No Clipping */}
-                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden ">
-                      <div className="overflow-x-auto w-full">
+                    <div className="bg-surface border border-border rounded-lg overflow-hidden ">
+                      <div role="region" aria-label="Demand forecasts" tabIndex={0} className="w-full overflow-x-auto overscroll-x-contain">
                         <table className="w-full text-left text-xs min-w-[1020px] divide-y divide-gray-200">
                           <thead className="bg-gray-50/90 text-gray-500 text-[11px] font-semibold select-none">
                             <tr>
@@ -3368,7 +3388,7 @@ export const App: React.FC = () => {
                                     ) : (
                                       <button
                                         onClick={() => handleQuickReorder(f.sku, 20)}
-                                        className="px-3.5 py-1.5 rounded-md bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                                        className="px-3.5 py-1.5 rounded-md bg-white border border-border hover:bg-gray-50 text-gray-700 text-xs font-medium transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
                                         title="Record incoming stock receipt for this item"
                                       >
                                         <PackagePlus className="w-3.5 h-3.5 text-gray-500 shrink-0" />
@@ -3385,7 +3405,7 @@ export const App: React.FC = () => {
 
                       {/* Pagination Footer */}
                       {sortedAndFiltered.length > 0 && (
-                        <div className="flex items-center justify-between px-4 py-3 bg-gray-50/80 border-t border-gray-200 text-xs text-gray-600">
+                        <div className="flex items-center justify-between px-4 py-3 bg-gray-50/80 border-t border-border text-xs text-gray-600">
                           <div>
                             Showing{' '}
                             <span className="font-semibold text-gray-900">
@@ -3403,7 +3423,7 @@ export const App: React.FC = () => {
                             <button
                               onClick={() => setForecastPage((p) => Math.max(1, p - 1))}
                               disabled={currentPage === 1}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs transition-colors"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs transition-colors"
                             >
                               <ChevronLeft className="w-3.5 h-3.5" />
                               <span>Previous</span>
@@ -3416,7 +3436,7 @@ export const App: React.FC = () => {
                             <button
                               onClick={() => setForecastPage((p) => Math.min(totalPages, p + 1))}
                               disabled={currentPage === totalPages}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs transition-colors"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs transition-colors"
                             >
                               <span>Next</span>
                               <ChevronRight className="w-3.5 h-3.5" />
@@ -3443,7 +3463,7 @@ export const App: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden flex flex-col h-[540px]">
+              <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col h-[540px]">
                 {/* Chat Header */}
                 <div className="bg-primary text-white px-5 py-3.5 flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -3469,7 +3489,7 @@ export const App: React.FC = () => {
                         className={`max-w-[80%] rounded-xl px-4 py-2.5 text-xs whitespace-pre-wrap ${
                           m.sender === 'user'
                             ? 'bg-[#dcf8c6] text-gray-900 rounded-tr-none'
-                            : 'bg-white text-gray-900 rounded-tl-none border border-gray-200/70'
+                            : 'bg-white text-gray-900 rounded-tl-none border border-border/70'
                         }`}
                       >
                         {m.text}
@@ -3495,7 +3515,7 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Voice & Photo OCR Note Simulation Quick Chips */}
-                <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center gap-1.5">
+                <div className="px-3.5 py-2 bg-gray-50 border-t border-border flex flex-wrap items-center gap-1.5">
                   <span className="text-[10px] font-semibold text-gray-400 mr-1 flex items-center gap-1">
                     <Mic className="w-3 h-3 text-amber-500" />
                     <span>Voice Presets:</span>
@@ -3535,14 +3555,14 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Chat Input */}
-                <div className="p-3 bg-white border-t border-gray-200 flex items-center gap-2">
+                <div className="p-3 bg-white border-t border-border flex items-center gap-2">
                   <input
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
                     placeholder="Type message, click Voice Note, or upload/send Shopping List Photo..."
-                    className="flex-1 px-3.5 py-2 border border-gray-200 rounded-md text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="flex-1 px-3.5 py-2 border border-border rounded-md text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                   <button
                     type="button"
@@ -3607,8 +3627,8 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       {isAddProductOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-200">
-            <div className="p-5 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-border">
+            <div className="p-5 border-b border-border flex items-center justify-between sticky top-0 bg-white z-10">
               <div>
                 <h2 className="font-bold text-base text-gray-900">Add New Product to Category</h2>
                 <p className="text-gray-500 text-xs">Create product variant with category, storage type, and pricing.</p>
@@ -3636,7 +3656,7 @@ export const App: React.FC = () => {
                       setFormBrand(cat.sampleBrands[0] || 'Brand');
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  className="w-full px-3 py-2 border border-border rounded-md text-xs bg-white text-gray-800 font-medium focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 >
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -3655,7 +3675,7 @@ export const App: React.FC = () => {
                     placeholder="e.g. Dettol Original Germ Protection Bathing Soap"
                     value={formProductName}
                     onChange={(e) => setFormProductName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -3666,7 +3686,7 @@ export const App: React.FC = () => {
                     required
                     value={formBrand}
                     onChange={(e) => setFormBrand(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -3677,7 +3697,7 @@ export const App: React.FC = () => {
                   <select
                     value={formStorageType}
                     onChange={(e) => setFormStorageType(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   >
                     <option value="ambient">Ambient (Room Temp)</option>
                     <option value="chilled">Chilled (Cold Storage 2-8°C)</option>
@@ -3692,7 +3712,7 @@ export const App: React.FC = () => {
                     min={1}
                     value={formShelfLifeDays}
                     onChange={(e) => setFormShelfLifeDays(parseInt(e.target.value, 10))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -3724,7 +3744,7 @@ export const App: React.FC = () => {
               {/* ========================================================= */}
               {/* PRODUCT VARIANTS & INDIVIDUAL PRICING SECTION */}
               {/* ========================================================= */}
-              <div className="pt-2 border-t border-gray-100">
+              <div className="pt-2 border-t border-border">
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h4 className="text-xs font-semibold text-gray-900">
@@ -3748,7 +3768,7 @@ export const App: React.FC = () => {
                   {formVariants.map((v, idx) => (
                     <div
                       key={v.id}
-                      className="p-3.5 rounded-lg border border-gray-200 bg-gray-50/60 hover:bg-gray-50 transition-colors relative"
+                      className="p-3.5 rounded-lg border border-border bg-gray-50/60 hover:bg-gray-50 transition-colors relative"
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
@@ -3780,7 +3800,7 @@ export const App: React.FC = () => {
                             placeholder="e.g. 500 g Pack, 1 kg Bag, 100 ml"
                             value={v.variantName}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'variantName', e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3794,7 +3814,7 @@ export const App: React.FC = () => {
                             placeholder="e.g. TATA-SALT-500G"
                             value={v.sku}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'sku', e.target.value.toUpperCase())}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-mono uppercase focus:ring-1 focus:ring-primary focus:border-primary"
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded text-xs font-mono uppercase focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3807,7 +3827,7 @@ export const App: React.FC = () => {
                             placeholder="Optional barcode"
                             value={v.barcode}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'barcode', e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-mono focus:ring-1 focus:ring-primary focus:border-primary"
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded text-xs font-mono focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
                       </div>
@@ -3823,7 +3843,7 @@ export const App: React.FC = () => {
                             required
                             value={v.price}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'price', parseFloat(e.target.value) || 0)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs font-semibold text-emerald-800 focus:ring-1 focus:ring-primary focus:border-primary"
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded text-xs font-semibold text-emerald-800 focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3837,7 +3857,7 @@ export const App: React.FC = () => {
                             required
                             value={v.mrp}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'mrp', parseFloat(e.target.value) || 0)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3851,7 +3871,7 @@ export const App: React.FC = () => {
                             required
                             value={v.initialStock}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'initialStock', parseInt(e.target.value, 10) || 0)}
-                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                           />
                         </div>
 
@@ -3866,12 +3886,12 @@ export const App: React.FC = () => {
                               step="any"
                               value={v.weight}
                               onChange={(e) => handleUpdateVariantRow(v.id, 'weight', parseFloat(e.target.value) || 1)}
-                              className="w-16 px-2 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
+                              className="w-16 px-2 py-1.5 bg-white border border-border rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                             />
                             <select
                               value={v.unit}
                               onChange={(e) => handleUpdateVariantRow(v.id, 'unit', e.target.value)}
-                              className="flex-1 px-1 py-1.5 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
+                              className="flex-1 px-1 py-1.5 bg-white border border-border rounded text-xs focus:ring-1 focus:ring-primary focus:border-primary"
                             >
                               <option value="g">g</option>
                               <option value="kg">kg</option>
@@ -3896,7 +3916,7 @@ export const App: React.FC = () => {
                     value={formZone}
                     onChange={(e) => setFormZone(e.target.value)}
                     placeholder="e.g. Zone A-01-R1"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -3907,12 +3927,12 @@ export const App: React.FC = () => {
                     placeholder="https://..."
                     value={formImageUrl}
                     onChange={(e) => setFormImageUrl(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
+              <div className="pt-4 border-t border-border flex items-center justify-between">
                 <div className="text-xs text-gray-500">
                   Total variants to be created: <strong className="text-gray-900">{formVariants.length}</strong>
                 </div>
@@ -3920,7 +3940,7 @@ export const App: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setIsAddProductOpen(false)}
-                    className="px-4 py-2 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium text-xs transition-colors"
+                    className="px-4 py-2 rounded-md border border-border bg-white hover:bg-gray-50 text-gray-700 font-medium text-xs transition-colors"
                   >
                     Cancel
                   </button>
@@ -3942,8 +3962,8 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       {isAddVariantModalOpen && selectedProductForVariant && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl border border-gray-200">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl border border-border">
+            <div className="flex items-center justify-between pb-4 border-b border-border">
               <div>
                 <h3 className="font-bold text-base text-gray-900">
                   Add New Variant to Product
@@ -3972,7 +3992,7 @@ export const App: React.FC = () => {
                     placeholder="e.g. 2 kg Bag, 1 Litre"
                     value={newVarName}
                     onChange={(e) => setNewVarName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
@@ -3986,7 +4006,7 @@ export const App: React.FC = () => {
                     placeholder="e.g. SUGAR-2KG"
                     value={newVarSku}
                     onChange={(e) => setNewVarSku(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs uppercase font-mono focus:ring-1 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs uppercase font-mono focus:ring-1 focus:ring-primary"
                   />
                 </div>
               </div>
@@ -4000,7 +4020,7 @@ export const App: React.FC = () => {
                     required
                     value={newVarPrice}
                     onChange={(e) => setNewVarPrice(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-bold text-emerald-800 focus:ring-1 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs font-bold text-emerald-800 focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
@@ -4012,7 +4032,7 @@ export const App: React.FC = () => {
                     required
                     value={newVarMrp}
                     onChange={(e) => setNewVarMrp(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:ring-1 focus:ring-primary"
                   />
                 </div>
 
@@ -4024,7 +4044,7 @@ export const App: React.FC = () => {
                     required
                     value={newVarStock}
                     onChange={(e) => setNewVarStock(parseInt(e.target.value, 10) || 0)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:ring-1 focus:ring-primary"
                   />
                 </div>
               </div>
@@ -4038,7 +4058,7 @@ export const App: React.FC = () => {
                     step="any"
                     value={newVarWeight}
                     onChange={(e) => setNewVarWeight(parseFloat(e.target.value) || 1)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs"
                   />
                 </div>
 
@@ -4047,7 +4067,7 @@ export const App: React.FC = () => {
                   <select
                     value={newVarUnit}
                     onChange={(e) => setNewVarUnit(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs bg-white"
                   >
                     <option value="g">g (Grams)</option>
                     <option value="kg">kg (Kilograms)</option>
@@ -4066,15 +4086,15 @@ export const App: React.FC = () => {
                   placeholder="e.g. 8901030099991"
                   value={newVarBarcode}
                   onChange={(e) => setNewVarBarcode(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono"
+                  className="w-full px-3 py-2 border border-border rounded-md text-xs font-mono"
                 />
               </div>
 
-              <div className="pt-4 border-t border-gray-200 flex items-center justify-end gap-2.5">
+              <div className="pt-4 border-t border-border flex items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setIsAddVariantModalOpen(false)}
-                  className="px-4 py-2 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium text-xs transition-colors"
+                  className="px-4 py-2 rounded-md border border-border bg-white hover:bg-gray-50 text-gray-700 font-medium text-xs transition-colors"
                 >
                   Cancel
                 </button>
@@ -4095,8 +4115,8 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       {isReceiveStockOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl border border-gray-200">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl border border-border">
+            <div className="flex items-center justify-between pb-4 border-b border-border">
               <div>
                 <h3 className="font-bold text-base text-gray-900">Receive Stock (Goods Receipt)</h3>
                 <p className="text-gray-500 text-xs">Record incoming supplier batch and add to on-hand inventory.</p>
@@ -4112,7 +4132,7 @@ export const App: React.FC = () => {
                 <select
                   value={receiveSku}
                   onChange={(e) => setReceiveSku(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  className="w-full px-3 py-2 border border-border rounded-md text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 >
                   {variants.map((v) => (
                     <option key={v.sku} value={v.sku}>
@@ -4130,7 +4150,7 @@ export const App: React.FC = () => {
                     required
                     value={receiveBatchNumber}
                     onChange={(e) => setReceiveBatchNumber(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -4141,7 +4161,7 @@ export const App: React.FC = () => {
                     min={1}
                     value={receiveQuantity}
                     onChange={(e) => setReceiveQuantity(parseInt(e.target.value, 10))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -4154,7 +4174,7 @@ export const App: React.FC = () => {
                     required
                     value={receiveExpiryDate}
                     onChange={(e) => setReceiveExpiryDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
 
@@ -4165,7 +4185,7 @@ export const App: React.FC = () => {
                     required
                     value={receiveLocationZone}
                     onChange={(e) => setReceiveLocationZone(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full px-3 py-2 border border-border rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -4176,15 +4196,15 @@ export const App: React.FC = () => {
                   type="text"
                   value={receivePoRef}
                   onChange={(e) => setReceivePoRef(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  className="w-full px-3 py-2 border border-border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 />
               </div>
 
-              <div className="pt-3 border-t border-gray-200 flex justify-end gap-2.5">
+              <div className="pt-3 border-t border-border flex justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setIsReceiveStockOpen(false)}
-                  className="px-4 py-2 border border-gray-200 bg-white rounded-md text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 border border-border bg-white rounded-md text-xs text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
@@ -4205,7 +4225,7 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       {isMoveZoneOpen && selectedBatchForMove && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-gray-200">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-border">
             <h3 className="font-bold text-base text-gray-900">Relocate Batch Rack</h3>
             <p className="text-gray-500 text-xs mt-1">
               Transfer <strong>{selectedBatchForMove.batchNumber}</strong> to a new shelf.
@@ -4217,14 +4237,14 @@ export const App: React.FC = () => {
                 type="text"
                 value={targetZoneForMove}
                 onChange={(e) => setTargetZoneForMove(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                className="w-full px-3 py-2 border border-border rounded-md text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
               />
             </div>
 
             <div className="mt-5 flex justify-end gap-2.5">
               <button
                 onClick={() => setIsMoveZoneOpen(false)}
-                className="px-3.5 py-1.5 border border-gray-200 bg-white rounded-md text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+                className="px-3.5 py-1.5 border border-border bg-white rounded-md text-xs text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
