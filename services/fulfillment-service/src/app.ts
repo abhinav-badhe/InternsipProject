@@ -977,11 +977,11 @@ export function createApp(): express.Application {
         FROM orders o
         LEFT JOIN order_items oi ON o.id = oi.order_id
         LEFT JOIN delivery_assignments da ON o.id = da.order_id AND da.status != 'CANCELLED'
-        WHERE o.status IN ('CONFIRMED', 'PACKED', 'PICKING')
+        WHERE o.status IN ('CONFIRMED', 'PACKED', 'PICKING', 'AWAITING_PAYMENT')
           AND da.id IS NULL
         GROUP BY o.id, o.order_number, o.status, o.grand_total, o.delivery_address, o.created_at
-        ORDER BY o.created_at ASC
-        LIMIT 25
+        ORDER BY o.created_at DESC
+        LIMIT 100
       `);
       res.status(200).json(okResponse(result.rows, correlationId));
     } catch (err) {

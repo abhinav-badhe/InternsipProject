@@ -994,17 +994,42 @@ export const RiderFleetView: React.FC = () => {
                             <span className="font-bold text-xs text-blue-700">ETA: {del.etaMinutes || 10}m</span>
                           </div>
 
-                          <div className="bg-gray-50 p-2.5 rounded-lg text-xs space-y-1">
-                            <div className="font-semibold text-gray-800">
-                              Recipient: {del.deliveryAddress?.recipientName || 'Verified Customer'}
+                          <div className="bg-gray-50 p-2.5 rounded-lg text-xs space-y-1.5">
+                            <div className="font-semibold text-gray-800 flex items-center justify-between">
+                              <span>Recipient: {del.deliveryAddress?.recipientName || 'Verified Customer'}</span>
+                              {del.deliveryAddress?.label && (
+                                <span className="text-[10px] bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded font-mono font-bold">
+                                  {del.deliveryAddress.label}
+                                </span>
+                              )}
                             </div>
-                            <div className="text-gray-500 flex items-center gap-1">
-                              <Phone className="w-3 h-3" />
-                              {del.deliveryAddress?.phone || '+91 98765 43210'}
+                            <div className="text-gray-600 flex items-center gap-1.5">
+                              <Phone className="w-3 h-3 text-gray-400" />
+                              <a href={`tel:${del.deliveryAddress?.phone || '+919876543210'}`} className="text-blue-600 hover:underline font-mono">
+                                {del.deliveryAddress?.phone || '+91 98765 43210'}
+                              </a>
                             </div>
-                            <div className="text-gray-500 flex items-start gap-1">
-                              <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
-                              <span>{del.deliveryAddress?.street || '12th Main Road, HSR Layout'}</span>
+                            <div className="text-gray-600 flex items-start gap-1">
+                              <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                              <span>
+                                {del.deliveryAddress?.addressLine1 || del.deliveryAddress?.street || '12th Main Road, HSR Layout'},{' '}
+                                {del.deliveryAddress?.city || 'Bengaluru'}
+                              </span>
+                            </div>
+
+                            {/* Google Maps Turn-by-Turn GPS Navigation Link */}
+                            <div className="pt-1">
+                              <a
+                                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                                  `${del.deliveryAddress?.addressLine1 || del.deliveryAddress?.street || '12th Main Road, HSR Layout'}, ${del.deliveryAddress?.city || 'Bengaluru'}`
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[#007a55] rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5"
+                              >
+                                <Navigation className="w-3 h-3 text-[#007a55]" />
+                                <span>Navigate to Customer (Google Maps Turn-by-Turn)</span>
+                              </a>
                             </div>
                           </div>
 

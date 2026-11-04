@@ -248,27 +248,49 @@ export function createApp(): express.Application {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_customer_addresses_cid ON customer_addresses(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_customer_addresses_phone ON customer_addresses(phone);
+
+    -- Seed sample Home & Work addresses for demo customer / user
+    INSERT INTO customer_addresses (id, customer_id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default)
+    VALUES 
+      ('c0000000-0000-0000-0000-000000000001', 'cust_default', 'HOME', 'Abhinav Badhe', '+917774094369', 'Flat 402, Green Glen', '12th Main Road, HSR Sector 2', 'Near BDA Complex', 'Bengaluru', '560102', TRUE),
+      ('c0000000-0000-0000-0000-000000000002', 'cust_default', 'WORK', 'Abhinav Badhe', '+917774094369', 'Tower B, 4th Floor', 'Embassy TechVillage, Outer Ring Road', 'Near Bellandur Flyover', 'Bengaluru', '560103', FALSE)
+    ON CONFLICT (id) DO NOTHING;
   `).catch((err: any) => {
     logger.warn('customer_addresses table init notice', { error: err.message });
   });
 
-  // 1. Get Saved Addresses for Customer
+  // 1. Get Saved Addresses for Customer (by customerId or phone)
   app.get('/api/v1/auth/customer/addresses', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
       let customerId = (req.query.customerId as string) || '';
+      let phone = (req.query.phone as string) || '';
 
       // Extract from Authorization header if present
       if (!customerId && req.headers.authorization) {
         const token = req.headers.authorization.replace(/^Bearer\s+/i, '');
         const claims = authService.verifyToken(token);
-        if (claims?.userId) {
-          customerId = claims.userId;
-        }
+        if (claims?.userId) customerId = claims.userId;
+        if (claims?.phone) phone = claims.phone;
       }
 
-      if (!customerId) {
-        customerId = 'cust_default';
+      const conditions: string[] = [];
+      const params: any[] = [];
+
+      if (customerId && customerId !== 'cust_default') {
+        params.push(customerId);
+        conditions.push(`customer_id = $${params.length}`);
+      }
+      if (phone) {
+        const digits = phone.replace(/[^0-9]/g, '').slice(-10);
+        if (digits) {
+          params.push(`%${digits}%`);
+          conditions.push(`REPLACE(phone, ' ', '') ILIKE $${params.length}`);
+        }
+      }
+      if (conditions.length === 0) {
+        conditions.push(`customer_id IN ('cust_default', 'cust_demo') OR phone ILIKE '%7774094369%'`);
       }
 
       const result = await Database.query(`
@@ -286,9 +308,10 @@ export function createApp(): express.Application {
           is_default as "isDefault",
           created_at as "createdAt"
         FROM customer_addresses
-        WHERE customer_id = $1
+        WHERE ${conditions.join(' OR ')}
         ORDER BY is_default DESC, created_at DESC
-      `, [customerId]);
+        LIMIT 10
+      `, params);
 
       res.status(200).json(okResponse(result.rows, correlationId));
     } catch (err) {

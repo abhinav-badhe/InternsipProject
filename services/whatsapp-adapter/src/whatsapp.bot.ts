@@ -359,6 +359,157 @@ export class WhatsAppBot {
       }
     }
 
+    // 5c. ADDRESS SELECTION STAGES (Customer choosing address or providing new address for order)
+    if (session.stage === ('SELECTING_ADDRESS' as any)) {
+      let pending = ((session as any).pendingAddresses || []) as any[];
+
+      // If pendingAddresses not cached in memory, restore them on the fly from customer_addresses
+      if (!pending || pending.length === 0) {
+        const cleanPhone = msg.fromPhoneNumber.replace(/[^0-9]/g, '').slice(-10);
+        const addrRes = await Database.query(`
+          SELECT id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default
+          FROM customer_addresses
+          WHERE REPLACE(phone, ' ', '') ILIKE $1 
+             OR customer_id ILIKE $2
+             OR customer_id IN ('cust_default', 'cust_demo')
+          ORDER BY is_default DESC, created_at DESC
+          LIMIT 3
+        `, [`%${cleanPhone}%`, `%${cleanPhone}%`]);
+        pending = addrRes.rows;
+        (session as any).pendingAddresses = pending;
+      }
+
+      let chosenAddr: any = null;
+
+      if (text.startsWith('addr_pick_')) {
+        const idx = parseInt(text.replace('addr_pick_', ''), 10);
+        if (!isNaN(idx) && pending[idx]) {
+          chosenAddr = pending[idx];
+        }
+      } else if (
+        (text === '1' || lowerText === '1' || lowerText === '1.' || lowerText === 'first' || lowerText === 'one' || lowerText.startsWith('1 ')) &&
+        pending[0]
+      ) {
+        chosenAddr = pending[0];
+      } else if (
+        (text === '2' || lowerText === '2' || lowerText === '2.' || lowerText === 'second' || lowerText === 'two' || lowerText.startsWith('2 ')) &&
+        pending[1]
+      ) {
+        chosenAddr = pending[1];
+      } else if (
+        (text === '3' || lowerText === '3' || lowerText === '3.' || lowerText === 'third' || lowerText === 'three' || lowerText.startsWith('3 ')) &&
+        pending[2]
+      ) {
+        chosenAddr = pending[2];
+      } else if (lowerText.includes('home')) {
+        chosenAddr = pending.find((a) => String(a.label || '').toUpperCase() === 'HOME') || pending[0];
+      } else if (lowerText.includes('work') || lowerText.includes('office')) {
+        chosenAddr = pending.find((a) => String(a.label || '').toUpperCase() === 'WORK') || pending[0];
+      } else if (text === 'addr_new' || lowerText.includes('new') || lowerText.includes('other')) {
+        session.stage = 'AWAITING_ADDRESS' as any;
+        (session as any).pendingAddresses = undefined;
+        await this.saveSession(session);
+        return this.sendAndLog(session.sessionId, {
+          toPhoneNumber: msg.fromPhoneNumber,
+          type: 'text',
+          bodyText: `📍 *Enter New Delivery Address:*\n\nPlease reply with your doorstep address (e.g. *Flat 201, Lakeview Apts, HSR Sector 1, Bengaluru 560102*) or tap 📎 *Location* in WhatsApp to share your live pin!`,
+        });
+      }
+
+      if (chosenAddr) {
+        (session as any).selectedAddress = chosenAddr;
+        (session as any).pendingAddresses = undefined;
+        (session as any).pendingVariantChoices = undefined;
+        (session as any).pendingAlternatives = undefined;
+        (session as any).pendingBrandSelection = undefined;
+        session.stage = 'IDLE';
+        await this.saveSession(session);
+
+        return this.executeOrderCheckout(session, msg, chosenAddr);
+      }
+
+      // If text doesn't match an address option, re-prompt the customer nicely
+      let addrPrompt = `📍 *Select Delivery Address for Your Order:*\n\n`;
+      const buttons: any[] = [];
+      pending.forEach((addr: any, idx: number) => {
+        const icon = addr.label === 'WORK' ? '🏢' : '🏠';
+        const line = `${addr.flat_number ? addr.flat_number + ', ' : ''}${addr.street}, ${addr.city} - ${addr.pincode}`;
+        addrPrompt += `${idx + 1}️⃣ ${icon} *${addr.label}:* ${line}\n\n`;
+        buttons.push({
+          id: `addr_pick_${idx}`,
+          title: `${icon} Deliver to ${addr.label}`,
+        });
+      });
+      if (buttons.length < 3) {
+        buttons.push({ id: 'addr_new', title: '➕ Other / New Pin' });
+      }
+      addrPrompt += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      addrPrompt += `👉 Tap a button or reply with the number (*1* or *2*) to confirm where to deliver:`;
+
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'buttons',
+        bodyText: addrPrompt,
+        options: buttons,
+      });
+    }
+
+    if (session.stage === ('AWAITING_ADDRESS' as any)) {
+      let newAddr: any = null;
+
+      if (text.startsWith('__LOCATION_PIN__:')) {
+        const parts = text.replace('__LOCATION_PIN__:', '').split(',');
+        const lat = parseFloat(parts[0]);
+        const lng = parseFloat(parts[1]);
+        newAddr = {
+          label: 'HOME',
+          recipient_name: 'Valued Customer',
+          phone: msg.fromPhoneNumber,
+          flat_number: 'Doorstep',
+          street: 'HSR Layout Sector 2 (GPS Pinned)',
+          city: 'Bengaluru',
+          pincode: '560102',
+          lat,
+          lng,
+        };
+      } else if (text.trim().length >= 4) {
+        newAddr = {
+          label: 'HOME',
+          recipient_name: 'Valued Customer',
+          phone: msg.fromPhoneNumber,
+          flat_number: '',
+          street: text.trim(),
+          city: 'Bengaluru',
+          pincode: '560102',
+          lat: 12.914142,
+          lng: 77.641151,
+        };
+      }
+
+      if (newAddr) {
+        // Save to PostgreSQL customer_addresses for future orders
+        await Database.query(`
+          INSERT INTO customer_addresses (customer_id, label, recipient_name, phone, flat_number, street, city, pincode, is_default)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+        `, [
+          session.customerId || `phone_${msg.fromPhoneNumber.replace(/[^0-9]/g, '')}`,
+          newAddr.label,
+          newAddr.recipient_name,
+          newAddr.phone,
+          newAddr.flat_number,
+          newAddr.street,
+          newAddr.city,
+          newAddr.pincode,
+        ]).catch(() => {});
+
+        (session as any).selectedAddress = newAddr;
+        session.stage = 'IDLE';
+        await this.saveSession(session);
+
+        return this.executeOrderCheckout(session, msg, newAddr);
+      }
+    }
+
     // 5d. INTERACTIVE VARIANT / PACK SIZE SELECTION
     const pendingVariantChoices = (session as any).pendingVariantChoices;
     if (pendingVariantChoices && pendingVariantChoices.length > 0) {
@@ -917,7 +1068,7 @@ export class WhatsAppBot {
       });
     }
 
-    // 11. CHECKOUT / CONFIRMATION
+    // 11. CHECKOUT / CONFIRMATION & ADDRESS SELECTION
     if (
       lowerText === 'confirm' ||
       lowerText === 'checkout' ||
@@ -937,69 +1088,93 @@ export class WhatsAppBot {
         });
       }
 
-      // Calculate server-side price quote
-      const quote = await this.pricingClient.calculateQuote(
-        session.cartItems.map((i) => ({ sku: i.sku, quantity: i.quantity }))
-      );
+      // Check if user already confirmed an address in this session
+      if ((session as any).selectedAddress) {
+        return this.executeOrderCheckout(session, msg, (session as any).selectedAddress);
+      }
 
-      // Trigger order checkout saga with idempotency key
-      const idempotencyKey = `whatsapp-order-${msg.messageId}`;
-      const order = await this.orderClient.checkout({
-        idempotencyKey,
-        channel: 'WHATSAPP',
-        customerId: session.customerId || `phone_${msg.fromPhoneNumber.replace(/[^0-9]/g, '')}`,
-        deliveryAddress: {
-          recipientName: 'WhatsApp Customer',
+      // Query saved addresses for this customer / phone from PostgreSQL
+      const cleanPhone = msg.fromPhoneNumber.replace(/[^0-9]/g, '').slice(-10);
+      const addrRes = await Database.query(`
+        SELECT id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default
+        FROM customer_addresses
+        WHERE REPLACE(phone, ' ', '') ILIKE $1 
+           OR customer_id ILIKE $2
+           OR customer_id IN ('cust_default', 'cust_demo')
+        ORDER BY is_default DESC, created_at DESC
+        LIMIT 3
+      `, [`%${cleanPhone}%`, `%${cleanPhone}%`]);
+
+      const savedAddresses = addrRes.rows;
+
+      if (savedAddresses.length > 0) {
+        session.stage = 'SELECTING_ADDRESS' as any;
+        (session as any).pendingAddresses = savedAddresses;
+        delete (session as any).pendingVariantChoices;
+        delete (session as any).pendingAlternatives;
+        delete (session as any).pendingBrandSelection;
+        delete (session as any).pendingDisambiguation;
+        await this.saveSession(session);
+
+        let addrPrompt = `📍 *Select Delivery Address for Your Order:*\n\n`;
+        const buttons: any[] = [];
+
+        savedAddresses.forEach((addr: any, idx: number) => {
+          const icon = addr.label === 'WORK' ? '🏢' : '🏠';
+          const line = `${addr.flat_number ? addr.flat_number + ', ' : ''}${addr.street}, ${addr.city} - ${addr.pincode}`;
+          addrPrompt += `${idx + 1}️⃣ ${icon} *${addr.label}:* ${line}\n\n`;
+          buttons.push({
+            id: `addr_pick_${idx}`,
+            title: `${icon} Deliver to ${addr.label}`,
+          });
+        });
+
+        if (buttons.length < 3) {
+          buttons.push({ id: 'addr_new', title: '➕ Other / New Pin' });
+        }
+
+        addrPrompt += `━━━━━━━━━━━━━━━━━━━━━\n`;
+        addrPrompt += `👉 Tap a button below or reply with the number (*1* or *2*) to confirm where to deliver:`;
+
+        return this.sendAndLog(session.sessionId, {
+          toPhoneNumber: msg.fromPhoneNumber,
+          type: 'buttons',
+          bodyText: addrPrompt,
+          options: buttons,
+        });
+      }
+
+      // If no saved addresses exist, check if user shared a GPS pin
+      if ((session as any).deliveryLocation) {
+        const pinLoc = (session as any).deliveryLocation;
+        const addrObj = {
+          label: 'HOME',
+          recipient_name: 'Valued Customer',
           phone: msg.fromPhoneNumber,
-          addressLine1: 'Customer WhatsApp Address',
-          city: 'Bangalore',
-          postalCode: '560001',
-        },
-        items: session.cartItems.map((i) => ({ sku: i.sku, quantity: i.quantity })),
-      });
+          flat_number: 'Doorstep',
+          street: pinLoc.address || 'HSR Layout Sector 2 (GPS Pinned)',
+          city: 'Bengaluru',
+          pincode: '560102',
+          lat: pinLoc.lat,
+          lng: pinLoc.lng,
+        };
+        (session as any).selectedAddress = addrObj;
+        return this.executeOrderCheckout(session, msg, addrObj);
+      }
 
-      // Clear cart on successful order creation & track order in session
-      session.cartItems = [];
-      session.stage = 'IDLE';
-      (session as any).pendingAlternatives = undefined;
-      (session as any).lastOrderNumber = order.orderNumber;
-      (session as any).lastOrderTotal = quote.grandTotal;
-      (session as any).lastOrderId = order.orderId;
+      // No saved address and no pin: ask user for address
+      session.stage = 'AWAITING_ADDRESS' as any;
       await this.saveSession(session);
 
-      const upiLink = `upi://pay?pa=freshcart@icici&pn=FreshCart&am=${quote.grandTotal.toFixed(2)}&tn=Order-${order.orderNumber}&cu=INR`;
-      const webPayUrl = `http://localhost:5173/?payOrder=${order.orderNumber}&amt=${quote.grandTotal.toFixed(2)}`;
-
-      let orderSuccessText = `🎉 *Order Placed Successfully!*\n\n`;
-      orderSuccessText += `🆔 *Order Number:* *${order.orderNumber}*\n`;
-      orderSuccessText += `📦 *Order Breakdown (${order.items.length} items):*\n`;
-      order.items.forEach((item: any, idx: number) => {
-        orderSuccessText += `${idx + 1}. *${item.productName}* (${item.variantName}) × ${item.quantity} — ₹${Number(item.netAmount).toFixed(2)}\n`;
-      });
-      orderSuccessText += `\n*Subtotal:* ₹${quote.subtotal.toFixed(2)}\n`;
-      orderSuccessText += `*GST Tax:* ₹${quote.taxTotal.toFixed(2)}\n`;
-      orderSuccessText += `*Delivery Fee:* ₹${quote.deliveryFee.toFixed(2)}\n`;
-      orderSuccessText += `*Grand Total Payable:* *₹${quote.grandTotal.toFixed(2)}*\n\n`;
-      orderSuccessText += `━━━━━━━━━━━━━━━━━━━━━\n`;
-      orderSuccessText += `💳 *CHOOSE YOUR PAYMENT OPTION:*\n\n`;
-      orderSuccessText += `1️⃣ *Instant UPI (Google Pay / PhonePe / Paytm / BHIM):*\n${upiLink}\n\n`;
-      orderSuccessText += `2️⃣ *Web Card / NetBanking Checkout:*\n${webPayUrl}\n\n`;
-      orderSuccessText += `3️⃣ *Or Reply Directly in Chat:*\n`;
-      orderSuccessText += `• Reply *'PAY'* for UPI link & details\n`;
-      orderSuccessText += `• Reply *'COD'* for Cash on Delivery\n`;
-      orderSuccessText += `• Reply *'PAID'* after completing payment\n`;
-      orderSuccessText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
-      orderSuccessText += `🛵 *Status:* Stock successfully reserved! Choose your payment option above.`;
+      let promptText = `📍 *Where Should We Deliver Your Groceries?*\n\n`;
+      promptText += `Please reply with your delivery address:\n`;
+      promptText += `*(e.g., Flat 402, 12th Main Road, HSR Sector 2, Bengaluru - 560102)*\n\n`;
+      promptText += `Or tap 📎 *Attachment > Location* to share your current doorstep location pin! 🛵`;
 
       return this.sendAndLog(session.sessionId, {
         toPhoneNumber: msg.fromPhoneNumber,
-        type: 'buttons',
-        bodyText: orderSuccessText,
-        options: [
-          { id: `pay_upi_${order.orderNumber}`, title: `💳 Pay ₹${Math.round(quote.grandTotal)} UPI` },
-          { id: `pay_cod_${order.orderNumber}`, title: `💵 Cash on Delivery` },
-          { id: `pay_paid_${order.orderNumber}`, title: `✅ I Have Paid` },
-        ],
+        type: 'text',
+        bodyText: promptText,
       });
     }
 
@@ -1320,6 +1495,89 @@ export class WhatsAppBot {
     }
 
     return [];
+  }
+
+  /**
+   * Finalizes order placement with the customer's explicitly chosen delivery address
+   */
+  private async executeOrderCheckout(
+    session: WhatsAppSessionState,
+    msg: WhatsAppInboundMessage,
+    address: any
+  ): Promise<WhatsAppOutboundMessage> {
+    const quote = await this.pricingClient.calculateQuote(
+      session.cartItems.map((i) => ({ sku: i.sku, quantity: i.quantity }))
+    );
+
+    const fullStreet = `${address.flat_number || address.flatNumber ? (address.flat_number || address.flatNumber) + ', ' : ''}${address.street || address.addressLine1 || 'HSR Sector 2'}`;
+    const lat = Number(address.lat) || (String(address.label || '').toUpperCase() === 'WORK' ? 12.927923 : 12.914142);
+    const lng = Number(address.lng) || (String(address.label || '').toUpperCase() === 'WORK' ? 77.683058 : 77.641151);
+
+    const idempotencyKey = `whatsapp-order-${msg.messageId || Date.now()}`;
+    const order = await this.orderClient.checkout({
+      idempotencyKey,
+      channel: 'WHATSAPP',
+      customerId: session.customerId || `phone_${msg.fromPhoneNumber.replace(/[^0-9]/g, '')}`,
+      deliveryAddress: {
+        recipientName: address.recipient_name || address.recipientName || 'WhatsApp Customer',
+        phone: address.phone || msg.fromPhoneNumber,
+        addressLine1: fullStreet,
+        city: address.city || 'Bengaluru',
+        postalCode: address.pincode || address.postalCode || '560102',
+        label: address.label || 'HOME',
+        lat,
+        lng,
+        slot: 'Standard Express (10-15 Mins)',
+      } as any,
+      items: session.cartItems.map((i) => ({ sku: i.sku, quantity: i.quantity })),
+    });
+
+    // Clear cart on successful order creation & track order in session
+    session.cartItems = [];
+    session.stage = 'IDLE';
+    (session as any).pendingAlternatives = undefined;
+    (session as any).pendingAddresses = undefined;
+    (session as any).selectedAddress = undefined;
+    (session as any).lastOrderNumber = order.orderNumber;
+    (session as any).lastOrderTotal = quote.grandTotal;
+    (session as any).lastOrderId = order.orderId;
+    await this.saveSession(session);
+
+    const upiLink = `upi://pay?pa=freshcart@icici&pn=FreshCart&am=${quote.grandTotal.toFixed(2)}&tn=Order-${order.orderNumber}&cu=INR`;
+    const webPayUrl = `http://localhost:5173/?payOrder=${order.orderNumber}&amt=${quote.grandTotal.toFixed(2)}`;
+
+    let orderSuccessText = `🎉 *Order Placed Successfully!*\n\n`;
+    orderSuccessText += `🆔 *Order Number:* *${order.orderNumber}*\n`;
+    orderSuccessText += `📍 *Delivering to:* ${fullStreet}, ${address.city || 'Bengaluru'}\n\n`;
+    orderSuccessText += `📦 *Order Breakdown (${order.items.length} items):*\n`;
+    order.items.forEach((item: any, idx: number) => {
+      orderSuccessText += `${idx + 1}. *${item.productName}* (${item.variantName}) × ${item.quantity} — ₹${Number(item.netAmount).toFixed(2)}\n`;
+    });
+    orderSuccessText += `\n*Subtotal:* ₹${quote.subtotal.toFixed(2)}\n`;
+    orderSuccessText += `*GST Tax:* ₹${quote.taxTotal.toFixed(2)}\n`;
+    orderSuccessText += `*Delivery Fee:* ₹${quote.deliveryFee.toFixed(2)}\n`;
+    orderSuccessText += `*Grand Total Payable:* *₹${quote.grandTotal.toFixed(2)}*\n\n`;
+    orderSuccessText += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    orderSuccessText += `💳 *CHOOSE YOUR PAYMENT OPTION:*\n\n`;
+    orderSuccessText += `1️⃣ *Instant UPI (Google Pay / PhonePe / Paytm / BHIM):*\n${upiLink}\n\n`;
+    orderSuccessText += `2️⃣ *Web Card / NetBanking Checkout:*\n${webPayUrl}\n\n`;
+    orderSuccessText += `3️⃣ *Or Reply Directly in Chat:*\n`;
+    orderSuccessText += `• Reply *'PAY'* for UPI link & details\n`;
+    orderSuccessText += `• Reply *'COD'* for Cash on Delivery\n`;
+    orderSuccessText += `• Reply *'PAID'* after completing payment\n`;
+    orderSuccessText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    orderSuccessText += `🛵 *Status:* Order sent to Dark Store #04! Pick & pack in progress.`;
+
+    return this.sendAndLog(session.sessionId, {
+      toPhoneNumber: msg.fromPhoneNumber,
+      type: 'buttons',
+      bodyText: orderSuccessText,
+      options: [
+        { id: `pay_upi_${order.orderNumber}`, title: `💳 Pay ₹${Math.round(quote.grandTotal)} UPI` },
+        { id: `pay_cod_${order.orderNumber}`, title: `💵 Cash on Delivery` },
+        { id: `pay_paid_${order.orderNumber}`, title: `✅ I Have Paid` },
+      ],
+    });
   }
 
   /**
@@ -1942,12 +2200,18 @@ export class WhatsAppBot {
   }
 
   public async getSession(phone: string): Promise<WhatsAppSessionState | null> {
+    const cleanDigits = phone.replace(/[^0-9]/g, '');
+    const clean10 = cleanDigits.slice(-10);
+    const withPlus = `+${cleanDigits}`;
+    const withoutPlus = cleanDigits;
+
     const res = await Database.query(
       `SELECT session_id, phone_number, customer_id, stage, cart_items, pending_context, last_message_at
        FROM whatsapp_sessions
-       WHERE phone_number = $1
+       WHERE phone_number = $1 OR phone_number = $2 OR phone_number = $3 OR phone_number LIKE $4
+       ORDER BY last_message_at DESC
        LIMIT 1`,
-      [phone]
+      [phone, withPlus, withoutPlus, `%${clean10}%`]
     );
 
     if (res.rows.length === 0) return null;
@@ -2013,6 +2277,15 @@ export class WhatsAppBot {
     }
     if ((session as any).pendingVariantChoices) {
       pendingContext.pendingVariantChoices = (session as any).pendingVariantChoices;
+    }
+    if ((session as any).pendingAddresses) {
+      pendingContext.pendingAddresses = (session as any).pendingAddresses;
+    }
+    if ((session as any).selectedAddress) {
+      pendingContext.selectedAddress = (session as any).selectedAddress;
+    }
+    if ((session as any).deliveryLocation) {
+      pendingContext.deliveryLocation = (session as any).deliveryLocation;
     }
     if ((session as any).lastOrderNumber) {
       pendingContext.lastOrderNumber = (session as any).lastOrderNumber;

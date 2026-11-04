@@ -41,3 +41,4 @@ VALUES
     ('a0000000-0000-0000-0000-000000000002', 'Vikram Singh', '+91 98765 00113', 'vikram.rider@freshcart.in', 'OFFLINE', 'MOTORCYCLE', 'KA-01-AB-1299', 'DL-01-2021-44710', 'Dark Store #04 - HSR Sector 2', '1234', 4.85, 5, 450.00)
 ON CONFLICT (phone) DO UPDATE 
 SET updated_at = NOW();
+
