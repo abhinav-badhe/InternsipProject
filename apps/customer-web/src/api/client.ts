@@ -342,6 +342,8 @@ export interface CustomerSavedAddress {
   city: string;
   pincode: string;
   isDefault?: boolean;
+  lat?: number;
+  lng?: number;
 }
 
 export async function fetchCustomerAddresses(): Promise<CustomerSavedAddress[]> {
@@ -491,10 +493,13 @@ export async function executeRealCheckout(params: {
         recipientName: addr.recipientName,
         phone: addr.phone,
         street: `${addr.flatNumber ? `${addr.flatNumber}, ` : ''}${addr.street}${addr.landmark ? ` (Near ${addr.landmark})` : ''}`,
+        addressLine1: `${addr.flatNumber ? `${addr.flatNumber}, ` : ''}${addr.street}`,
         city: addr.city,
         pincode: addr.pincode,
         label: addr.label,
         slot: params.deliverySlot,
+        lat: addr.lat != null ? Number(addr.lat) : (addr.label === 'WORK' ? 12.927923 : 12.914142),
+        lng: addr.lng != null ? Number(addr.lng) : (addr.label === 'WORK' ? 77.683058 : 77.641151),
       },
       items: params.items,
       promoCode: params.couponCode,

@@ -250,12 +250,15 @@ export function createApp(): express.Application {
     CREATE INDEX IF NOT EXISTS idx_customer_addresses_cid ON customer_addresses(customer_id);
     CREATE INDEX IF NOT EXISTS idx_customer_addresses_phone ON customer_addresses(phone);
 
+    ALTER TABLE customer_addresses ADD COLUMN IF NOT EXISTS lat NUMERIC(10, 7);
+    ALTER TABLE customer_addresses ADD COLUMN IF NOT EXISTS lng NUMERIC(10, 7);
+
     -- Seed sample Home & Work addresses for demo customer / user
-    INSERT INTO customer_addresses (id, customer_id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default)
+    INSERT INTO customer_addresses (id, customer_id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default, lat, lng)
     VALUES 
-      ('c0000000-0000-0000-0000-000000000001', 'cust_default', 'HOME', 'Abhinav Badhe', '+917774094369', 'Flat 402, Green Glen', '12th Main Road, HSR Sector 2', 'Near BDA Complex', 'Bengaluru', '560102', TRUE),
-      ('c0000000-0000-0000-0000-000000000002', 'cust_default', 'WORK', 'Abhinav Badhe', '+917774094369', 'Tower B, 4th Floor', 'Embassy TechVillage, Outer Ring Road', 'Near Bellandur Flyover', 'Bengaluru', '560103', FALSE)
-    ON CONFLICT (id) DO NOTHING;
+      ('c0000000-0000-0000-0000-000000000001', 'cust_default', 'HOME', 'Abhinav Badhe', '+917774094369', 'Flat 402, Green Glen', '12th Main Road, HSR Sector 2', 'Near BDA Complex', 'Bengaluru', '560102', TRUE, 12.914142, 77.641151),
+      ('c0000000-0000-0000-0000-000000000002', 'cust_default', 'WORK', 'Abhinav Badhe', '+917774094369', 'Tower B, 4th Floor', 'Embassy TechVillage, Outer Ring Road', 'Near Bellandur Flyover', 'Bengaluru', '560103', FALSE, 12.927923, 77.683058)
+    ON CONFLICT (id) DO UPDATE SET lat = EXCLUDED.lat, lng = EXCLUDED.lng;
   `).catch((err: any) => {
     logger.warn('customer_addresses table init notice', { error: err.message });
   });
@@ -306,6 +309,8 @@ export function createApp(): express.Application {
           city,
           pincode,
           is_default as "isDefault",
+          lat,
+          lng,
           created_at as "createdAt"
         FROM customer_addresses
         WHERE ${conditions.join(' OR ')}
@@ -334,6 +339,8 @@ export function createApp(): express.Application {
         city,
         pincode,
         isDefault,
+        lat,
+        lng,
       } = req.body;
 
       if (req.headers.authorization) {
@@ -359,6 +366,10 @@ export function createApp(): express.Application {
           .json(errorResponse('VALIDATION_ERROR', 'recipientName, street, and pincode are required', correlationId));
       }
 
+      // Default lat/lng to standard Bengaluru coordinates if not provided
+      const parsedLat = lat != null && !isNaN(Number(lat)) ? Number(lat) : (label === 'WORK' ? 12.927923 : 12.914142);
+      const parsedLng = lng != null && !isNaN(Number(lng)) ? Number(lng) : (label === 'WORK' ? 77.683058 : 77.641151);
+
       // If marked default, unset existing default
       if (isDefault) {
         const clean10 = phone.replace(/[^0-9]/g, '').slice(-10);
@@ -371,8 +382,8 @@ export function createApp(): express.Application {
 
       const insertRes = await Database.query(`
         INSERT INTO customer_addresses (
-          customer_id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          customer_id, label, recipient_name, phone, flat_number, street, landmark, city, pincode, is_default, lat, lng
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING 
           id,
           customer_id as "customerId",
@@ -385,6 +396,8 @@ export function createApp(): express.Application {
           city,
           pincode,
           is_default as "isDefault",
+          lat,
+          lng,
           created_at as "createdAt"
       `, [
         customerId,
@@ -397,6 +410,8 @@ export function createApp(): express.Application {
         city || 'Bengaluru',
         pincode,
         Boolean(isDefault),
+        parsedLat,
+        parsedLng,
       ]);
 
       res.status(201).json(okResponse(insertRes.rows[0], correlationId));

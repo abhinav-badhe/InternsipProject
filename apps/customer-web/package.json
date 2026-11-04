@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@grocery/contracts": "workspace:*",
+    "@types/leaflet": "^1.9.22",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.16.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

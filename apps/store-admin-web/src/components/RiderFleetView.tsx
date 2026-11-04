@@ -1017,12 +1017,24 @@ export const RiderFleetView: React.FC = () => {
                               </span>
                             </div>
 
+                            {/* GPS Coordinates Badge if customer marked on map */}
+                            {del.deliveryAddress?.lat && del.deliveryAddress?.lng && (
+                              <div className="flex items-center gap-1.5 text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-md font-mono font-bold">
+                                <Navigation className="w-3 h-3 text-[#007a55]" />
+                                <span>GPS Pin: {Number(del.deliveryAddress.lat).toFixed(6)}, {Number(del.deliveryAddress.lng).toFixed(6)} (Exact Doorstep)</span>
+                              </div>
+                            )}
+
                             {/* Google Maps Turn-by-Turn GPS Navigation Link */}
                             <div className="pt-1">
                               <a
-                                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                                  `${del.deliveryAddress?.addressLine1 || del.deliveryAddress?.street || '12th Main Road, HSR Layout'}, ${del.deliveryAddress?.city || 'Bengaluru'}`
-                                )}`}
+                                href={`https://www.google.com/maps/dir/?api=1&destination=${
+                                  del.deliveryAddress?.lat && del.deliveryAddress?.lng
+                                    ? `${del.deliveryAddress.lat},${del.deliveryAddress.lng}`
+                                    : encodeURIComponent(
+                                        `${del.deliveryAddress?.addressLine1 || del.deliveryAddress?.street || '12th Main Road, HSR Layout'}, ${del.deliveryAddress?.city || 'Bengaluru'}`
+                                      )
+                                }`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[#007a55] rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5"
