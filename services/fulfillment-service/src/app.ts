@@ -1642,10 +1642,25 @@ export function createApp(): express.Application {
         ? authHeader.replace('Bearer dp_token_', '').split('_')[0]
         : null;
 
-      let rId = riderId || req.headers['x-user-id'] || tokenRiderId || req.body?.riderId || 'rider_express_01';
+      let rId = riderId || req.headers['x-user-id'] || tokenRiderId || req.body?.riderId;
       let rName = riderName || '';
       let rPhone = riderPhone || '';
       let riderUuid: string | null = null;
+
+      // Auto-assign to active ONLINE delivery partner if requested or no rider specified
+      if (req.body?.autoAssign || !rId || rId === 'auto') {
+        const availableRider = await client.query(
+          `SELECT id, full_name, phone FROM delivery_riders WHERE status = 'ONLINE' ORDER BY last_active_at ASC NULLS FIRST LIMIT 1`
+        );
+        if (availableRider.rows.length > 0) {
+          riderUuid = availableRider.rows[0].id;
+          rId = availableRider.rows[0].id;
+          rName = availableRider.rows[0].full_name;
+          rPhone = availableRider.rows[0].phone;
+        }
+      }
+
+      if (!rId) rId = 'rider_express_01';
 
       // Look up rider in delivery_riders if exists
       const rQuery = await client.query(

@@ -558,22 +558,15 @@ export function createApp(deps?: {
           }).catch(() => {});
         } catch {}
 
-        // 3. Auto-assign to an available online delivery partner for this time slot
+        // 3. Auto-assign to an available online delivery partner for this time slot via fulfillment-service
         let assignedPartner: any = null;
         try {
-          const onlineRiderRes = await Database.query(
-            `SELECT id, full_name, phone FROM delivery_riders WHERE status = 'ONLINE' ORDER BY last_active_at ASC NULLS FIRST LIMIT 1`
-          ).catch(() => ({ rows: [] }));
-          const candidate = onlineRiderRes.rows[0];
-
           const assignRes = await fetch(`${fulfillUrl}/api/v1/fulfillment/deliveries/assign`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               orderId: newOrder.id,
-              riderId: candidate?.id,
-              riderName: candidate?.full_name || 'Express Morning Delivery Partner',
-              riderPhone: candidate?.phone || '+91 98765 00112',
+              autoAssign: true,
               deliverySlot: scheduledSlot,
             }),
           });

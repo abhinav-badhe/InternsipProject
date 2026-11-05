@@ -103,7 +103,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       if (onSubscriptionChanged) onSubscriptionChanged();
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (err: any) {
-      alert(err.message || 'Failed to start subscription');
+      setErrorMessage(err.message || 'Failed to start subscription');
+      setTimeout(() => setErrorMessage(null), 5000);
     } finally {
       setIsCreating(false);
     }
@@ -111,6 +112,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   const handleTogglePause = async (sub: CustomerSubscription) => {
     try {
+      setErrorMessage(null);
       const nextStatus = sub.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
       setSubscriptions(prev => prev.map(s => s.id === sub.id ? { ...s, status: nextStatus } : s));
       if (sub.status === 'ACTIVE') {
@@ -121,7 +123,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       loadSubscriptions();
       if (onSubscriptionChanged) onSubscriptionChanged();
     } catch (err: any) {
-      alert(err.message || 'Status update failed');
+      setErrorMessage(err.message || 'Status update failed');
+      setTimeout(() => setErrorMessage(null), 5000);
       loadSubscriptions();
     }
   };
@@ -129,12 +132,16 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const handleCancel = async (id: string) => {
     if (!confirm('Are you sure you want to cancel this recurring delivery?')) return;
     try {
+      setErrorMessage(null);
       setSubscriptions(prev => prev.filter(s => s.id !== id && s.subscription_number !== id));
       await cancelSubscription(id);
+      setStatusMessage('✅ Subscription cancelled successfully.');
+      setTimeout(() => setStatusMessage(null), 4000);
       loadSubscriptions();
       if (onSubscriptionChanged) onSubscriptionChanged();
     } catch (err: any) {
-      alert(err.message || 'Cancellation failed');
+      setErrorMessage(err.message || 'Cancellation failed');
+      setTimeout(() => setErrorMessage(null), 5000);
       loadSubscriptions();
     }
   };
@@ -209,6 +216,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
           <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs font-medium text-emerald-800">
             <Check className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{statusMessage}</span>
+          </div>
+        )}
+
+        {/* Error Alert */}
+        {errorMessage && (
+          <div className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs font-medium text-rose-800">
+            <span className="shrink-0 font-bold">⚠️</span>
+            <span>{errorMessage}</span>
           </div>
         )}
 

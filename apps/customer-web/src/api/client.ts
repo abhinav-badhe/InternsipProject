@@ -28,7 +28,15 @@ export function isTokenExpired(token?: string | null): boolean {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return true;
-    const payload = JSON.parse(atob(parts[1]));
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const payload = JSON.parse(jsonPayload);
+    if (!payload.userId) return true;
     return typeof payload.exp === 'number' && payload.exp <= Math.floor(Date.now() / 1000) + 30;
   } catch {
     return true;
@@ -76,11 +84,12 @@ export async function customerAuthFetch(url: string, init?: RequestInit): Promis
     localStorage.removeItem('grocery_customer_session');
     try {
       session = await getCustomerSession();
-      headers.set('Authorization', `Bearer ${session.token}`);
+      const retryHeaders = new Headers(init?.headers || {});
+      retryHeaders.set('Authorization', `Bearer ${session.token}`);
       if (session.user?.userId) {
-        headers.set('x-user-id', session.user.userId);
+        retryHeaders.set('x-user-id', session.user.userId);
       }
-      res = await fetch(url, { ...init, headers });
+      res = await fetch(url, { ...init, headers: retryHeaders });
     } catch (renewErr) {
       console.warn('Silent token renewal failed', renewErr);
     }

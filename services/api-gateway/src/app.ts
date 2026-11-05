@@ -99,6 +99,7 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
       headers['x-user-id'] = req.user.userId;
       headers['x-user-role'] = req.user.role;
       if (req.user.email) headers['x-user-email'] = req.user.email;
+      if (req.user.phone) headers['x-user-phone'] = req.user.phone;
     }
 
     // Preserve Meta WhatsApp Cloud API cryptographic webhook signature
@@ -191,6 +192,24 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
 
   // 2. Global Rate Limiter
   app.use(rateLimiter.middleware);
+
+  // 2.1 Global Bearer Token Context Extraction
+  // Decodes valid JWTs across all routes and propagates standard x-user-* headers downstream
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7).trim();
+      const claims = authMiddleware.verifyToken(token);
+      if (claims) {
+        req.user = claims;
+        req.headers['x-user-id'] = claims.userId;
+        req.headers['x-user-role'] = claims.role;
+        if (claims.email) req.headers['x-user-email'] = claims.email;
+        if (claims.phone) req.headers['x-user-phone'] = claims.phone;
+      }
+    }
+    next();
+  });
 
   // 3. Health Checks
   app.get('/health/live', (_req: Request, res: Response) => {
