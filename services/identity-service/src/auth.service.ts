@@ -51,9 +51,9 @@ export class AuthService {
   }
 
   /**
-   * Generate signed JWT token
+   * Generate signed JWT token (Default: 30 days session validity)
    */
-  public signToken(payload: Omit<UserClaims, 'iat' | 'exp'>, expiresInSeconds = 3600): string {
+  public signToken(payload: Omit<UserClaims, 'iat' | 'exp'>, expiresInSeconds = 30 * 24 * 3600): string {
     const now = Math.floor(Date.now() / 1000);
     const claims: UserClaims = {
       ...payload,

@@ -23,16 +23,70 @@ export interface LoginResponse {
 
 let cachedSession: AuthSession | null = null;
 
+export function isTokenExpired(token?: string | null): boolean {
+  if (!token) return true;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const payload = JSON.parse(atob(parts[1]));
+    return typeof payload.exp === 'number' && payload.exp <= Math.floor(Date.now() / 1000) + 30;
+  } catch {
+    return true;
+  }
+}
+
 export function getStoredCustomerSession(): AuthSession | null {
-  if (cachedSession) return cachedSession;
+  if (cachedSession) {
+    if (isTokenExpired(cachedSession.token)) {
+      cachedSession = null;
+      localStorage.removeItem('grocery_customer_session');
+      return null;
+    }
+    return cachedSession;
+  }
   const stored = localStorage.getItem('grocery_customer_session');
   if (stored) {
     try {
-      cachedSession = JSON.parse(stored);
-      return cachedSession;
-    } catch {}
+      const parsed = JSON.parse(stored);
+      if (parsed?.token && !isTokenExpired(parsed.token)) {
+        cachedSession = parsed;
+        return cachedSession;
+      } else {
+        localStorage.removeItem('grocery_customer_session');
+      }
+    } catch {
+      localStorage.removeItem('grocery_customer_session');
+    }
   }
   return null;
+}
+
+export async function customerAuthFetch(url: string, init?: RequestInit): Promise<Response> {
+  let session = await getCustomerSession();
+  const headers = new Headers(init?.headers || {});
+  headers.set('Authorization', `Bearer ${session.token}`);
+  if (session.user?.userId) {
+    headers.set('x-user-id', session.user.userId);
+  }
+
+  let res = await fetch(url, { ...init, headers });
+
+  if (res.status === 401) {
+    cachedSession = null;
+    localStorage.removeItem('grocery_customer_session');
+    try {
+      session = await getCustomerSession();
+      headers.set('Authorization', `Bearer ${session.token}`);
+      if (session.user?.userId) {
+        headers.set('x-user-id', session.user.userId);
+      }
+      res = await fetch(url, { ...init, headers });
+    } catch (renewErr) {
+      console.warn('Silent token renewal failed', renewErr);
+    }
+  }
+
+  return res;
 }
 
 export async function signInCustomer(identifier: string, password: string): Promise<LoginResponse> {
@@ -822,13 +876,7 @@ export interface CustomerSubscription {
 
 export async function fetchCustomerSubscriptions(): Promise<CustomerSubscription[]> {
   try {
-    const session = await getCustomerSession();
-    const res = await fetch('/api/v1/orders/subscriptions', {
-      headers: {
-        Authorization: `Bearer ${session.token}`,
-        'x-user-id': session.user.userId,
-      },
-    });
+    const res = await customerAuthFetch('/api/v1/orders/subscriptions');
     const json = await res.json();
     if (json.success && json.data) {
       return json.data;
@@ -849,13 +897,10 @@ export async function createSubscription(params: {
   deliverySlot?: string;
   deliveryAddress?: any;
 }): Promise<CustomerSubscription> {
-  const session = await getCustomerSession();
-  const res = await fetch('/api/v1/orders/subscriptions', {
+  const res = await customerAuthFetch('/api/v1/orders/subscriptions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.token}`,
-      'x-user-id': session.user.userId,
     },
     body: JSON.stringify(params),
   });
@@ -867,35 +912,20 @@ export async function createSubscription(params: {
 }
 
 export async function pauseSubscription(id: string): Promise<void> {
-  const session = await getCustomerSession();
-  await fetch(`/api/v1/orders/subscriptions/${id}/pause`, {
+  await customerAuthFetch(`/api/v1/orders/subscriptions/${id}/pause`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.token}`,
-      'x-user-id': session.user.userId,
-    },
   });
 }
 
 export async function resumeSubscription(id: string): Promise<void> {
-  const session = await getCustomerSession();
-  await fetch(`/api/v1/orders/subscriptions/${id}/resume`, {
+  await customerAuthFetch(`/api/v1/orders/subscriptions/${id}/resume`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.token}`,
-      'x-user-id': session.user.userId,
-    },
   });
 }
 
 export async function cancelSubscription(id: string): Promise<void> {
-  const session = await getCustomerSession();
-  await fetch(`/api/v1/orders/subscriptions/${id}`, {
+  await customerAuthFetch(`/api/v1/orders/subscriptions/${id}`, {
     method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${session.token}`,
-      'x-user-id': session.user.userId,
-    },
   });
 }
 

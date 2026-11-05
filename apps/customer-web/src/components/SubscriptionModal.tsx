@@ -48,6 +48,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [frequency, setFrequency] = useState<'DAILY' | 'ALTERNATE_DAYS' | 'WEEKDAYS_ONLY' | 'WEEKLY'>('DAILY');
   const [quantity, setQuantity] = useState(1);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isExecutingBatch, setIsExecutingBatch] = useState(false);
 
   const handleRunBatchNow = async () => {
