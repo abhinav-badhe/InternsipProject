@@ -44,12 +44,9 @@ export class AudioTranscriptionService {
       }
     }
 
-    // 3. Fallback: Intelligent Grocery Voice Acoustic Resolver
-    // If audio buffer is provided without third-party credentials, inspect simulated or acoustic profile
-    logger.info('Processing audio voice note via Built-in Grocery Acoustic Engine');
-    
-    // Default high-probability voice order if raw buffer with no keys
-    return '2 Amul Butter 500g, 1 Britannia Bread';
+    // 3. Fallback: If no audio buffer, empty buffer, or no AI transcription credentials configured
+    logger.warn('Audio transcription failed or no AI credentials configured (OPENAI_API_KEY required)');
+    return '';
   }
 
   /**

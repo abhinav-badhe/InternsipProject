@@ -6,7 +6,8 @@ const logger = createLogger('workers:daemon');
 
 const connectionString =
   process.env.DATABASE_URL ||
-  'postgresql://postgres.valzvkrwugwppexzztfd:abhinav5511@aws-0-eu-north-1.pooler.supabase.com:6543/postgres';
+  process.env.SUPABASE_DATABASE_URL ||
+  'postgresql://postgres@127.0.0.1:5432/freshcart';
 
 const isRemote =
   connectionString.includes('supabase.co') ||
@@ -19,6 +20,21 @@ const pool = new Pool({
   max: 5,
   idleTimeoutMillis: 30000,
 });
+
+// Auto-bootstrap dead_letter_events table
+pool.query(`
+  CREATE TABLE IF NOT EXISTS dead_letter_events (
+    id VARCHAR(64) PRIMARY KEY,
+    original_event_id VARCHAR(64) NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    consumer_name VARCHAR(128) NOT NULL,
+    payload JSONB NOT NULL,
+    retry_attempts INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    failed_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_dlq_failed_at ON dead_letter_events(failed_at);
+`).catch(() => {});
 
 // In-process broker dispatcher (for local / render workers)
 const broker: MessageBrokerClient = {
@@ -63,8 +79,9 @@ async function runWorkerLoop() {
           .then(async (r) => {
             if (r.ok) {
               const resJson: any = await r.json();
-              if (resJson?.data?.releasedCount > 0) {
-                logger.info(`Cleaned up ${resJson.data.releasedCount} expired stock reservations`);
+              const released = resJson?.data?.cleanedCount ?? resJson?.data?.releasedCount ?? 0;
+              if (released > 0) {
+                logger.info(`Cleaned up ${released} expired stock reservations`);
               }
             }
           })

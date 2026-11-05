@@ -225,6 +225,18 @@ export function createApp(): express.Application {
 
   // Ensure Purchase Order & Supplier schema exists
   Database.query(`
+    CREATE TABLE IF NOT EXISTS outbox_events (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      aggregate_type VARCHAR(64) NOT NULL,
+      aggregate_id VARCHAR(128) NOT NULL,
+      event_type VARCHAR(128) NOT NULL,
+      payload JSONB NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      processed_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_outbox_status ON outbox_events(status);
+
     CREATE TABLE IF NOT EXISTS suppliers (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       code VARCHAR(32) NOT NULL UNIQUE,

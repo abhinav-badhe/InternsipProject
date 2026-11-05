@@ -366,9 +366,8 @@ export class InventoryRepository {
     referenceId?: string;
     locationZone?: string;
   }): Promise<StockBalance> {
+    const client = await Database.getClient();
     try {
-      const client = await Database.getClient();
-      try {
         await client.query('BEGIN');
         const locRes = await client.query('SELECT id FROM stock_locations WHERE is_active = TRUE LIMIT 1');
         const locationId = locRes.rows[0]?.id || 'loc-default-01';
@@ -408,7 +407,9 @@ export class InventoryRepository {
               }),
             ]
           );
-        } catch {}
+        } catch (err: any) {
+          logger.warn('Failed to insert outbox event during stock adjustment', { error: err.message });
+        }
 
         await client.query('COMMIT');
         return {
@@ -419,22 +420,12 @@ export class InventoryRepository {
           sellableQuantity: newOnHand - reserved,
           updatedAt: new Date().toISOString(),
         };
-      } catch (e) {
-        await client.query('ROLLBACK');
+      } catch (e: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        logger.error('Failed to adjust stock in database', { sku: params.sku, delta: params.delta, error: e.message });
         throw e;
       } finally {
         client.release();
       }
-    } catch {
-      // In-memory fallback
-      return {
-        sku: params.sku,
-        locationId: 'loc-default-01',
-        onHandQuantity: Math.max(0, 50 + params.delta),
-        reservedQuantity: 0,
-        sellableQuantity: Math.max(0, 50 + params.delta),
-        updatedAt: new Date().toISOString(),
-      };
-    }
   }
 }

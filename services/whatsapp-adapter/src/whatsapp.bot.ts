@@ -88,6 +88,26 @@ export class WhatsAppBot {
       });
     }
 
+    // Voice note without transcribeable speech
+    if (msg.isVoiceNote && (!text || !text.trim())) {
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'text',
+        bodyText:
+          '🎙️ *Voice Note Received*\n\nWe were unable to transcribe your voice note clearly. Please make sure the audio is audible, or simply type your grocery items here (e.g. _"1 kg onion, 2 packets milk"_).',
+      });
+    }
+
+    // Photo list without readable OCR text
+    if (msg.isPhotoOcr && (!text || !text.trim()) && (!msg.ocrLines || msg.ocrLines.length === 0)) {
+      return this.sendAndLog(session.sessionId, {
+        toPhoneNumber: msg.fromPhoneNumber,
+        type: 'text',
+        bodyText:
+          '📸 *Shopping List Photo Received*\n\nWe were unable to detect readable grocery items from this photo. Please ensure clear lighting and handwriting, or type your items directly in this chat.',
+      });
+    }
+
     // Feature 5: Language Selection Commands
     if (lowerText === 'language' || lowerText === 'bhasha' || lowerText === 'lang' || lowerText === 'भाषा') {
       return this.sendAndLog(session.sessionId, {

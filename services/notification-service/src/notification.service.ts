@@ -49,10 +49,23 @@ export class NotificationService {
         return { id: notificationId, status: 'OPTED_OUT' };
       }
 
-      if (params.channel === 'WHATSAPP' && !prefs.whatsapp_enabled) {
-        return { id: notificationId, status: 'OPTED_OUT' };
-      }
-      if (params.channel === 'EMAIL' && !prefs.email_enabled) {
+      const isChannelOptedOut =
+        (params.channel === 'WHATSAPP' && !prefs.whatsapp_enabled) ||
+        (params.channel === 'EMAIL' && !prefs.email_enabled) ||
+        (params.channel === 'SMS' && !prefs.sms_enabled);
+
+      if (isChannelOptedOut) {
+        logger.info('Suppressed notification due to channel preference opt-out', {
+          recipientId: params.recipientId,
+          channel: params.channel,
+        });
+
+        await Database.query(
+          `INSERT INTO notification_logs (id, recipient_id, recipient_address, channel, template_code, payload, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'OPTED_OUT')`,
+          [notificationId, params.recipientId, params.recipientAddress, params.channel, params.templateCode, JSON.stringify(params.payload)]
+        );
+
         return { id: notificationId, status: 'OPTED_OUT' };
       }
     }

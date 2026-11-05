@@ -80,21 +80,48 @@ export class PricingCalculator {
           calcDiscount = promo.maxDiscountAmount;
         }
         discountTotal = calcDiscount;
+        appliedPromotions.push({
+          code: promo.code,
+          description: promo.description,
+          discountAmount: discountTotal,
+        });
       } else if (promo.discountType === 'FIXED_AMOUNT') {
         discountTotal = Math.min(promo.discountValue, subtotal);
+        appliedPromotions.push({
+          code: promo.code,
+          description: promo.description,
+          discountAmount: discountTotal,
+        });
       } else if (promo.discountType === 'FREE_SHIPPING') {
+        const savedFee = deliveryFee;
         deliveryFee = 0;
-        discountTotal = standardDeliveryFee;
+        // Free shipping waives the delivery fee; discountTotal applies to goods and must not double-subtract shipping
+        appliedPromotions.push({
+          code: promo.code,
+          description: promo.description,
+          discountAmount: savedFee,
+        });
       }
-
-      appliedPromotions.push({
-        code: promo.code,
-        description: promo.description,
-        discountAmount: discountTotal,
-      });
     }
 
-    const grandTotal = this.round2(subtotal - discountTotal + taxTotal + deliveryFee);
+    // Prorate merchandise discount across line items
+    if (discountTotal > 0 && subtotal > 0 && itemResponses.length > 0) {
+      let allocatedDiscount = 0;
+      for (let i = 0; i < itemResponses.length; i++) {
+        const item = itemResponses[i];
+        let itemDiscount = 0;
+        if (i === itemResponses.length - 1) {
+          itemDiscount = this.round2(discountTotal - allocatedDiscount);
+        } else {
+          itemDiscount = this.round2((item.grossAmount / subtotal) * discountTotal);
+          allocatedDiscount = this.round2(allocatedDiscount + itemDiscount);
+        }
+        item.discountAmount = itemDiscount;
+        item.netAmount = this.round2(Math.max(0, item.grossAmount - itemDiscount));
+      }
+    }
+
+    const grandTotal = this.round2(Math.max(0, subtotal - discountTotal + taxTotal + deliveryFee));
 
     // Quote valid for 15 minutes
     const validUntilUtc = new Date(Date.now() + 15 * 60 * 1000).toISOString();

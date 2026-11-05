@@ -121,7 +121,7 @@ describe('InvoiceService & Acceptance Scenario 14 (Private Invoice Access Securi
 
   it('Scenario 14: Blocks unauthorized user from generating signed download URL for another customer (403)', async () => {
     Database.query = async (text: string, params?: any[]): Promise<any> => {
-      if (text.includes('SELECT id, invoice_number, customer_id')) {
+      if (text.includes('FROM invoices')) {
         return {
           rowCount: 1,
           rows: [
@@ -155,7 +155,7 @@ describe('InvoiceService & Acceptance Scenario 14 (Private Invoice Access Securi
 
   it('Scenario 14: Successfully generates signed URL for owner and allows verified download', async () => {
     Database.query = async (text: string, params?: any[]): Promise<any> => {
-      if (text.includes('SELECT id, invoice_number, customer_id')) {
+      if (text.includes('FROM invoices')) {
         return {
           rowCount: 1,
           rows: [

@@ -133,17 +133,6 @@ export function createApp(): express.Application {
     }
   });
 
-  // Get All Active Categories
-  app.get('/api/v1/catalog/categories', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const categories = await catalogRepo.getCategories();
-      res.json(okResponse(categories, correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
-
   // Category Disambiguation (Used by WhatsApp Adapter to resolve terms like "soap")
   app.get('/api/v1/catalog/disambiguate', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -292,7 +281,7 @@ export function createApp(): express.Application {
         for (const prod of catalogResult.items) {
           if (enrichedRecommendations.length >= 6) break;
           const activeVariant = prod.variants.find(
-            (v) => !seenSkus.has(v.sku.toUpperCase()) && ((v as any).price > 0 || (v as any).sellingPrice > 0)
+            (v) => !seenSkus.has(v.sku.toUpperCase()) && (v.status === 'active' || !v.status)
           );
           if (activeVariant) {
             seenSkus.add(activeVariant.sku.toUpperCase());

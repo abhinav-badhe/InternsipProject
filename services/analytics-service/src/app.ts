@@ -444,6 +444,31 @@ export function createApp(): express.Application {
         [customerId]
       );
 
+      // Dispatch retention reactivation message via notification-service
+      try {
+        const notifUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3011';
+        if (cust.customer_phone) {
+          await fetch(`${notifUrl}/api/v1/notifications/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+            body: JSON.stringify({
+              recipientId: customerId,
+              recipientAddress: cust.customer_phone,
+              channel: 'WHATSAPP',
+              templateCode: 'PROMO_DISCOUNT',
+              payload: {
+                customerName: cust.customer_name,
+                discountPercent: 20,
+                couponCode: 'FRESH20',
+                message: `Hi ${cust.customer_name}, we miss you at FreshCart! Use code FRESH20 to get 20% off your next grocery order.`,
+              },
+            }),
+          });
+        }
+      } catch (notifErr: any) {
+        logger.warn('Failed to dispatch reactivation notification', { customerId, error: notifErr.message });
+      }
+
       logger.info('Retention reactivation incentive triggered', { customerId, phone: cust.customer_phone });
 
       res.status(200).json(

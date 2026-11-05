@@ -65,20 +65,11 @@ export class VisionOcrService {
       }
     }
 
-    // 3. Fallback: High-reliability Indian quick-commerce handwritten note model
-    logger.info('Processing shopping list photo via QuickCommerce Optical Parser');
-    const defaultList = [
-      '2 kg Aashirvaad Shudh Chakki Atta',
-      '1L Amul Taaza Homogenised Milk',
-      '500g Fresh Malai Paneer',
-      '1 kg Fresh Red Onion (Pyaaz)',
-      '6 pcs Cavendish Bananas',
-    ].join('\n');
-
-    const items = this.parseGroceryListText(defaultList);
+    // 3. Fallback: If no vision API credentials configured or image OCR failed
+    logger.warn('Image OCR failed or no AI vision credentials configured (GEMINI_API_KEY required)');
     return {
-      extractedText: defaultList,
-      items,
+      extractedText: '',
+      items: [],
       source: 'heuristic-ocr-fallback',
     };
   }

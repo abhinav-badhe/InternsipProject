@@ -52,9 +52,22 @@ export class InvoiceService {
     let subtotalCalc = 0;
     let totalTaxCalc = 0;
 
-    const computedLines = params.items.map((item) => {
-      const lineDiscount = item.discountAmount || 0;
-      const taxable = item.quantity * item.unitPrice - lineDiscount;
+    const totalLineDiscount = params.items.reduce((acc, it) => acc + (it.discountAmount || 0), 0);
+    const orderDiscountToProrate = totalLineDiscount === 0 && discountTotal > 0 ? discountTotal : 0;
+    const grossItemsTotal = params.items.reduce((acc, it) => acc + it.quantity * it.unitPrice, 0);
+
+    let proratedAccum = 0;
+    const computedLines = params.items.map((item, index) => {
+      let lineDiscount = item.discountAmount || 0;
+      if (orderDiscountToProrate > 0 && grossItemsTotal > 0) {
+        if (index === params.items.length - 1) {
+          lineDiscount = Math.max(0, Number((orderDiscountToProrate - proratedAccum).toFixed(4)));
+        } else {
+          lineDiscount = Number(((item.quantity * item.unitPrice / grossItemsTotal) * orderDiscountToProrate).toFixed(4));
+          proratedAccum += lineDiscount;
+        }
+      }
+      const taxable = Math.max(0, item.quantity * item.unitPrice - lineDiscount);
       const taxRate = item.gstRatePercent / 100;
       const taxAmount = taxable * taxRate;
       const cgst = taxAmount / 2;

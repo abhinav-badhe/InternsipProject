@@ -151,22 +151,111 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
 
     // Auto-create wallet with ₹100 Welcome Gift
     const initialBonus = 100.0;
-    const inserted = await Database.query(
-      `INSERT INTO customer_wallets (customer_id, balance, currency, is_active)
-       VALUES ($1, $2, 'INR', TRUE)
-       RETURNING id, customer_id, balance, currency, is_active, created_at, updated_at`,
-      [customerId, initialBonus]
-    );
-    const newWallet = inserted.rows[0];
+    try {
+      const inserted = await Database.query(
+        `INSERT INTO customer_wallets (customer_id, balance, currency, is_active)
+         VALUES ($1, $2, 'INR', TRUE)
+         ON CONFLICT (customer_id) DO UPDATE SET updated_at = NOW()
+         RETURNING id, customer_id, balance, currency, is_active, created_at, updated_at`,
+        [customerId, initialBonus]
+      );
+      const newWallet = inserted.rows[0];
 
-    // Record welcome bonus transaction
-    await Database.query(
-      `INSERT INTO wallet_transactions (wallet_id, customer_id, type, amount, balance_after, reference_id, description)
-       VALUES ($1, $2, 'WELCOME_BONUS', $3, $4, 'WELCOME_100', 'Welcome to FreshCart! Joining Bonus Credit')`,
-      [newWallet.id, customerId, initialBonus, initialBonus]
-    );
+      // Record welcome bonus transaction
+      await Database.query(
+        `INSERT INTO wallet_transactions (wallet_id, customer_id, type, amount, balance_after, reference_id, description)
+         VALUES ($1, $2, 'WELCOME_BONUS', $3, $4, 'WELCOME_100', 'Welcome to FreshCart! Joining Bonus Credit')`,
+        [newWallet.id, customerId, initialBonus, initialBonus]
+      );
 
-    return newWallet;
+      return newWallet;
+    } catch {
+      const retry = await Database.query(
+        `SELECT id, customer_id, balance, currency, is_active, created_at, updated_at
+         FROM customer_wallets
+         WHERE customer_id = $1
+         LIMIT 1`,
+        [customerId]
+      );
+      return retry.rows[0];
+    }
+  };
+
+  // Helper for transactional balance mutation with row-level locking
+  const executeWalletMutation = async (
+    customerId: string,
+    operation: 'TOPUP' | 'ORDER_PAYMENT',
+    amount: number,
+    referenceId: string,
+    description: string
+  ): Promise<{ walletId: string; newBalance: number; transactionId: string; currentBalance: number }> => {
+    let client: any = null;
+    try {
+      client = await Database.getClient();
+    } catch {
+      client = null;
+    }
+
+    const runner = client || Database;
+    if (client) await client.query('BEGIN');
+
+    try {
+      const lockRes = await runner.query(
+        `SELECT id, customer_id, balance, currency, is_active FROM customer_wallets WHERE customer_id = $1 ${client ? 'FOR UPDATE' : ''}`,
+        [customerId]
+      );
+
+      let wallet = lockRes.rows[0];
+      if (!wallet) {
+        await getOrCreateWallet(customerId);
+        const retryRes = await runner.query(
+          `SELECT id, customer_id, balance, currency, is_active FROM customer_wallets WHERE customer_id = $1 ${client ? 'FOR UPDATE' : ''}`,
+          [customerId]
+        );
+        wallet = retryRes.rows[0];
+      }
+
+      const currentBalance = parseFloat(wallet.balance || '0');
+      let newBalance = 0;
+
+      if (operation === 'ORDER_PAYMENT') {
+        if (currentBalance < amount) {
+          const err = new Error(`INSUFFICIENT_WALLET_BALANCE: Available: ₹${currentBalance.toFixed(2)}, Required: ₹${amount.toFixed(2)}`);
+          (err as any).currentBalance = currentBalance;
+          throw err;
+        }
+        newBalance = Number((currentBalance - amount).toFixed(4));
+      } else {
+        newBalance = Number((currentBalance + amount).toFixed(4));
+      }
+
+      await runner.query(
+        `UPDATE customer_wallets
+         SET balance = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [newBalance, wallet.id]
+      );
+
+      const txRes = await runner.query(
+        `INSERT INTO wallet_transactions (wallet_id, customer_id, type, amount, balance_after, reference_id, description)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, created_at`,
+        [wallet.id, customerId, operation, amount, newBalance, referenceId, description]
+      );
+
+      if (client) await client.query('COMMIT');
+      return {
+        walletId: wallet.id,
+        newBalance,
+        transactionId: txRes.rows[0]?.id || `tx_${Date.now()}`,
+        currentBalance,
+      };
+    } catch (err) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      if (client) client.release();
+    }
   };
 
   // Get Wallet Balance & Passbook Transactions
@@ -232,28 +321,12 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
           .json(errorResponse('INVALID_AMOUNT', 'Top-up amount must be greater than 0', correlationId));
       }
 
-      const wallet = await getOrCreateWallet(customerId);
-      const newBalance = parseFloat(wallet.balance) + amount;
-
-      await Database.query(
-        `UPDATE customer_wallets
-         SET balance = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [newBalance, wallet.id]
-      );
-
-      const txRes = await Database.query(
-        `INSERT INTO wallet_transactions (wallet_id, customer_id, type, amount, balance_after, reference_id, description)
-         VALUES ($1, $2, 'TOPUP', $3, $4, $5, $6)
-         RETURNING id, created_at`,
-        [
-          wallet.id,
-          customerId,
-          amount,
-          newBalance,
-          `TOPUP_${Date.now()}`,
-          `Added funds to wallet via ${paymentMethod}`,
-        ]
+      const { newBalance, transactionId } = await executeWalletMutation(
+        customerId,
+        'TOPUP',
+        amount,
+        `TOPUP_${Date.now()}`,
+        `Added funds to wallet via ${paymentMethod}`
       );
 
       res.status(200).json(
@@ -263,7 +336,7 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
             customerId,
             amountAdded: amount,
             newBalance,
-            transactionId: txRes.rows[0]?.id,
+            transactionId,
           },
           correlationId
         )
@@ -290,44 +363,33 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
           .json(errorResponse('INVALID_PARAM', 'orderId and positive amount are required', correlationId));
       }
 
-      const wallet = await getOrCreateWallet(customerId);
-      const currentBalance = parseFloat(wallet.balance);
-
-      if (currentBalance < amount) {
-        return res.status(400).json(
-          errorResponse(
-            'INSUFFICIENT_WALLET_BALANCE',
-            `Insufficient wallet balance. Available: ₹${currentBalance.toFixed(2)}, Required: ₹${amount.toFixed(2)}`,
-            correlationId
-          )
+      let mutationRes;
+      try {
+        mutationRes = await executeWalletMutation(
+          customerId,
+          'ORDER_PAYMENT',
+          amount,
+          orderId,
+          `Payment for FreshCart Order #${orderId}`
         );
+      } catch (mutationErr: any) {
+        if (mutationErr.message?.includes('INSUFFICIENT_WALLET_BALANCE')) {
+          const avail = mutationErr.currentBalance ?? 0;
+          return res.status(400).json(
+            errorResponse(
+              'INSUFFICIENT_WALLET_BALANCE',
+              `Insufficient wallet balance. Available: ₹${avail.toFixed(2)}, Required: ₹${amount.toFixed(2)}`,
+              correlationId
+            )
+          );
+        }
+        throw mutationErr;
       }
 
-      const newBalance = currentBalance - amount;
-
-      await Database.query(
-        `UPDATE customer_wallets
-         SET balance = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [newBalance, wallet.id]
-      );
-
-      const txRes = await Database.query(
-        `INSERT INTO wallet_transactions (wallet_id, customer_id, type, amount, balance_after, reference_id, description)
-         VALUES ($1, $2, 'ORDER_PAYMENT', $3, $4, $5, $6)
-         RETURNING id, created_at`,
-        [
-          wallet.id,
-          customerId,
-          amount,
-          newBalance,
-          orderId,
-          `Payment for FreshCart Order #${orderId}`,
-        ]
-      );
+      const { newBalance, transactionId } = mutationRes;
 
       // Notify Order Service of successful payment
-      await orderClient.confirmOrderPayment(orderId, `wallet_tx_${txRes.rows[0]?.id}`).catch(() => {});
+      await orderClient.confirmOrderPayment(orderId, `wallet_tx_${transactionId}`).catch(() => {});
 
       res.status(200).json(
         okResponse(
@@ -336,7 +398,7 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
             orderId,
             paidAmount: amount,
             newBalance,
-            transactionId: txRes.rows[0]?.id,
+            transactionId,
           },
           correlationId
         )
