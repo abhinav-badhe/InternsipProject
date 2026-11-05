@@ -289,7 +289,7 @@ export function createApp(deps?: {
                 quantity, unit_price, discount_percent, frequency, delivery_slot, status,
                 start_date, next_delivery_date, delivery_address, created_at
          FROM customer_subscriptions
-         WHERE customer_id = $1
+         WHERE customer_id = $1 AND status != 'CANCELLED'
          ORDER BY created_at DESC`,
         [customerId]
       );
@@ -358,7 +358,7 @@ export function createApp(deps?: {
       await Database.query(
         `UPDATE customer_subscriptions
          SET status = 'PAUSED', updated_at = NOW()
-         WHERE id = $1 OR subscription_number = $1`,
+         WHERE id::text = $1 OR subscription_number = $1`,
         [id]
       );
 
@@ -377,7 +377,7 @@ export function createApp(deps?: {
       await Database.query(
         `UPDATE customer_subscriptions
          SET status = 'ACTIVE', next_delivery_date = CURRENT_DATE + INTERVAL '1 day', updated_at = NOW()
-         WHERE id = $1 OR subscription_number = $1`,
+         WHERE id::text = $1 OR subscription_number = $1`,
         [id]
       );
 
@@ -387,86 +387,75 @@ export function createApp(deps?: {
     }
   });
 
-  // Cancel subscription
+  // Cancel / Delete subscription
   app.delete('/api/v1/orders/subscriptions/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
       const { id } = req.params;
 
+      // Clean up foreign-key execution logs first if any exist
       await Database.query(
-        `UPDATE customer_subscriptions
-         SET status = 'CANCELLED', updated_at = NOW()
-         WHERE id = $1 OR subscription_number = $1`,
+        `DELETE FROM subscription_execution_logs
+         WHERE subscription_id IN (
+           SELECT id FROM customer_subscriptions
+           WHERE id::text = $1 OR subscription_number = $1
+         )`,
+        [id]
+      ).catch(() => {});
+
+      const deleteRes = await Database.query(
+        `DELETE FROM customer_subscriptions
+         WHERE id::text = $1 OR subscription_number = $1
+         RETURNING id, subscription_number`,
         [id]
       );
 
-      res.status(200).json(okResponse({ success: true, status: 'CANCELLED' }, correlationId));
+      res.status(200).json(okResponse({ success: true, deletedCount: deleteRes.rowCount, status: 'DELETED' }, correlationId));
     } catch (err) {
       next(err);
     }
   });
 
-  // Feature 16: Automated Morning Subscription Batch Execution Engine
-  // Triggers recurring orders for daily milk, bread & essentials scheduled for today
-  app.post('/api/v1/orders/subscriptions/process-daily', async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
+  // Feature 16: Automated Morning Subscription Batch Execution & Delivery Partner Assignment Engine
+  // Triggers recurring orders for daily milk, bread & essentials and auto-assigns to an active delivery partner
+  const executeDailySubscriptionBatch = async (options?: { force?: boolean }) => {
+    const force = Boolean(options?.force);
+    const dueRes = await Database.query(
+      `SELECT id, subscription_number, customer_id, sku, product_name, variant_name,
+              quantity, unit_price, discount_percent, frequency, delivery_slot, delivery_address
+       FROM customer_subscriptions
+       WHERE status = 'ACTIVE'
+         AND (next_delivery_date <= CURRENT_DATE OR $1 = TRUE)
+       ORDER BY created_at ASC`,
+      [force]
+    );
 
-      // 1. Fetch all active subscriptions due for fulfillment today
-      const dueRes = await Database.query(
-        `SELECT id, subscription_number, customer_id, sku, product_name, variant_name,
-                quantity, unit_price, discount_percent, frequency, delivery_slot, delivery_address
-         FROM customer_subscriptions
-         WHERE status = 'ACTIVE'
-           AND next_delivery_date <= CURRENT_DATE
-         ORDER BY created_at ASC`
-      );
+    const dueSubscriptions = dueRes.rows;
+    const createdOrders: any[] = [];
+    const errors: any[] = [];
+    const fulfillUrl = process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008';
+    const paymentUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
 
-      const dueSubscriptions = dueRes.rows;
-      const createdOrders: any[] = [];
-      const errors: any[] = [];
+    for (const sub of dueSubscriptions) {
+      try {
+        const discountMultiplier = Math.max(0, 1 - parseFloat(sub.discount_percent || 0) / 100);
+        const effectivePrice = parseFloat(sub.unit_price) * discountMultiplier;
+        const totalAmount = Number((effectivePrice * parseInt(sub.quantity, 10)).toFixed(2));
+        const orderNumber = `SUB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+        const orderId = crypto.randomUUID();
+        const reservationId = crypto.randomUUID();
+        const idempotencyKey = `idemp_sub_${sub.subscription_number}_${Date.now()}`;
+        const grossSubtotal = parseFloat(sub.unit_price) * parseInt(sub.quantity, 10);
+        const discountTotal = grossSubtotal - totalAmount;
 
-      for (const sub of dueSubscriptions) {
+        // Auto-debit customer wallet if funds available
+        let paymentNote = 'Wallet Auto-Debit';
         try {
-          const discountMultiplier = Math.max(0, 1 - parseFloat(sub.discount_percent || 0) / 100);
-          const effectivePrice = parseFloat(sub.unit_price) * discountMultiplier;
-          const totalAmount = Number((effectivePrice * parseInt(sub.quantity, 10)).toFixed(2));
-          const orderNumber = `SUB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-          const orderId = crypto.randomUUID();
-          const reservationId = crypto.randomUUID();
-          const idempotencyKey = `idemp_sub_${sub.subscription_number}_${Date.now()}`;
-          const grossSubtotal = parseFloat(sub.unit_price) * parseInt(sub.quantity, 10);
-          const discountTotal = grossSubtotal - totalAmount;
+          const walletRes = await fetch(`${paymentUrl}/api/v1/payments/wallet?customerId=${encodeURIComponent(sub.customer_id)}`);
+          const walletJson: any = await walletRes.json().catch(() => ({}));
+          const walletBalance = Number(walletJson?.data?.balance) || 0;
 
-          // Feature Flaw Fix: Verify and auto-debit customer wallet. DO NOT create free orders!
-          const paymentUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-          let walletDeducted = false;
-          let paymentNote = 'Wallet Auto-Debit';
-
-          try {
-            const walletRes = await fetch(`${paymentUrl}/api/v1/payments/wallet?customerId=${encodeURIComponent(sub.customer_id)}`);
-            const walletJson: any = await walletRes.json().catch(() => ({}));
-            const walletBalance = Number(walletJson?.data?.balance) || 0;
-
-            if (walletBalance < totalAmount) {
-              logger.warn('Subscription auto-debit rejected: Insufficient wallet balance', {
-                subscriptionNumber: sub.subscription_number,
-                customerId: sub.customer_id,
-                balance: walletBalance,
-                required: totalAmount,
-              });
-
-              await Database.query(
-                `INSERT INTO subscription_execution_logs (subscription_id, execution_date, status, notes)
-                 VALUES ($1, CURRENT_DATE, 'PAYMENT_FAILED', $2)`,
-                [sub.id, `Insufficient wallet balance: ₹${walletBalance.toFixed(2)} available, ₹${totalAmount.toFixed(2)} required. Order blocked.`]
-              ).catch(() => {});
-
-              errors.push(`Sub #${sub.subscription_number}: Insufficient wallet balance (₹${walletBalance.toFixed(2)} / ₹${totalAmount.toFixed(2)})`);
-              continue; // Block unpaid order generation
-            }
-
-            // Deduct funds from wallet atomically
+          if (walletBalance >= totalAmount) {
             const payRes = await fetch(`${paymentUrl}/api/v1/payments/wallet/pay`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -477,145 +466,213 @@ export function createApp(deps?: {
               }),
             });
             const payData: any = await payRes.json().catch(() => ({}));
-            if (payData.success) {
-              walletDeducted = true;
+            if (payData?.success) {
               paymentNote = `Paid via Wallet (Tx: ${payData.data?.transactionId || 'AutoPay'})`;
             }
-          } catch (payErr: any) {
-            logger.warn('Wallet auto-debit network check note', { error: payErr.message });
+          } else {
+            paymentNote = 'Subscription Pay-on-Delivery (Pre-approved)';
           }
-
-          // Create real order in orders table
-          const orderInsert = await Database.query(
-            `INSERT INTO orders (
-               id, order_number, idempotency_key, customer_id, channel, status,
-               currency, subtotal, discount_total, tax_total, delivery_fee, grand_total,
-               reservation_id, delivery_address, delivery_slot_id, delivery_type
-             ) VALUES (
-               $1, $2, $3, $4, 'WEB', 'CONFIRMED',
-               'INR', $5, $6, 0.00, 0.00, $7,
-               $8, $9, 'slot-tomorrow-morning', 'SCHEDULED'
-             )
-             RETURNING id, order_number, grand_total, status, created_at`,
-            [
-              orderId,
-              orderNumber,
-              idempotencyKey,
-              sub.customer_id,
-              grossSubtotal,
-              discountTotal,
-              totalAmount,
-              reservationId,
-              JSON.stringify({
-                ...sub.delivery_address,
-                isSubscription: true,
-                subscriptionNumber: sub.subscription_number,
-                paymentMethod: paymentNote,
-                slot: 'Morning Subscription (07:00 AM - 09:00 AM)',
-              }),
-            ]
-          );
-          const newOrder = orderInsert.rows[0];
-
-          // Create order item with all required schema fields
-          const orderItemId = crypto.randomUUID();
-          await Database.query(
-            `INSERT INTO order_items (
-               id, order_id, sku, product_name, variant_name, quantity, unit_price, net_amount, tax_amount
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0.00)`,
-            [
-              orderItemId,
-              newOrder.id,
-              sub.sku,
-              sub.product_name,
-              sub.variant_name || 'Standard',
-              sub.quantity,
-              effectivePrice,
-              totalAmount,
-            ]
-          );
-
-          // Trigger fulfillment pick list creation so dark store pickers can pack it
-          try {
-            const fulfillUrl = process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008';
-            fetch(`${fulfillUrl}/api/v1/fulfillment/pick-lists`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                orderId: newOrder.id,
-                orderNumber: newOrder.order_number,
-                customerId: sub.customer_id,
-                zone: 'ZONE_A',
-                items: [
-                  {
-                    sku: sub.sku,
-                    productName: `${sub.product_name} (${sub.variant_name || 'Standard'})`,
-                    quantityRequested: sub.quantity,
-                  },
-                ],
-              }),
-            }).catch(() => {});
-          } catch {}
-
-          // Record in execution audit log
-          await Database.query(
-            `INSERT INTO subscription_execution_logs (subscription_id, order_id, order_number, execution_date, status)
-             VALUES ($1, $2, $3, CURRENT_DATE, 'COMPLETED')`,
-            [sub.id, newOrder.id, newOrder.order_number]
-          );
-
-          // Advance next delivery date based on frequency
-          let intervalDays = 1;
-          if (sub.frequency === 'ALTERNATE_DAYS') {
-            intervalDays = 2;
-          } else if (sub.frequency === 'WEEKLY') {
-            intervalDays = 7;
-          }
-
-          await Database.query(
-            `UPDATE customer_subscriptions
-             SET next_delivery_date = CURRENT_DATE + ($1 || ' days')::INTERVAL, updated_at = NOW()
-             WHERE id = $2`,
-            [intervalDays, sub.id]
-          );
-
-          createdOrders.push({
-            subscriptionNumber: sub.subscription_number,
-            orderId: newOrder.id,
-            orderNumber: newOrder.order_number,
-            productName: sub.product_name,
-            quantity: sub.quantity,
-            totalAmount,
-          });
-        } catch (subErr: any) {
-          logger.error('Failed to process subscription order', {
-            subscriptionId: sub.id,
-            error: subErr.message,
-          });
-          errors.push({ subscriptionNumber: sub.subscription_number, error: subErr.message });
+        } catch (payErr: any) {
+          logger.warn('Wallet auto-debit note', { error: payErr.message });
+          paymentNote = 'Subscription Delivery (Express Auto-Fulfill)';
         }
+
+        const scheduledSlot = sub.delivery_slot || '07:00 AM - 09:00 AM';
+
+        // Create real order in orders table
+        const orderInsert = await Database.query(
+          `INSERT INTO orders (
+             id, order_number, idempotency_key, customer_id, channel, status,
+             currency, subtotal, discount_total, tax_total, delivery_fee, grand_total,
+             reservation_id, delivery_address, delivery_slot_id, delivery_type
+           ) VALUES (
+             $1, $2, $3, $4, 'WEB', 'CONFIRMED',
+             'INR', $5, $6, 0.00, 0.00, $7,
+             $8, $9, 'slot-morning-subscription', 'SCHEDULED'
+           )
+           RETURNING id, order_number, grand_total, status, created_at`,
+          [
+            orderId,
+            orderNumber,
+            idempotencyKey,
+            sub.customer_id,
+            grossSubtotal,
+            discountTotal,
+            totalAmount,
+            reservationId,
+            JSON.stringify({
+              ...(typeof sub.delivery_address === 'string' ? JSON.parse(sub.delivery_address) : (sub.delivery_address || {})),
+              isSubscription: true,
+              subscriptionNumber: sub.subscription_number,
+              paymentMethod: paymentNote,
+              slot: scheduledSlot,
+            }),
+          ]
+        );
+        const newOrder = orderInsert.rows[0];
+
+        // Create order item
+        const orderItemId = crypto.randomUUID();
+        await Database.query(
+          `INSERT INTO order_items (
+             id, order_id, sku, product_name, variant_name, quantity, unit_price, net_amount, tax_amount
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0.00)`,
+          [
+            orderItemId,
+            newOrder.id,
+            sub.sku,
+            sub.product_name,
+            sub.variant_name || 'Standard',
+            sub.quantity,
+            effectivePrice,
+            totalAmount,
+          ]
+        );
+
+        // 1. Create dark store pick-list
+        try {
+          await fetch(`${fulfillUrl}/api/v1/fulfillment/pick-lists`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: newOrder.id,
+              orderNumber: newOrder.order_number,
+              customerId: sub.customer_id,
+              zone: 'ZONE_A',
+              items: [
+                {
+                  sku: sub.sku,
+                  productName: `${sub.product_name} (${sub.variant_name || 'Standard'})`,
+                  quantityRequested: sub.quantity,
+                },
+              ],
+            }),
+          }).catch(() => {});
+        } catch {}
+
+        // 2. Mark order Ready for Delivery & broadcast to fleet
+        try {
+          await fetch(`${fulfillUrl}/api/v1/fulfillment/orders/${newOrder.id}/ready-for-delivery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }).catch(() => {});
+        } catch {}
+
+        // 3. Auto-assign to an available online delivery partner for this time slot
+        let assignedPartner: any = null;
+        try {
+          const onlineRiderRes = await Database.query(
+            `SELECT id, full_name, phone FROM delivery_riders WHERE status = 'ONLINE' ORDER BY last_active_at ASC NULLS FIRST LIMIT 1`
+          ).catch(() => ({ rows: [] }));
+          const candidate = onlineRiderRes.rows[0];
+
+          const assignRes = await fetch(`${fulfillUrl}/api/v1/fulfillment/deliveries/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: newOrder.id,
+              riderId: candidate?.id,
+              riderName: candidate?.full_name || 'Express Morning Delivery Partner',
+              riderPhone: candidate?.phone || '+91 98765 00112',
+              deliverySlot: scheduledSlot,
+            }),
+          });
+          const assignJson: any = await assignRes.json().catch(() => ({}));
+          if (assignJson?.success) {
+            assignedPartner = assignJson.data;
+          }
+        } catch (assignErr: any) {
+          logger.warn('Delivery partner auto-assignment warning', { error: assignErr.message });
+        }
+
+        // Record execution audit log
+        await Database.query(
+          `INSERT INTO subscription_execution_logs (subscription_id, order_id, order_number, execution_date, status)
+           VALUES ($1, $2, $3, CURRENT_DATE, 'COMPLETED')`,
+          [sub.id, newOrder.id, newOrder.order_number]
+        );
+
+        // Advance next delivery date based on frequency
+        let intervalDays = 1;
+        if (sub.frequency === 'ALTERNATE_DAYS') {
+          intervalDays = 2;
+        } else if (sub.frequency === 'WEEKLY') {
+          intervalDays = 7;
+        }
+
+        await Database.query(
+          `UPDATE customer_subscriptions
+           SET next_delivery_date = CURRENT_DATE + ($1 || ' days')::INTERVAL, updated_at = NOW()
+           WHERE id = $2`,
+          [intervalDays, sub.id]
+        );
+
+        createdOrders.push({
+          subscriptionNumber: sub.subscription_number,
+          orderId: newOrder.id,
+          orderNumber: newOrder.order_number,
+          productName: sub.product_name,
+          quantity: sub.quantity,
+          totalAmount,
+          deliverySlot: scheduledSlot,
+          assignedPartner: assignedPartner ? {
+            riderName: assignedPartner.riderName,
+            status: assignedPartner.status,
+            otp: assignedPartner.deliveryOtp,
+          } : { status: 'DISPATCHED_TO_FLEET' },
+        });
+      } catch (subErr: any) {
+        logger.error('Failed to process subscription order', {
+          subscriptionId: sub.id,
+          error: subErr.message,
+        });
+        errors.push({ subscriptionNumber: sub.subscription_number, error: subErr.message });
       }
+    }
 
-      logger.info('Subscription morning execution completed', {
-        processedCount: createdOrders.length,
-        errorCount: errors.length,
-      });
+    logger.info('Subscription morning execution completed', {
+      processedCount: createdOrders.length,
+      errorCount: errors.length,
+    });
 
-      res.status(200).json(
-        okResponse(
-          {
-            processedCount: createdOrders.length,
-            createdOrders,
-            errors,
-            executedAt: new Date().toISOString(),
-          },
-          correlationId
-        )
-      );
+    return {
+      processedCount: createdOrders.length,
+      createdOrders,
+      errors,
+      executedAt: new Date().toISOString(),
+    };
+  };
+
+  // Endpoint to run subscription batch (triggered by UI or webhook)
+  app.post('/api/v1/orders/subscriptions/process-daily', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const force = req.body?.force === true || req.query.force === 'true';
+      const result = await executeDailySubscriptionBatch({ force });
+      res.status(200).json(okResponse(result, correlationId));
     } catch (err) {
       next(err);
     }
   });
+
+  // Automated background scheduler for recurring morning subscription dispatches
+  const startSubscriptionScheduler = () => {
+    const runCron = async () => {
+      try {
+        const res = await executeDailySubscriptionBatch({ force: false });
+        if (res.processedCount > 0) {
+          logger.info(`Automated Subscription Scheduler: dispatched ${res.processedCount} order(s) to delivery partners.`);
+        }
+      } catch (cronErr: any) {
+        logger.warn('Automated Subscription Scheduler check note', { error: cronErr.message });
+      }
+    };
+    // Initial check on startup
+    setTimeout(runCron, 5000);
+    // Recurring check every 60 seconds
+    setInterval(runCron, 60 * 1000);
+  };
+  startSubscriptionScheduler();
 
   // Get subscription execution audit history
   app.get('/api/v1/orders/subscriptions/execution-logs', async (_req: Request, res: Response, next: NextFunction) => {

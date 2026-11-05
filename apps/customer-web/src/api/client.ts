@@ -912,27 +912,40 @@ export async function createSubscription(params: {
 }
 
 export async function pauseSubscription(id: string): Promise<void> {
-  await customerAuthFetch(`/api/v1/orders/subscriptions/${id}/pause`, {
+  const res = await customerAuthFetch(`/api/v1/orders/subscriptions/${id}/pause`, {
     method: 'POST',
   });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || 'Failed to pause subscription');
+  }
 }
 
 export async function resumeSubscription(id: string): Promise<void> {
-  await customerAuthFetch(`/api/v1/orders/subscriptions/${id}/resume`, {
+  const res = await customerAuthFetch(`/api/v1/orders/subscriptions/${id}/resume`, {
     method: 'POST',
   });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || 'Failed to resume subscription');
+  }
 }
 
 export async function cancelSubscription(id: string): Promise<void> {
-  await customerAuthFetch(`/api/v1/orders/subscriptions/${id}`, {
+  const res = await customerAuthFetch(`/api/v1/orders/subscriptions/${id}`, {
     method: 'DELETE',
   });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || 'Failed to cancel subscription');
+  }
 }
 
-export async function triggerDailySubscriptionBatch(): Promise<any> {
+export async function triggerDailySubscriptionBatch(force: boolean = true): Promise<any> {
   const res = await fetch('/api/v1/orders/subscriptions/process-daily', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force }),
   });
   const data = await res.json();
   if (!data.success) throw new Error(data.error?.message || 'Subscription batch execution failed');

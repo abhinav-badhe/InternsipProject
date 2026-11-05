@@ -111,6 +111,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   const handleTogglePause = async (sub: CustomerSubscription) => {
     try {
+      const nextStatus = sub.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+      setSubscriptions(prev => prev.map(s => s.id === sub.id ? { ...s, status: nextStatus } : s));
       if (sub.status === 'ACTIVE') {
         await pauseSubscription(sub.id);
       } else {
@@ -120,17 +122,20 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       if (onSubscriptionChanged) onSubscriptionChanged();
     } catch (err: any) {
       alert(err.message || 'Status update failed');
+      loadSubscriptions();
     }
   };
 
   const handleCancel = async (id: string) => {
     if (!confirm('Are you sure you want to cancel this recurring delivery?')) return;
     try {
+      setSubscriptions(prev => prev.filter(s => s.id !== id && s.subscription_number !== id));
       await cancelSubscription(id);
       loadSubscriptions();
       if (onSubscriptionChanged) onSubscriptionChanged();
     } catch (err: any) {
       alert(err.message || 'Cancellation failed');
+      loadSubscriptions();
     }
   };
 
