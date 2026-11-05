@@ -255,9 +255,11 @@ export function createApp(): express.Application {
         // Mark authoritative order as PACKED so it appears on Rider Dispatch
         await Database.query(`
           UPDATE orders 
-          SET status = 'PACKED', updated_at = NOW() 
-          WHERE id = $1 OR order_number = $2
-        `, [item.orderId, item.orderNumber]).catch(() => {});
+          SET status = 'PACKED', ready_for_pickup = TRUE, ready_for_pickup_at = NOW(), updated_at = NOW() 
+          WHERE id::text = $1 OR order_number = $1 OR order_number = $2
+        `, [item.orderId, item.orderNumber]).catch((dbErr: any) => {
+          logger.warn('Failed to update order status to PACKED during barcode scan', { error: dbErr.message });
+        });
 
         logger.info('Order completed picking & packing via Barcode Scanner', {
           orderNumber: item.orderNumber,

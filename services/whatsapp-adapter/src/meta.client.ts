@@ -388,7 +388,8 @@ export class WhatsAppCloudApiClient {
    */
   public async downloadMediaBuffer(mediaUrl: string): Promise<Buffer | null> {
     if (!mediaUrl || mediaUrl.startsWith('https://mock')) {
-      return Buffer.from('mock_audio_content_test');
+      logger.warn('No valid Meta media URL available for download');
+      return null;
     }
 
     try {

@@ -332,6 +332,15 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
 
   // Invoices & Tax Compliance
   app.use('/api/v1/invoices*', (req: Request, res: Response) => {
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const claims = authMiddleware.verifyToken(authHeader.substring(7).trim());
+      if (claims) {
+        req.user = claims;
+        req.headers['x-user-id'] = claims.userId;
+        req.headers['x-user-role'] = claims.role;
+      }
+    }
     forwardRequest(urls.invoice, req, res);
   });
 

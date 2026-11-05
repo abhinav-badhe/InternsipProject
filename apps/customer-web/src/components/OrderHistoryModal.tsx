@@ -98,24 +98,16 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
   const handleDownloadInvoice = async (order: CustomerOrder) => {
     setDownloadingId(order.id);
     try {
-      const res = await fetch(`/api/v1/invoices/${order.invoiceId || order.id}/signed-url`, {
-        headers: {
-          'x-user-id': 'cust-current-session-user',
-          'x-user-role': 'CUSTOMER',
-        },
-      });
+      const res = await customerAuthFetch(`/api/v1/invoices/${order.id}/signed-url`);
+      const json = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        alert(`Invoice signed download token generated for ${order.orderNumber}! Expiring in 15 minutes.`);
-        return;
-      }
-
-      const json = await res.json();
-      if (json.data?.signedUrl) {
+      if (json.success && json.data?.signedUrl) {
         window.open(json.data.signedUrl, '_blank');
+      } else {
+        alert(json.error?.message || `Failed to generate download URL for Order #${order.orderNumber}`);
       }
-    } catch {
-      alert(`Tax invoice signed token generated for Order #${order.orderNumber}.`);
+    } catch (err: any) {
+      alert(err.message || `Failed to download invoice for Order #${order.orderNumber}`);
     } finally {
       setDownloadingId(null);
     }

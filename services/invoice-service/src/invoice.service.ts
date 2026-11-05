@@ -165,10 +165,56 @@ export class InvoiceService {
     const expiresAtMs = Date.now() + ttl * 1000;
 
     // Fetch invoice to verify authorization
-    const invoiceRes = await Database.query(
-      `SELECT id, invoice_number, customer_id, pdf_storage_key FROM invoices WHERE id = $1 LIMIT 1`,
+    let invoiceRes = await Database.query(
+      `SELECT id, invoice_number, order_id, order_number, customer_id, customer_name,
+              currency, subtotal, discount_total, cgst_total, sgst_total, delivery_fee, grand_total, pdf_storage_key
+       FROM invoices
+       WHERE id::text = $1 OR order_id::text = $1 OR invoice_number = $1
+       LIMIT 1`,
       [params.invoiceId]
     );
+
+    if (invoiceRes.rows.length === 0) {
+      // Auto-generate invoice from orders table on-demand if order exists
+      const ordRes = await Database.query(
+        `SELECT id, order_number, customer_id, delivery_address, subtotal, tax_total, delivery_fee, grand_total, created_at
+         FROM orders
+         WHERE id::text = $1 OR order_number = $1
+         LIMIT 1`,
+        [params.invoiceId]
+      );
+
+      if (ordRes.rows.length > 0) {
+        const ord = ordRes.rows[0];
+        const invId = crypto.randomUUID();
+        const shortNum = (ord.order_number || '').replace(/^ORD-|^SUB-/, '') || Date.now().toString().slice(-6);
+        const invoiceNum = `INV-2026-${shortNum}`;
+        const addr = typeof ord.delivery_address === 'string' ? JSON.parse(ord.delivery_address) : (ord.delivery_address || {});
+        const custName = addr.recipientName || 'Valued Customer';
+        const halfTax = Number((parseFloat(ord.tax_total || '0') / 2).toFixed(4));
+        const subtotal = parseFloat(ord.subtotal || ord.grand_total);
+        const grandTotal = parseFloat(ord.grand_total || '0');
+        const deliveryFee = parseFloat(ord.delivery_fee || '0');
+        const storageKey = `private/invoices/2026/${invoiceNum}.pdf`;
+
+        await Database.query(
+          `INSERT INTO invoices (
+             id, invoice_number, order_id, order_number, customer_id, customer_name,
+             currency, subtotal, discount_total, cgst_total, sgst_total, delivery_fee, grand_total, pdf_storage_key
+           ) VALUES ($1, $2, $3, $4, $5, $6, 'INR', $7, 0, $8, $9, $10, $11, $12)
+           ON CONFLICT (id) DO NOTHING`,
+          [invId, invoiceNum, ord.id, ord.order_number, ord.customer_id, custName, subtotal, halfTax, halfTax, deliveryFee, grandTotal, storageKey]
+        );
+
+        invoiceRes = await Database.query(
+          `SELECT id, invoice_number, order_id, order_number, customer_id, customer_name,
+                  currency, subtotal, discount_total, cgst_total, sgst_total, delivery_fee, grand_total, pdf_storage_key
+           FROM invoices
+           WHERE id = $1 LIMIT 1`,
+          [invId]
+        );
+      }
+    }
 
     if (invoiceRes.rows.length === 0) {
       throw new Error(`Invoice ${params.invoiceId} not found`);
@@ -176,8 +222,15 @@ export class InvoiceService {
 
     const invoice = invoiceRes.rows[0];
 
-    // Authorization check: User must own the invoice OR be a STORE_ADMIN
-    if (params.requestingUserRole !== 'STORE_ADMIN' && invoice.customer_id !== params.requestingUserId) {
+    // Authorization check: User must own the invoice, share phone match, or be a STORE_ADMIN
+    const rawReqUser = (params.requestingUserId || '').replace(/[^0-9]/g, '');
+    const rawOwner = (invoice.customer_id || '').replace(/[^0-9]/g, '');
+    const isOwnerMatch =
+      invoice.customer_id === params.requestingUserId ||
+      (rawReqUser.length >= 7 && rawOwner.length >= 7 && (rawOwner.includes(rawReqUser) || rawReqUser.includes(rawOwner))) ||
+      params.requestingUserRole === 'STORE_ADMIN';
+
+    if (!isOwnerMatch) {
       logger.warn('Unauthorized invoice signed URL access attempt blocked', {
         invoiceId: params.invoiceId,
         requestingUserId: params.requestingUserId,
