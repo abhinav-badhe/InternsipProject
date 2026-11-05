@@ -241,10 +241,10 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   });
 
   // Feature 16: Subscription Execution Batch Engine (Automated Morning Order Fulfillment)
-  app.all('/api/v1/orders/subscriptions/process-daily', (req: Request, res: Response) => {
+  app.all('/api/v1/orders/subscriptions/process-daily', authMiddleware.authenticate, authMiddleware.requireRole('STORE_ADMIN'), (req: Request, res: Response) => {
     forwardRequest(urls.order, req, res);
   });
-  app.get('/api/v1/orders/subscriptions/execution-logs', (req: Request, res: Response) => {
+  app.get('/api/v1/orders/subscriptions/execution-logs', authMiddleware.authenticate, authMiddleware.requireRole('STORE_ADMIN'), (req: Request, res: Response) => {
     forwardRequest(urls.order, req, res);
   });
 

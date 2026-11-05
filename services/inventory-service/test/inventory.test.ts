@@ -88,7 +88,7 @@ describe('Inventory Service - Concurrency & Acceptance Scenarios', () => {
         if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
           return { rows: [] };
         }
-        if (sql.includes('SELECT id, status FROM stock_reservations WHERE id = $1')) {
+        if (sql.includes('FROM stock_reservations WHERE id = $1')) {
           return { rows: [{ id: params![0], status: 'ACTIVE' }] };
         }
         if (sql.includes('SELECT sku, location_id, quantity FROM stock_reservation_items')) {
@@ -130,7 +130,7 @@ describe('Inventory Service - Concurrency & Acceptance Scenarios', () => {
         if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
           return { rows: [] };
         }
-        if (sql.includes('SELECT id, status FROM stock_reservations WHERE id = $1')) {
+        if (sql.includes('FROM stock_reservations WHERE id = $1')) {
           return { rows: [{ id: params![0], status: 'ACTIVE' }] };
         }
         if (sql.includes('SELECT sku, location_id, quantity FROM stock_reservation_items')) {

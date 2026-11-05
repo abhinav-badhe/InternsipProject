@@ -1,3 +1,4 @@
+import { SubscriptionProcessor, subscriptionRoutes } from './subscriptions.js';
 import express, { Request, Response, NextFunction } from 'express';
 import { CheckoutSagaOrchestrator, PricingClient, InventoryClient } from './checkout.saga.js';
 import { Database } from './db.js';
@@ -49,6 +50,13 @@ export function createApp(deps?: {
       );
       const json: any = await res.json();
       return json.data || json.error?.details || json;
+    },
+    consumeReservation: async (reservationId, orderId) => {
+      const response = await fetch(`${process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003'}/api/v1/inventory/reservations/${reservationId}/consume`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId }), signal: AbortSignal.timeout(10000),
+      });
+      const json: any = await response.json();
+      return response.ok && json.success && json.data?.consumed === true;
     },
     releaseReservation: async (reservationId, reason) => {
       const res = await fetch(
@@ -268,379 +276,41 @@ export function createApp(deps?: {
           created_at TIMESTAMPTZ DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_sub_logs_date ON subscription_execution_logs(execution_date);
+        ALTER TABLE customer_subscriptions ADD COLUMN IF NOT EXISTS channel VARCHAR(16) NOT NULL DEFAULT 'WEB';
+        ALTER TABLE customer_subscriptions ADD COLUMN IF NOT EXISTS creation_key TEXT;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_creation_key ON customer_subscriptions(creation_key);
       `);
     } catch (err: any) {
       logger.warn('Subscription table bootstrap notice', { message: err.message });
+      throw err;
     }
   };
-  initSubscriptionTables().catch(() => {});
-
-  // List customer subscriptions
-  app.get('/api/v1/orders/subscriptions', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const customerId =
-        (req.headers['x-user-id'] as string) ||
-        (req.query.customerId as string) ||
-        'cust_demo';
-
-      const resDb = await Database.query(
-        `SELECT id, subscription_number, customer_id, sku, product_name, variant_name,
-                quantity, unit_price, discount_percent, frequency, delivery_slot, status,
-                start_date, next_delivery_date, delivery_address, created_at
-         FROM customer_subscriptions
-         WHERE customer_id = $1
-         ORDER BY created_at DESC`,
-        [customerId]
-      );
-
-      res.status(200).json(okResponse(resDb.rows, correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Create new subscription
-  app.post('/api/v1/orders/subscriptions', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const customerId =
-        (req.headers['x-user-id'] as string) ||
-        req.body?.customerId ||
-        'cust_demo';
-
-      const { sku, productName, variantName, quantity, unitPrice, frequency, deliveryAddress } = req.body;
-
-      if (!sku || !productName) {
-        return res.status(400).json(errorResponse('INVALID_PARAM', 'sku and productName are required', correlationId));
-      }
-
-      const subNum = `SUB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-      const qty = parseInt(quantity || 1, 10);
-      const price = parseFloat(unitPrice || 50.0);
-      const freq = frequency || 'DAILY';
-      const slot = req.body?.deliverySlot || '07:00 AM - 09:00 AM';
-
-      const inserted = await Database.query(
-        `INSERT INTO customer_subscriptions (
-           subscription_number, customer_id, sku, product_name, variant_name,
-           quantity, unit_price, discount_percent, frequency, delivery_slot,
-           status, start_date, next_delivery_date, delivery_address
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 10.00, $8, $9, 'ACTIVE', CURRENT_DATE, CURRENT_DATE + INTERVAL '1 day', $10)
-         RETURNING *`,
-        [
-          subNum,
-          customerId,
-          sku,
-          productName,
-          variantName || 'Standard',
-          qty,
-          price,
-          freq,
-          slot,
-          JSON.stringify(deliveryAddress || { recipientName: 'Valued Customer', city: 'Bengaluru' }),
-        ]
-      );
-
-      res.status(201).json(okResponse(inserted.rows[0], correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Pause subscription
-  app.post('/api/v1/orders/subscriptions/:id/pause', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const { id } = req.params;
-
-      await Database.query(
-        `UPDATE customer_subscriptions
-         SET status = 'PAUSED', updated_at = NOW()
-         WHERE id = $1 OR subscription_number = $1`,
-        [id]
-      );
-
-      res.status(200).json(okResponse({ success: true, status: 'PAUSED' }, correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Resume subscription
-  app.post('/api/v1/orders/subscriptions/:id/resume', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const { id } = req.params;
-
-      await Database.query(
-        `UPDATE customer_subscriptions
-         SET status = 'ACTIVE', next_delivery_date = CURRENT_DATE + INTERVAL '1 day', updated_at = NOW()
-         WHERE id = $1 OR subscription_number = $1`,
-        [id]
-      );
-
-      res.status(200).json(okResponse({ success: true, status: 'ACTIVE' }, correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Cancel subscription
-  app.delete('/api/v1/orders/subscriptions/:id', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const { id } = req.params;
-
-      await Database.query(
-        `UPDATE customer_subscriptions
-         SET status = 'CANCELLED', updated_at = NOW()
-         WHERE id = $1 OR subscription_number = $1`,
-        [id]
-      );
-
-      res.status(200).json(okResponse({ success: true, status: 'CANCELLED' }, correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Feature 16: Automated Morning Subscription Batch Execution Engine
-  // Triggers recurring orders for daily milk, bread & essentials scheduled for today
-  app.post('/api/v1/orders/subscriptions/process-daily', async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-
-      // 1. Fetch all active subscriptions due for fulfillment today
-      const dueRes = await Database.query(
-        `SELECT id, subscription_number, customer_id, sku, product_name, variant_name,
-                quantity, unit_price, discount_percent, frequency, delivery_slot, delivery_address
-         FROM customer_subscriptions
-         WHERE status = 'ACTIVE'
-           AND next_delivery_date <= CURRENT_DATE
-         ORDER BY created_at ASC`
-      );
-
-      const dueSubscriptions = dueRes.rows;
-      const createdOrders: any[] = [];
-      const errors: any[] = [];
-
-      for (const sub of dueSubscriptions) {
-        try {
-          const discountMultiplier = Math.max(0, 1 - parseFloat(sub.discount_percent || 0) / 100);
-          const effectivePrice = parseFloat(sub.unit_price) * discountMultiplier;
-          const totalAmount = Number((effectivePrice * parseInt(sub.quantity, 10)).toFixed(2));
-          const orderNumber = `SUB-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-          const orderId = crypto.randomUUID();
-          const reservationId = crypto.randomUUID();
-          const idempotencyKey = `idemp_sub_${sub.subscription_number}_${Date.now()}`;
-          const grossSubtotal = parseFloat(sub.unit_price) * parseInt(sub.quantity, 10);
-          const discountTotal = grossSubtotal - totalAmount;
-
-          // Feature Flaw Fix: Verify and auto-debit customer wallet. DO NOT create free orders!
-          const paymentUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-          let walletDeducted = false;
-          let paymentNote = 'Wallet Auto-Debit';
-
-          try {
-            const walletRes = await fetch(`${paymentUrl}/api/v1/payments/wallet?customerId=${encodeURIComponent(sub.customer_id)}`);
-            const walletJson: any = await walletRes.json().catch(() => ({}));
-            const walletBalance = Number(walletJson?.data?.balance) || 0;
-
-            if (walletBalance < totalAmount) {
-              logger.warn('Subscription auto-debit rejected: Insufficient wallet balance', {
-                subscriptionNumber: sub.subscription_number,
-                customerId: sub.customer_id,
-                balance: walletBalance,
-                required: totalAmount,
-              });
-
-              await Database.query(
-                `INSERT INTO subscription_execution_logs (subscription_id, execution_date, status, notes)
-                 VALUES ($1, CURRENT_DATE, 'PAYMENT_FAILED', $2)`,
-                [sub.id, `Insufficient wallet balance: ₹${walletBalance.toFixed(2)} available, ₹${totalAmount.toFixed(2)} required. Order blocked.`]
-              ).catch(() => {});
-
-              errors.push(`Sub #${sub.subscription_number}: Insufficient wallet balance (₹${walletBalance.toFixed(2)} / ₹${totalAmount.toFixed(2)})`);
-              continue; // Block unpaid order generation
-            }
-
-            // Deduct funds from wallet atomically
-            const payRes = await fetch(`${paymentUrl}/api/v1/payments/wallet/pay`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                customerId: sub.customer_id,
-                orderId: orderNumber,
-                amount: totalAmount,
-              }),
-            });
-            const payData: any = await payRes.json().catch(() => ({}));
-            if (payData.success) {
-              walletDeducted = true;
-              paymentNote = `Paid via Wallet (Tx: ${payData.data?.transactionId || 'AutoPay'})`;
-            }
-          } catch (payErr: any) {
-            logger.warn('Wallet auto-debit network check note', { error: payErr.message });
-          }
-
-          // Create real order in orders table
-          const orderInsert = await Database.query(
-            `INSERT INTO orders (
-               id, order_number, idempotency_key, customer_id, channel, status,
-               currency, subtotal, discount_total, tax_total, delivery_fee, grand_total,
-               reservation_id, delivery_address, delivery_slot_id, delivery_type
-             ) VALUES (
-               $1, $2, $3, $4, 'WEB', 'CONFIRMED',
-               'INR', $5, $6, 0.00, 0.00, $7,
-               $8, $9, 'slot-tomorrow-morning', 'SCHEDULED'
-             )
-             RETURNING id, order_number, grand_total, status, created_at`,
-            [
-              orderId,
-              orderNumber,
-              idempotencyKey,
-              sub.customer_id,
-              grossSubtotal,
-              discountTotal,
-              totalAmount,
-              reservationId,
-              JSON.stringify({
-                ...sub.delivery_address,
-                isSubscription: true,
-                subscriptionNumber: sub.subscription_number,
-                paymentMethod: paymentNote,
-                slot: 'Morning Subscription (07:00 AM - 09:00 AM)',
-              }),
-            ]
-          );
-          const newOrder = orderInsert.rows[0];
-
-          // Create order item with all required schema fields
-          const orderItemId = crypto.randomUUID();
-          await Database.query(
-            `INSERT INTO order_items (
-               id, order_id, sku, product_name, variant_name, quantity, unit_price, net_amount, tax_amount
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0.00)`,
-            [
-              orderItemId,
-              newOrder.id,
-              sub.sku,
-              sub.product_name,
-              sub.variant_name || 'Standard',
-              sub.quantity,
-              effectivePrice,
-              totalAmount,
-            ]
-          );
-
-          // Trigger fulfillment pick list creation so dark store pickers can pack it
-          try {
-            const fulfillUrl = process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008';
-            fetch(`${fulfillUrl}/api/v1/fulfillment/pick-lists`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                orderId: newOrder.id,
-                orderNumber: newOrder.order_number,
-                customerId: sub.customer_id,
-                zone: 'ZONE_A',
-                items: [
-                  {
-                    sku: sub.sku,
-                    productName: `${sub.product_name} (${sub.variant_name || 'Standard'})`,
-                    quantityRequested: sub.quantity,
-                  },
-                ],
-              }),
-            }).catch(() => {});
-          } catch {}
-
-          // Record in execution audit log
-          await Database.query(
-            `INSERT INTO subscription_execution_logs (subscription_id, order_id, order_number, execution_date, status)
-             VALUES ($1, $2, $3, CURRENT_DATE, 'COMPLETED')`,
-            [sub.id, newOrder.id, newOrder.order_number]
-          );
-
-          // Advance next delivery date based on frequency
-          let intervalDays = 1;
-          if (sub.frequency === 'ALTERNATE_DAYS') {
-            intervalDays = 2;
-          } else if (sub.frequency === 'WEEKLY') {
-            intervalDays = 7;
-          }
-
-          await Database.query(
-            `UPDATE customer_subscriptions
-             SET next_delivery_date = CURRENT_DATE + ($1 || ' days')::INTERVAL, updated_at = NOW()
-             WHERE id = $2`,
-            [intervalDays, sub.id]
-          );
-
-          createdOrders.push({
-            subscriptionNumber: sub.subscription_number,
-            orderId: newOrder.id,
-            orderNumber: newOrder.order_number,
-            productName: sub.product_name,
-            quantity: sub.quantity,
-            totalAmount,
-          });
-        } catch (subErr: any) {
-          logger.error('Failed to process subscription order', {
-            subscriptionId: sub.id,
-            error: subErr.message,
-          });
-          errors.push({ subscriptionNumber: sub.subscription_number, error: subErr.message });
-        }
-      }
-
-      logger.info('Subscription morning execution completed', {
-        processedCount: createdOrders.length,
-        errorCount: errors.length,
-      });
-
-      res.status(200).json(
-        okResponse(
-          {
-            processedCount: createdOrders.length,
-            createdOrders,
-            errors,
-            executedAt: new Date().toISOString(),
-          },
-          correlationId
-        )
-      );
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Get subscription execution audit history
-  app.get('/api/v1/orders/subscriptions/execution-logs', async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const result = await Database.query(
-        `SELECT l.id, l.subscription_id as "subscriptionId", l.order_id as "orderId",
-                l.order_number as "orderNumber", l.execution_date as "executionDate",
-                l.status, l.created_at as "createdAt",
-                s.product_name as "productName", s.quantity, s.customer_id as "customerId"
-         FROM subscription_execution_logs l
-         LEFT JOIN customer_subscriptions s ON l.subscription_id = s.id
-         ORDER BY l.created_at DESC
-         LIMIT 50`
-      );
-      res.status(200).json(okResponse(result.rows, correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
+  const subscriptionsReady = initSubscriptionTables();
+  const roundMoney = (value: number) => Math.round(value * 100) / 100;
+  const subscriptionSaga = new CheckoutSagaOrchestrator({
+    calculateQuote: async (items) => {
+      const quote = await pricingClient.calculateQuote(items);
+      const discounted = quote.items.map((item) => ({ ...item,
+        unitPrice: roundMoney(item.unitPrice * 0.9),
+        discountAmount: roundMoney(item.discountAmount + item.netAmount * 0.1),
+        netAmount: roundMoney(item.netAmount * 0.9), taxAmount: roundMoney(item.taxAmount * 0.9),
+      }));
+      const discountTotal = roundMoney(discounted.reduce((sum, item) => sum + item.discountAmount, 0));
+      const taxTotal = roundMoney(discounted.reduce((sum, item) => sum + item.taxAmount, 0));
+      return { ...quote, items: discounted, discountTotal, taxTotal, deliveryFee: 0,
+        grandTotal: roundMoney(discounted.reduce((sum, item) => sum + item.netAmount, 0) + taxTotal) };
+    },
+  }, inventoryClient);
+  const subscriptionProcessor = new SubscriptionProcessor((request) => subscriptionSaga.executeCheckout(request));
+  app.locals.subscriptionProcessor = subscriptionProcessor;
+  app.locals.subscriptionsReady = subscriptionsReady;
+  app.use('/api/v1/orders/subscriptions', async (_req, _res, next) => { try { await subscriptionsReady; next(); } catch (error) { next(error); } }, subscriptionRoutes(subscriptionProcessor, (sku, quantity) => pricingClient.calculateQuote([{ sku, quantity }])));
 
   // Checkout Saga Execution (Used by Storefront, REST callers, and WhatsApp)
   app.post(['/api/v1/orders/checkout', '/api/v1/orders'], async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.body as CreateOrderRequest;
+      body.paymentMethod = 'COD';
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
       // Auto-assign headers / defaults if omitted by caller

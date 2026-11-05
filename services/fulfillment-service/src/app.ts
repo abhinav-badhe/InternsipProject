@@ -1,3 +1,4 @@
+import { claimDelivery, DeliveryClaimError } from './delivery.claim.js';
 import express, { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { FulfillmentService } from './fulfillment.service.js';
@@ -1407,6 +1408,10 @@ export function createApp(): express.Application {
         }, correlationId));
       }
 
+      if (!['CONFIRMED', 'PICKING', 'PACKED'].includes(order.status)) {
+        return res.status(409).json(errorResponse('ORDER_NOT_READY', 'Only confirmed orders can be packed for delivery.', correlationId));
+      }
+
       // Mark order as ready for pickup and PACKED
       await Database.query(`
         UPDATE orders 
@@ -1455,7 +1460,9 @@ export function createApp(): express.Application {
         FROM orders o
         LEFT JOIN order_items oi ON o.id = oi.order_id
         LEFT JOIN delivery_assignments da ON o.id = da.order_id AND da.status != 'CANCELLED'
-        WHERE (o.ready_for_pickup = TRUE OR o.status IN ('PACKED', 'CONFIRMED'))
+        WHERE o.ready_for_pickup = TRUE AND o.status = 'PACKED'
+          AND (o.delivery_address->>'deliveryWindowStart' IS NULL OR (o.delivery_address->>'deliveryWindowStart')::timestamptz <= NOW())
+          AND (o.delivery_address->>'deliveryWindowEnd' IS NULL OR (o.delivery_address->>'deliveryWindowEnd')::timestamptz > NOW())
           AND o.status NOT IN ('DELIVERED', 'CANCELLED')
           AND da.id IS NULL
         GROUP BY o.id, o.order_number, o.status, o.grand_total, o.delivery_address, o.created_at, o.ready_for_pickup, o.ready_for_pickup_at
@@ -1594,124 +1601,25 @@ export function createApp(): express.Application {
 
   // 4. First-Acceptance-Wins Atomic Order Assignment (ACID Guaranteed)
   app.post(['/api/v1/fulfillment/deliveries/:orderId/accept', '/api/v1/fulfillment/deliveries/assign'], async (req: Request, res: Response, next: NextFunction) => {
-    const client = await Database.getClient();
     const correlationId = getRequestContext()?.correlationId || 'unknown';
     try {
-      const orderId = req.params.orderId || req.body?.orderId;
-      const { riderId, riderName, riderPhone } = req.body || {};
-
-      await client.query('BEGIN');
-
-      // 1. Lock the order row with FOR UPDATE
-      const ordRes = await client.query(
-        `SELECT id, order_number, status, delivery_address, grand_total 
-         FROM orders 
-         WHERE id::text = $1 OR order_number = $1 
-         FOR UPDATE`,
-        [orderId]
-      );
-      if (ordRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json(errorResponse('ORDER_NOT_FOUND', 'Order not found', correlationId));
-      }
-      const order = ordRes.rows[0];
-
-      // 2. Lock & check active delivery assignments for this order
-      const assignCheck = await client.query(
-        `SELECT id, rider_name, rider_phone FROM delivery_assignments 
-         WHERE order_id = $1 AND status != 'CANCELLED' 
-         FOR UPDATE`,
-        [order.id]
-      );
-
-      if (assignCheck.rows.length > 0) {
-        // RACE CONDITION PREVENTED: Order already accepted by another delivery partner!
-        await client.query('ROLLBACK');
-        return res.status(409).json(errorResponse(
-          'ORDER_ALREADY_ACCEPTED',
-          'This order has already been accepted by another delivery partner.',
-          correlationId,
-          { acceptedBy: assignCheck.rows[0].rider_name }
-        ));
-      }
-
-      const authHeader = (req.headers.authorization || '') as string;
-      const tokenRiderId = authHeader.startsWith('Bearer dp_token_')
-        ? authHeader.replace('Bearer dp_token_', '').split('_')[0]
-        : null;
-
-      let rId = riderId || req.headers['x-user-id'] || tokenRiderId || req.body?.riderId || 'rider_express_01';
-      let rName = riderName || '';
-      let rPhone = riderPhone || '';
-      let riderUuid: string | null = null;
-
-      // Look up rider in delivery_riders if exists
-      const rQuery = await client.query(
-        `SELECT id, full_name, phone FROM delivery_riders WHERE id::text = $1 OR phone = $1 ${rName ? 'OR full_name ILIKE $2' : ''} LIMIT 1`,
-        rName ? [rId, `%${rName}%`] : [rId]
-      );
-      if (rQuery.rows.length > 0) {
-        riderUuid = rQuery.rows[0].id;
-        rId = rQuery.rows[0].id;
-        rName = rQuery.rows[0].full_name;
-        rPhone = rQuery.rows[0].phone;
-
-        // Update rider duty to ON_DELIVERY
-        await client.query(`UPDATE delivery_riders SET status = 'ON_DELIVERY', last_active_at = NOW() WHERE id = $1`, [riderUuid]);
-      } else {
-        rName = rName || 'Rahul Sharma (Express Rider)';
-        rPhone = rPhone || '+91 98765 00112';
-      }
-
-      const assignId = crypto.randomUUID();
-      const generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
-      await client.query(`
-        INSERT INTO delivery_assignments (
-          id, order_id, order_number, rider_id, rider_name, rider_phone,
-          status, delivery_address, delivery_otp, rider_uuid, assigned_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'ASSIGNED', $7, $8, $9, NOW())
-      `, [assignId, order.id, order.order_number, rId, rName, rPhone, JSON.stringify(order.delivery_address), generatedOtp, riderUuid]);
-
-      // Update order status to DISPATCHED
-      await client.query(
-        `UPDATE orders SET status = 'DISPATCHED', updated_at = NOW() WHERE id = $1`,
-        [order.id]
-      );
-
-      await client.query('COMMIT');
-
-      // Broadcast real-time SSE event: Removes order from other partners' screens immediately!
-      broadcastDeliveryEvent({
-        type: 'ORDER_ASSIGNED',
-        orderId: order.id,
-        orderNumber: order.order_number,
-        riderId: rId,
-        riderName: rName,
-        riderPhone: rPhone,
-        status: 'ASSIGNED',
-        timestamp: new Date().toISOString()
-      });
-
-      res.status(200).json(okResponse({
-        deliveryId: assignId,
-        orderId: order.id,
-        orderNumber: order.order_number,
-        riderName: rName,
-        riderPhone: rPhone,
-        status: 'ASSIGNED',
-        assignedAt: new Date().toISOString()
-      }, correlationId));
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      next(err);
-    } finally {
-      client.release();
+      const riderId = String(req.headers['x-user-id'] || req.body?.riderId || '');
+      const result = await claimDelivery(String(req.params.orderId || req.body?.orderId || ''), riderId);
+      broadcastDeliveryEvent({ type: 'ORDER_ASSIGNED', ...result, timestamp: result.assignedAt });
+      res.json(okResponse(result, correlationId));
+    } catch (error) {
+      if (error instanceof DeliveryClaimError) return res.status(error.status).json(errorResponse(error.code, error.message, correlationId));
+      next(error);
     }
   });
 
   // 5. Delivery Partner Updates Delivery Status (Reached Store, Picked Up, Delivered)
   app.post(['/api/v1/fulfillment/deliveries/:orderId/status', '/api/v1/fulfillment/deliveries/:orderId/pickup', '/api/v1/fulfillment/deliveries/:orderId/complete'], async (req: Request, res: Response, next: NextFunction) => {
+    const client = await Database.getClient();
+    let committed = false;
+    const commit = async () => { await client.query('COMMIT'); committed = true; };
     try {
+      await client.query('BEGIN');
       const { orderId } = req.params;
       let status = req.body?.status;
       const { otp, proofSignature, proofNotes } = req.body || {};
@@ -1721,17 +1629,18 @@ export function createApp(): express.Application {
       if (req.path.endsWith('/pickup')) status = 'IN_TRANSIT';
       if (req.path.endsWith('/complete')) status = 'DELIVERED';
 
-      const ordRes = await Database.query(
-        `SELECT id, order_number, delivery_address FROM orders WHERE id::text = $1 OR order_number = $1`,
+      const ordRes = await client.query(
+        `SELECT id, order_number, delivery_address, grand_total, payment_intent_id, status FROM orders WHERE id::text = $1 OR order_number = $1 FOR UPDATE`,
         [orderId]
       );
       if (ordRes.rows.length === 0) {
         return res.status(404).json(errorResponse('ORDER_NOT_FOUND', 'Order not found', correlationId));
       }
       const order = ordRes.rows[0];
+      if (order.status === 'CANCELLED') return res.status(409).json(errorResponse('ORDER_CANCELLED', 'Cancelled orders cannot be delivered.', correlationId));
 
-      const daRes = await Database.query(
-        `SELECT * FROM delivery_assignments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      const daRes = await client.query(
+        `SELECT * FROM delivery_assignments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
         [order.id]
       );
       if (daRes.rows.length === 0) {
@@ -1739,14 +1648,25 @@ export function createApp(): express.Application {
       }
       const delivery = daRes.rows[0];
 
+      const actingRider = String(req.headers['x-user-id'] || req.body?.riderId || '');
+      if (!actingRider || ![String(delivery.rider_id), String(delivery.rider_uuid)].includes(actingRider)) {
+        return res.status(403).json(errorResponse('DELIVERY_NOT_YOURS', 'Only the assigned delivery partner can update this delivery.', correlationId));
+      }
+      if (delivery.status === 'DELIVERED') return res.json(okResponse({ orderId: order.id, status: 'DELIVERED' }, correlationId));
+      const allowed: Record<string, string[]> = { ASSIGNED: ['REACHED_STORE'], REACHED_STORE: ['PICKED_UP', 'IN_TRANSIT'], IN_TRANSIT: ['DELIVERED'] };
+      if (!(allowed[delivery.status] || []).includes(status)) {
+        return res.status(409).json(errorResponse('INVALID_DELIVERY_TRANSITION', 'Follow the pickup and delivery steps in order.', correlationId));
+      }
+
       // Step A: Reached Store
       if (status === 'REACHED_STORE') {
-        await Database.query(`
+        await client.query(`
           UPDATE delivery_assignments 
           SET status = 'REACHED_STORE', reached_store_at = NOW(), updated_at = NOW() 
           WHERE id = $1
         `, [delivery.id]);
 
+        await commit();
         broadcastDeliveryEvent({
           type: 'DELIVERY_STATUS_CHANGED',
           orderId: order.id,
@@ -1771,15 +1691,17 @@ export function createApp(): express.Application {
           activeOtp = Math.floor(1000 + Math.random() * 9000).toString();
         }
 
-        await Database.query(`
+        await client.query(`
           UPDATE delivery_assignments 
           SET status = 'IN_TRANSIT', delivery_otp = $1, dispatched_at = NOW(), updated_at = NOW() 
           WHERE id = $2
         `, [activeOtp, delivery.id]);
 
-        await Database.query(`
+        await client.query(`
           UPDATE orders SET status = 'DISPATCHED', updated_at = NOW() WHERE id = $1
         `, [order.id]);
+
+        await commit();
 
         // Dispatch WhatsApp update to customer with real Verification PIN
         try {
@@ -1818,8 +1740,9 @@ export function createApp(): express.Application {
 
       // Step C: Complete Delivery at Doorstep with 4-Digit OTP
       if (status === 'DELIVERED') {
+        if (order.payment_intent_id === 'COD' && req.body.cashCollected !== true) return res.status(400).json(errorResponse('CASH_NOT_COLLECTED', 'Confirm that the cash amount was collected before completing delivery.', correlationId));
         const expectedOtp = delivery.delivery_otp;
-        if (expectedOtp && (!otp || String(otp).trim() !== String(expectedOtp).trim())) {
+        if (!expectedOtp || !otp || String(otp).trim() !== String(expectedOtp).trim()) {
           return res.status(400).json(errorResponse(
             'INVALID_DELIVERY_PIN',
             'Invalid 4-digit Delivery PIN. Please ask the customer for their verification PIN.',
@@ -1827,7 +1750,7 @@ export function createApp(): express.Application {
           ));
         }
 
-        await Database.query(`
+        await client.query(`
           UPDATE delivery_assignments 
           SET status = 'DELIVERED', 
               delivered_at = NOW(), 
@@ -1837,23 +1760,26 @@ export function createApp(): express.Application {
           WHERE id = $3
         `, [proofSignature || null, proofNotes || 'Handed to customer with verified OTP', delivery.id]);
 
-        await Database.query(`
+        await client.query(`
           UPDATE orders SET status = 'DELIVERED', updated_at = NOW() WHERE id = $1
         `, [order.id]);
 
         const riderKey = delivery.rider_uuid || delivery.rider_id;
         if (riderKey) {
-          await Database.query(`
+          await client.query(`
             UPDATE delivery_riders 
             SET status = 'ONLINE',
                 total_orders_completed = total_orders_completed + 1,
                 earnings_today = earnings_today + 50.00,
+                cod_collected_today = COALESCE(cod_collected_today, 0) + $2,
                 total_earnings_all_time = total_earnings_all_time + 50.00,
                 last_active_at = NOW(),
                 updated_at = NOW()
             WHERE id::text = $1 OR phone = $1
-          `, [riderKey]).catch(() => {});
+          `, [riderKey, order.payment_intent_id === 'COD' ? Number(order.grand_total) : 0]);
         }
+
+        await commit();
 
         // WhatsApp confirmation
         try {
@@ -1870,6 +1796,8 @@ export function createApp(): express.Application {
             }).catch(() => {});
           }
         } catch {}
+
+
 
         broadcastDeliveryEvent({
           type: 'DELIVERY_STATUS_CHANGED',
@@ -1891,6 +1819,9 @@ export function createApp(): express.Application {
       return res.status(400).json(errorResponse('INVALID_STATUS', 'Status must be REACHED_STORE, PICKED_UP, IN_TRANSIT, or DELIVERED', correlationId));
     } catch (err) {
       next(err);
+    } finally {
+      if (!committed) await client.query('ROLLBACK').catch(() => {});
+      client.release();
     }
   });
 

@@ -206,10 +206,14 @@ export class InventoryRepository {
       await client.query('BEGIN');
 
       const resvRes = await client.query(
-        `SELECT id, status FROM stock_reservations WHERE id = $1 FOR UPDATE`,
+        `SELECT id, status, order_id FROM stock_reservations WHERE id = $1 FOR UPDATE`,
         [reservationId]
       );
 
+      if (resvRes.rows[0]?.status === 'CONSUMED' && resvRes.rows[0].order_id === orderId) {
+        await client.query('COMMIT');
+        return true;
+      }
       if (resvRes.rows.length === 0 || resvRes.rows[0].status !== 'ACTIVE') {
         await client.query('ROLLBACK');
         return false;

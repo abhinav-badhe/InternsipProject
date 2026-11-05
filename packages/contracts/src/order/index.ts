@@ -28,6 +28,13 @@ export interface DeliveryAddress {
   city: string;
   postalCode: string;
   instructions?: string;
+  slot?: string;
+  slotId?: string;
+  scheduledFor?: string;
+  deliveryWindowStart?: string;
+  deliveryWindowEnd?: string;
+  timeZone?: string;
+  subscriptionNumber?: string;
 }
 
 export interface CreateOrderRequest {
@@ -40,6 +47,7 @@ export interface CreateOrderRequest {
     quantity: number;
   }>;
   promoCode?: string;
+  paymentMethod?: 'COD';
   reservationId?: string;
 }
 
@@ -63,3 +71,5 @@ export interface OrderResponse {
   createdAt: string;
   updatedAt: string;
 }
+
+export * from './subscriptions.js';

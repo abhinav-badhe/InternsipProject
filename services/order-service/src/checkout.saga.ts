@@ -17,6 +17,7 @@ export interface PricingClient {
 export interface InventoryClient {
   reserveStock(reservationId: string, items: Array<{ sku: string; quantity: number }>): Promise<ReserveStockResponse>;
   releaseReservation(reservationId: string, reason: string): Promise<boolean>;
+  consumeReservation?(reservationId: string, orderId: string): Promise<boolean>;
 }
 
 export class CheckoutSagaOrchestrator {
@@ -30,11 +31,17 @@ export class CheckoutSagaOrchestrator {
    */
   public async executeCheckout(req: CreateOrderRequest): Promise<OrderResponse> {
     const correlationId = crypto.randomUUID();
+    const isCod = req.paymentMethod === 'COD';
     logger.info('Starting checkout saga', { idempotencyKey: req.idempotencyKey, channel: req.channel });
 
     // 1. IDEMPOTENCY CHECK (Rule: Return existing result for repeated idempotency key)
     const existingOrder = await this.findOrderByIdempotencyKey(req.idempotencyKey);
     if (existingOrder) {
+      if (existingOrder.customerId !== req.customerId) throw new Error('Idempotency key belongs to another customer.');
+      if (isCod && existingOrder.status === 'PENDING_CONFIRMATION') {
+        await this.confirmCashOrder(existingOrder.orderId, existingOrder.reservationId);
+        existingOrder.status = 'CONFIRMED';
+      }
       logger.info('Idempotency hit: Returning existing order without duplicate reservation', {
         orderId: existingOrder.orderId,
         idempotencyKey: req.idempotencyKey,
@@ -60,6 +67,8 @@ export class CheckoutSagaOrchestrator {
     // 4. PERSIST ORDER AND SAGA STATE (Database Transaction)
     const client = await Database.getClient();
     const orderId = crypto.randomUUID();
+    let committed = false;
+    let released = false;
     const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
     const paymentCheckoutUrl = `https://pay.groceryplatform.com/checkout/sess_${crypto.randomBytes(8).toString('hex')}`;
 
@@ -78,7 +87,7 @@ export class CheckoutSagaOrchestrator {
          (id, order_number, idempotency_key, customer_id, channel, status, currency, 
           subtotal, discount_total, tax_total, delivery_fee, grand_total, 
           reservation_id, delivery_address, delivery_slot_id, delivery_type)
-         VALUES ($1, $2, $3, $4, $5, 'AWAITING_PAYMENT', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+         VALUES ($1, $2, $3, $4, $5, $16, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           orderId,
           orderNumber,
@@ -95,6 +104,7 @@ export class CheckoutSagaOrchestrator {
           JSON.stringify(req.deliveryAddress),
           deliverySlotId,
           deliveryType,
+          isCod ? 'PENDING_CONFIRMATION' : 'AWAITING_PAYMENT',
         ]
       );
 
@@ -150,6 +160,10 @@ export class CheckoutSagaOrchestrator {
       );
 
       await client.query('COMMIT');
+      committed = true;
+      client.release();
+      released = true;
+      if (isCod) await this.confirmCashOrder(orderId, reservationId);
       logger.info('Checkout saga completed successfully', { orderId, orderNumber });
 
       // Multi-channel notification: Dispatch WhatsApp payment options & total to customer
@@ -159,7 +173,14 @@ export class CheckoutSagaOrchestrator {
           (req.customerId?.startsWith('phone_') ? req.customerId.replace('phone_', '') : null) ||
           (req.customerId?.startsWith('+') ? req.customerId : null);
 
-        if (phone) {
+        if (phone && isCod && (req.channel === 'WEB' || req.deliveryAddress.subscriptionNumber)) {
+          const response = await fetch(`${process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005'}/api/v1/whatsapp/dispatch`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000),
+            body: JSON.stringify({ toPhone: phone, bodyText: `Order ${orderNumber} confirmed.\n${req.deliveryAddress.subscriptionNumber ? `Subscription ${req.deliveryAddress.subscriptionNumber}\n` : ''}${req.deliveryAddress.slot ? `Delivery window: ${req.deliveryAddress.slot} IST\n` : ''}Total: ₹${quote.grandTotal.toFixed(2)}. Pay cash on delivery. The store will pack your order before pickup.` }),
+          });
+          if (!response.ok) logger.warn('COD WhatsApp notification could not be sent', { orderId });
+        }
+        if (phone && !isCod) {
           const cleanPhone = String(phone).startsWith('+') ? String(phone) : `+${String(phone).replace(/[^0-9]/g, '')}`;
           const upiLink = `upi://pay?pa=freshcart@icici&pn=FreshCart&am=${quote.grandTotal.toFixed(2)}&tn=Order-${orderNumber}&cu=INR`;
           const webPayUrl = `http://localhost:5173/?payOrder=${orderNumber}&amt=${quote.grandTotal.toFixed(2)}`;
@@ -208,7 +229,7 @@ export class CheckoutSagaOrchestrator {
         orderNumber,
         idempotencyKey: req.idempotencyKey,
         channel: req.channel,
-        status: 'AWAITING_PAYMENT',
+        status: isCod ? 'CONFIRMED' : 'AWAITING_PAYMENT',
         customerId: req.customerId,
         subtotal: quote.subtotal,
         deliveryFee: quote.deliveryFee,
@@ -217,7 +238,7 @@ export class CheckoutSagaOrchestrator {
         grandTotal: quote.grandTotal,
         currency: quote.currency,
         reservationId,
-        paymentCheckoutUrl,
+        paymentCheckoutUrl: isCod ? undefined : paymentCheckoutUrl,
         deliveryAddress: req.deliveryAddress,
         items: quote.items.map((i) => ({
           sku: i.sku,
@@ -232,6 +253,7 @@ export class CheckoutSagaOrchestrator {
         updatedAt: new Date().toISOString(),
       };
     } catch (err) {
+      if (committed) throw err;
       await client.query('ROLLBACK');
       logger.error('Order database insert failed, executing compensating action (releasing stock)', {
         reservationId,
@@ -247,8 +269,16 @@ export class CheckoutSagaOrchestrator {
 
       throw err;
     } finally {
-      client.release();
+      if (!released) client.release();
     }
+  }
+
+  private async confirmCashOrder(orderId: string, reservationId: string) {
+    if (!this.inventoryClient.consumeReservation || !await this.inventoryClient.consumeReservation(reservationId, orderId)) {
+      throw new Error('Stock could not be finalized. Retry this order with the same checkout key.');
+    }
+    await CheckoutSagaOrchestrator.generateFulfillmentAndInvoiceOnConfirm(orderId);
+    await Database.query("UPDATE orders SET status = 'CONFIRMED', payment_intent_id = 'COD', updated_at = NOW() WHERE id = $1 AND status = 'PENDING_CONFIRMATION'", [orderId]);
   }
 
   /**
@@ -312,12 +342,13 @@ export class CheckoutSagaOrchestrator {
   public static async generateFulfillmentAndInvoiceOnConfirm(orderId: string): Promise<void> {
     const client = await Database.getClient();
     try {
+      await client.query('BEGIN');
       const ordRes = await client.query(
         `SELECT id, order_number, customer_id, delivery_address, subtotal, discount_total, tax_total, delivery_fee, grand_total 
-         FROM orders WHERE id = $1`,
+         FROM orders WHERE id = $1 FOR UPDATE`,
         [orderId]
       );
-      if (ordRes.rows.length === 0) return;
+      if (ordRes.rows.length === 0) { await client.query('COMMIT'); return; }
       const order = ordRes.rows[0];
 
       const itemsRes = await client.query(
@@ -326,22 +357,26 @@ export class CheckoutSagaOrchestrator {
       );
 
       // 1. Pick List & Items for Warehouse
-      const pickListId = crypto.randomUUID();
-      await client.query(
-        `INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
-         VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
-         ON CONFLICT DO NOTHING`,
-        [pickListId, order.id, order.order_number, order.customer_id]
-      );
-
-      for (const item of itemsRes.rows) {
-        const itemId = crypto.randomUUID();
+      const existingPick = await client.query('SELECT id FROM pick_lists WHERE order_id = $1 LIMIT 1', [order.id]);
+      if (!existingPick.rows.length) {
+        const pickListId = crypto.randomUUID();
         await client.query(
-          `INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, status)
-           VALUES ($1, $2, $3, $4, $5, 'PENDING')
+          `INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
+           VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
            ON CONFLICT DO NOTHING`,
-          [itemId, pickListId, item.sku, item.product_name, Math.round(Number(item.quantity) || 1)]
+          [pickListId, order.id, order.order_number, order.customer_id]
         );
+
+        for (const item of itemsRes.rows) {
+          const itemId = crypto.randomUUID();
+          await client.query(
+            `INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, status)
+             VALUES ($1, $2, $3, $4, $5, 'PENDING')
+             ON CONFLICT DO NOTHING`,
+            [itemId, pickListId, item.sku, item.product_name, Math.round(Number(item.quantity) || 1)]
+          );
+        }
+
       }
 
       // 2. Legal GST Tax Invoice for Accounting
@@ -373,8 +408,11 @@ export class CheckoutSagaOrchestrator {
           `private/invoices/${invoiceNumber}.pdf`,
         ]
       );
+      await client.query('COMMIT');
     } catch (err: any) {
+      await client.query('ROLLBACK').catch(() => {});
       logger.warn('Fulfillment & invoice creation notice', { orderId, error: err.message });
+      throw err;
     } finally {
       client.release();
     }

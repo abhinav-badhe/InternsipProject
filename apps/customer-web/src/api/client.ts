@@ -460,6 +460,8 @@ export async function setDefaultCustomerAddress(id: string): Promise<void> {
   await fetchCustomerAddresses();
 }
 
+let pendingCheckout: { fingerprint: string; key: string } | null = null;
+
 export async function executeRealCheckout(params: {
   items: Array<{ sku: string; quantity: number }>;
   deliverySlot: string;
@@ -467,7 +469,9 @@ export async function executeRealCheckout(params: {
   deliveryAddress?: CustomerSavedAddress;
 }): Promise<any> {
   const session = await getCustomerSession();
-  const idempotencyKey = `idemp_web_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  const fingerprint = JSON.stringify({ user: session.user.userId, ...params });
+  if (pendingCheckout?.fingerprint !== fingerprint) pendingCheckout = { fingerprint, key: crypto.randomUUID() };
+  const idempotencyKey = pendingCheckout.key;
 
   const addr = params.deliveryAddress || {
     label: 'HOME' as const,
@@ -511,6 +515,7 @@ export async function executeRealCheckout(params: {
     throw new Error(json.error?.message || 'Checkout failed');
   }
 
+  pendingCheckout = null;
   return json.data;
 }
 
@@ -839,6 +844,8 @@ export async function fetchCustomerSubscriptions(): Promise<CustomerSubscription
   return [];
 }
 
+let pendingSubscriptionCreation: { fingerprint: string; key: string } | null = null;
+
 export async function createSubscription(params: {
   sku: string;
   productName: string;
@@ -850,6 +857,8 @@ export async function createSubscription(params: {
   deliveryAddress?: any;
 }): Promise<CustomerSubscription> {
   const session = await getCustomerSession();
+  const fingerprint = JSON.stringify({ user: session.user.userId, ...params });
+  if (pendingSubscriptionCreation?.fingerprint !== fingerprint) pendingSubscriptionCreation = { fingerprint, key: crypto.randomUUID() };
   const res = await fetch('/api/v1/orders/subscriptions', {
     method: 'POST',
     headers: {
@@ -857,47 +866,29 @@ export async function createSubscription(params: {
       Authorization: `Bearer ${session.token}`,
       'x-user-id': session.user.userId,
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify({ ...params, idempotencyKey: pendingSubscriptionCreation.key }),
   });
   const json = await res.json();
   if (!json.success) {
     throw new Error(json.error?.message || 'Failed to create subscription');
   }
+  pendingSubscriptionCreation = null;
   return json.data;
 }
 
-export async function pauseSubscription(id: string): Promise<void> {
+async function changeSubscription(id: string, action: string, method = 'POST', body?: any): Promise<void> {
   const session = await getCustomerSession();
-  await fetch(`/api/v1/orders/subscriptions/${id}/pause`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.token}`,
-      'x-user-id': session.user.userId,
-    },
+  const response = await fetch(`/api/v1/orders/subscriptions/${id}${action}`, {
+    method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}`, 'x-user-id': session.user.userId },
+    body: body ? JSON.stringify(body) : undefined,
   });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error?.message || 'Subscription could not be updated.');
 }
-
-export async function resumeSubscription(id: string): Promise<void> {
-  const session = await getCustomerSession();
-  await fetch(`/api/v1/orders/subscriptions/${id}/resume`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.token}`,
-      'x-user-id': session.user.userId,
-    },
-  });
-}
-
-export async function cancelSubscription(id: string): Promise<void> {
-  const session = await getCustomerSession();
-  await fetch(`/api/v1/orders/subscriptions/${id}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${session.token}`,
-      'x-user-id': session.user.userId,
-    },
-  });
-}
+export const pauseSubscription = (id: string) => changeSubscription(id, '/pause');
+export const resumeSubscription = (id: string) => changeSubscription(id, '/resume');
+export const cancelSubscription = (id: string) => changeSubscription(id, '', 'DELETE');
+export const updateSubscriptionSlot = (id: string, deliverySlot: string) => changeSubscription(id, '', 'PATCH', { deliverySlot });
 
 export async function triggerDailySubscriptionBatch(): Promise<any> {
   const res = await fetch('/api/v1/orders/subscriptions/process-daily', {

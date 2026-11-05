@@ -71,6 +71,16 @@ export interface WhatsAppSessionState {
     proposedProductName: string;
     priceDifference: number;
   };
+  pendingSubscription?: {
+    step: 'FREQUENCY' | 'SLOT' | 'ADDRESS' | 'CONFIRM';
+    key: string;
+    item?: { sku: string; productName: string; variantName: string; quantity: number; unitPrice: number };
+    frequency?: import('../order/subscriptions.js').SubscriptionFrequency;
+    slot?: string;
+    subscriptionId?: string;
+    addresses?: any[];
+    address?: any;
+  };
   lastMessageAt: string;
   language?: 'en' | 'hi' | 'hi-Latn';
 }

@@ -1,3 +1,5 @@
+import type { Product } from '../data/catalog';
+import { SUBSCRIPTION_SLOTS } from '../../../../packages/contracts/src/order/subscriptions';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -19,17 +21,21 @@ import {
   pauseSubscription,
   resumeSubscription,
   cancelSubscription,
-  triggerDailySubscriptionBatch,
+  updateSubscriptionSlot,
+  fetchCustomerAddresses,
+  type CustomerSavedAddress,
 } from '../api/client';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
+  products: Product[];
   onClose: () => void;
   onSubscriptionChanged?: () => void;
 }
 
 export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   isOpen,
+  products,
   onClose,
   onSubscriptionChanged,
 }) => {
@@ -37,6 +43,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [activeTab, setActiveTab] = useState<'MY_SUBS' | 'NEW_SUB'>('MY_SUBS');
+
+  const essentials = products.filter((product) => /dairy|bread|egg/i.test(product.categoryName) || (/milk|bread|egg|curd|dahi|yogurt/i.test(product.name) && !/soap|shampoo|wash|detergent/i.test(product.name))).flatMap((product) =>
+    product.variants.filter((variant) => variant.availableStock > 0).map((variant) => ({ sku: variant.sku, productName: product.name, variantName: variant.packSize, unitPrice: variant.price }))).slice(0, 20);
 
   // New Subscription Form State
   const [selectedProduct, setSelectedProduct] = useState({
@@ -47,27 +56,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   });
   const [frequency, setFrequency] = useState<'DAILY' | 'ALTERNATE_DAYS' | 'WEEKDAYS_ONLY' | 'WEEKLY'>('DAILY');
   const [quantity, setQuantity] = useState(1);
+  const [deliverySlot, setDeliverySlot] = useState<string>(SUBSCRIPTION_SLOTS[1].label);
+  const [deliveryAddress, setDeliveryAddress] = useState<CustomerSavedAddress | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [isExecutingBatch, setIsExecutingBatch] = useState(false);
-
-  const handleRunBatchNow = async () => {
-    try {
-      setIsExecutingBatch(true);
-      const res = await triggerDailySubscriptionBatch();
-      setStatusMessage(`✅ Morning batch executed! Generated ${res.processedCount} order(s). Check Orders history!`);
-      loadSubscriptions();
-      if (onSubscriptionChanged) onSubscriptionChanged();
-      setTimeout(() => setStatusMessage(null), 5000);
-    } catch (err: any) {
-      alert(`Batch execution failed: ${err.message}`);
-    } finally {
-      setIsExecutingBatch(false);
-    }
-  };
-
   useEffect(() => {
     if (isOpen) {
       loadSubscriptions();
+      if (essentials.length && !essentials.some((product) => product.sku === selectedProduct.sku)) setSelectedProduct(essentials[0]);
+      fetchCustomerAddresses().then((addresses) => setDeliveryAddress(addresses.find((address) => address.isDefault) || addresses[0] || null)).catch(() => setDeliveryAddress(null));
     }
   }, [isOpen]);
 
@@ -87,16 +83,18 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     setIsCreating(true);
     setStatusMessage(null);
     try {
-      await createSubscription({
+      if (!deliveryAddress) throw new Error('Save a delivery address before starting a subscription.');
+      const created = await createSubscription({
         sku: selectedProduct.sku,
         productName: selectedProduct.productName,
         variantName: selectedProduct.variantName,
         quantity,
         unitPrice: selectedProduct.unitPrice,
         frequency,
-        deliverySlot: '07:00 AM - 09:00 AM',
+        deliverySlot,
+        deliveryAddress,
       });
-      setStatusMessage(`🎉 Subscribed to ${selectedProduct.productName}! Next morning delivery scheduled.`);
+      setStatusMessage(`Subscribed to ${selectedProduct.productName}. First delivery: ${String(created.next_delivery_date).slice(0, 10)}, ${deliverySlot} IST. Pay cash on delivery.`);
       loadSubscriptions();
       setActiveTab('MY_SUBS');
       if (onSubscriptionChanged) onSubscriptionChanged();
@@ -161,7 +159,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             <div>
               <h3 className="text-2xl font-bold tracking-tight">Daily Milk & Essentials</h3>
               <p className="text-xs text-white/80 mt-1">
-                Fresh morning doorstep delivery at 7 AM. Pause or cancel anytime.
+                Choose your morning delivery window. Pause or cancel future deliveries anytime.
               </p>
             </div>
             <div className="bg-blue-400/20 border border-blue-300/30 px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold text-white/80">
@@ -292,10 +290,15 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                             </div>
                           </div>
 
-                          <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
+                          <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap gap-2 items-center justify-between text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <Clock className="w-3 h-3 text-slate-400" />
-                              Morning Slot: {sub.delivery_slot}
+                              <select aria-label={`Delivery window for ${sub.product_name}`} value={sub.delivery_slot} onChange={async (event) => {
+                                try { await updateSubscriptionSlot(sub.id, event.target.value); await loadSubscriptions(); }
+                                catch (error: any) { setStatusMessage(error.message); }
+                              }} className="min-h-11 max-w-full rounded-md border border-border bg-surface px-2 text-xs">
+                                {SUBSCRIPTION_SLOTS.map((slot) => <option key={slot.id} value={slot.label}>{slot.title} IST</option>)}
+                              </select>
                             </span>
                             {isActive && (
                               <span className="text-emerald-700 font-bold flex items-center gap-1">
@@ -310,23 +313,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 </div>
               )}
 
-              {subscriptions.filter((s) => s.status === 'ACTIVE').length > 0 && (
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  <div>
-                    <p className="text-[11px] font-bold text-slate-800">Automated 07:00 AM Cron Engine</p>
-                    <p className="text-[9px] text-slate-500">Executes morning deliveries into dark store pick lists</p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isExecutingBatch}
-                    onClick={handleRunBatchNow}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 "
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                    <span>{isExecutingBatch ? 'Executing...' : 'Run Morning Batch'}</span>
-                  </button>
-                </div>
-              )}
+              <p className="mt-4 text-xs leading-relaxed text-muted-foreground">Deliveries run automatically while the backend is running. Pay cash on delivery. Missed morning windows are skipped, never shifted to noon.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -334,32 +321,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               <div className="space-y-1.5">
                 <span className="block text-xs font-bold text-slate-800">Select Essential</span>
                 <div className="grid grid-cols-2 gap-2">
-                  {[
-                    {
-                      sku: 'AMUL-TZ-500ML',
-                      productName: 'Amul Taaza Milk',
-                      variantName: '500 ml',
-                      unitPrice: 27.0,
-                    },
-                    {
-                      sku: 'SKU-BRD-WHT-400G',
-                      productName: 'Britannia White Bread',
-                      variantName: '400 g',
-                      unitPrice: 45.0,
-                    },
-                    {
-                      sku: 'SKU-EGG-6PC',
-                      productName: 'Farm Fresh White Eggs',
-                      variantName: '6 pcs',
-                      unitPrice: 54.0,
-                    },
-                    {
-                      sku: 'SKU-DAHI-400G',
-                      productName: 'Mother Dairy Classic Dahi',
-                      variantName: '400 g',
-                      unitPrice: 35.0,
-                    },
-                  ].map((p) => {
+                  {essentials.map((p) => {
                     const isSelected = selectedProduct.sku === p.sku;
                     return (
                       <button
@@ -396,7 +358,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                     { id: 'DAILY', label: 'Every Day (Daily)' },
                     { id: 'ALTERNATE_DAYS', label: 'Alternate Days' },
                     { id: 'WEEKDAYS_ONLY', label: 'Weekdays Only (Mon-Fri)' },
-                    { id: 'WEEKLY', label: 'Weekly (Sundays)' },
+                    { id: 'WEEKLY', label: 'Weekly (same weekday)' },
                   ].map((f) => (
                     <button
                       key={f.id}
@@ -413,6 +375,13 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                   ))}
                 </div>
               </div>
+
+              <label className="flex flex-col gap-2 text-xs font-semibold text-foreground">Delivery window (India time)
+                <select aria-label="Subscription delivery window" value={deliverySlot} onChange={(event) => setDeliverySlot(event.target.value)} className="min-h-11 rounded-md border border-border bg-surface px-3 text-sm">
+                  {SUBSCRIPTION_SLOTS.map((slot) => <option key={slot.id} value={slot.label}>{slot.title} IST</option>)}
+                </select>
+              </label>
+              <p className="text-xs text-muted-foreground">Starts on the next eligible day. Cash on delivery; no wallet deduction.</p>
 
               {/* Quantity Counter */}
               <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
@@ -440,7 +409,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               {/* Subscribe CTA Button */}
               <button
                 type="button"
-                disabled={isCreating}
+                disabled={isCreating || !essentials.length}
                 onClick={handleCreate}
                 className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
@@ -459,7 +428,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Pause anytime before 11 PM for next morning</span>
+            <span>Pause before your order starts being prepared</span>
           </div>
           <button
             onClick={onClose}

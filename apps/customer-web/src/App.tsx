@@ -258,7 +258,7 @@ export const App: React.FC = () => {
       if (orderData.grandTotal > 0 && orderData.status !== 'CONFIRMED') {
         setSelectedPaymentOrder(newOrder);
       } else {
-        showToast(`Order #${orderData.orderNumber} placed! Payment options & amount sent to your WhatsApp.`);
+        showToast(`Order #${orderData.orderNumber} placed! Pay cash on delivery.`);
       }
     } catch (err: any) {
       showToast(`Checkout Error: ${err.message}`);
@@ -707,6 +707,7 @@ export const App: React.FC = () => {
 
       {/* Feature 16: Daily Essentials & Milk Subscription Modal */}
       <SubscriptionModal
+        products={products}
         isOpen={isSubscriptionsOpen}
         onClose={() => setIsSubscriptionsOpen(false)}
         onSubscriptionChanged={() => {

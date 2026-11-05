@@ -155,7 +155,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   // Estimated Tax (5% on staples, 18% on personal care - approx 12% blended)
   const estimatedTax = Number(((subtotal - discount) * 0.12).toFixed(2));
   const preWalletTotal = Math.max(0, Number((subtotal - discount + deliveryFee + estimatedTax).toFixed(2)));
-  const walletDeduction = useWallet ? Math.min(walletBalance, preWalletTotal) : 0;
+  const walletDeduction = 0;
   const grandTotal = Math.max(0, Number((preWalletTotal - walletDeduction).toFixed(2)));
 
   const handleApplyCoupon = async (e?: React.FormEvent, codeToApply?: string) => {
@@ -572,28 +572,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           {items.length > 0 && (
             <div className="shrink-0 border-t border-border bg-surface-muted p-4 space-y-3">
               {/* Feature 15: FreshCart Wallet Pay Option */}
-              {walletBalance > 0 && (
-                <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50/70 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Wallet className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <div>
-                      <span className="block text-xs font-bold text-emerald-950">
-                        Pay with FreshCart Wallet
-                      </span>
-                      <span className="text-[10px] text-emerald-700">
-                        Available: ₹{walletBalance.toFixed(2)} (Instant 5% Cashback)
-                      </span>
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={useWallet}
-                    onChange={(e) => setUseWallet(e.target.checked)}
-                    className="w-4 h-4 text-emerald-600 rounded cursor-pointer accent-emerald-600"
-                  />
-                </div>
-              )}
-
               {/* Bill Details */}
               <div className="space-y-1.5 text-xs text-slate-600">
                 <div className="flex justify-between">
@@ -656,7 +634,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>
-                  {isCheckingOut ? 'Reserving Stock...' : `Proceed to Pay ₹${grandTotal.toFixed(2)}`}
+                  {isCheckingOut ? 'Reserving Stock...' : `Place order · Pay on delivery`}
                 </span>
               </button>
             </div>
