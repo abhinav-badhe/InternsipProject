@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, FileText, Download, CheckCircle2, Clock, PackageCheck, Truck, Search, Phone, CreditCard, Smartphone, Check, Bike } from 'lucide-react';
 import { LiveTrackingModal } from './LiveTrackingModal';
 import { PaymentGatewayModal } from './PaymentGatewayModal';
+import { customerAuthFetch } from '../api/client';
 
 export interface CustomerOrder {
   id: string;
@@ -58,12 +59,14 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
 
     setIsSearching(true);
     try {
-      const isOrderNum = q.toUpperCase().startsWith('ORD-');
-      const url = isOrderNum
-        ? `/api/v1/orders?orderNumber=${encodeURIComponent(q.toUpperCase())}`
-        : `/api/v1/orders?phone=${encodeURIComponent(q)}`;
+      const cleanDigits = q.replace(/[^0-9]/g, '');
+      const isOrderNum = q.toUpperCase().startsWith('ORD-') || q.toUpperCase().startsWith('SUB-');
+      const isPhone = cleanDigits.length >= 7 && !isOrderNum;
+      const url = isPhone
+        ? `/api/v1/orders?phone=${encodeURIComponent(cleanDigits)}`
+        : `/api/v1/orders?orderNumber=${encodeURIComponent(q.toUpperCase())}`;
 
-      const res = await fetch(url);
+      const res = await customerAuthFetch(url);
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const mapped: CustomerOrder[] = json.data.map((o: any) => ({

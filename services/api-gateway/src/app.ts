@@ -248,6 +248,26 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     forwardRequest(urls.order, req, res);
   });
 
+  // Feature Flaw Fix: Public Order Tracking by Phone or Order Number
+  // Allows customers to look up and track their storefront and WhatsApp orders without 401 rejection
+  app.get('/api/v1/orders', (req: Request, res: Response, next: NextFunction) => {
+    if (req.query.phone || req.query.orderNumber) {
+      const authHeader = req.headers['authorization'];
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const claims = authMiddleware.verifyToken(authHeader.substring(7).trim());
+        if (claims) {
+          req.user = claims;
+          req.headers['x-user-id'] = claims.userId;
+          req.headers['x-user-role'] = claims.role;
+        }
+      }
+      return forwardRequest(urls.order, req, res);
+    }
+    authMiddleware.authenticate(req, res, () => {
+      forwardRequest(urls.order, req, res);
+    });
+  });
+
   // Protected Orders API (Checkout, My Orders, Single Order with Scenario 05 tenant check)
   app.use('/api/v1/orders*', authMiddleware.authenticate, (req: Request, res: Response) => {
     forwardRequest(urls.order, req, res);
