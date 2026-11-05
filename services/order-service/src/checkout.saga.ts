@@ -117,9 +117,8 @@ export class CheckoutSagaOrchestrator {
         );
       }
 
-      // For in-store POS transactions that are settled immediately, generate fulfillment and invoice right away.
-      // For online orders in AWAITING_PAYMENT, defer fulfillment and invoicing until payment is confirmed.
-      if ((req.channel as string) === 'POS' || (req.channel as string) === 'STORE') {
+      // For POS transactions and quick-commerce WhatsApp express orders, generate dark store fulfillment right away
+      if ((req.channel as string) === 'POS' || (req.channel as string) === 'STORE' || (req.channel as string) === 'WHATSAPP') {
         CheckoutSagaOrchestrator.generateFulfillmentAndInvoiceOnConfirm(orderId).catch(() => {});
       }
 

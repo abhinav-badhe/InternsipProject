@@ -994,11 +994,21 @@ export class WhatsAppBot {
       const totalAmt = Number(orderRow.grand_total || 0).toFixed(2);
 
       if (isPayCodAction) {
-        // Mark payment method as COD and confirm
-        await Database.query(
-          `UPDATE orders SET status = 'CONFIRMED', payment_intent_id = 'COD_PAYMENT', updated_at = NOW() WHERE id = $1`,
-          [orderRow.id]
-        );
+        // Mark payment method as COD and confirm via order-service
+        try {
+          const ordUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3004';
+          await fetch(`${ordUrl}/api/v1/orders/${orderRow.id}/confirm-payment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paymentId: 'COD_PAYMENT' }),
+          });
+        } catch {
+          await Database.query(
+            `UPDATE orders SET status = 'CONFIRMED', payment_intent_id = 'COD_PAYMENT', updated_at = NOW() WHERE id = $1`,
+            [orderRow.id]
+          );
+        }
+
         if (orderRow.reservation_id) {
           fetch(`${process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003'}/api/v1/inventory/reservations/${orderRow.reservation_id}/consume`, {
             method: 'POST',
@@ -1551,6 +1561,26 @@ export class WhatsAppBot {
       } as any,
       items: session.cartItems.map((i) => ({ sku: i.sku, quantity: i.quantity })),
     });
+
+    // Prime dark store fulfillment pick list immediately for 10-15 min express delivery
+    try {
+      const fulfillUrl = process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008';
+      await fetch(`${fulfillUrl}/api/v1/fulfillment/pick-lists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.orderId,
+          orderNumber: order.orderNumber,
+          customerId: session.customerId || `phone_${msg.fromPhoneNumber.replace(/[^0-9]/g, '')}`,
+          zone: 'Zone A-01-R1',
+          items: session.cartItems.map((i) => ({
+            sku: i.sku,
+            productName: i.productName || i.sku,
+            quantityRequested: i.quantity,
+          })),
+        }),
+      }).catch(() => {});
+    } catch {}
 
     // Clear cart on successful order creation & track order in session
     session.cartItems = [];

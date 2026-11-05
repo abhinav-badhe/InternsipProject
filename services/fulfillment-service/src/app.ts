@@ -55,40 +55,38 @@ export function createApp(): express.Application {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
-      // 1. Check if pick lists exist; if empty, backfill from recent active orders
-      const countRes = await Database.query(`SELECT COUNT(*) as count FROM pick_items`);
-      const existingCount = parseInt(countRes.rows[0]?.count || '0', 10);
+      // 1. Automatically ensure all recent active orders (including WhatsApp and Web orders) have dark store pick lists
+      const pendingOrdersRes = await Database.query(`
+        SELECT o.id, o.order_number, o.customer_id
+        FROM orders o
+        LEFT JOIN pick_lists pl ON o.id = pl.order_id OR o.order_number = pl.order_number
+        WHERE pl.id IS NULL 
+          AND o.status NOT IN ('DELIVERED', 'CANCELLED')
+        ORDER BY o.created_at DESC 
+        LIMIT 25
+      `);
 
-      if (existingCount === 0) {
-        // Backfill pick lists from authoritative orders table
-        const ordersRes = await Database.query(
-          `SELECT o.id, o.order_number, o.customer_id
-           FROM orders o
-           ORDER BY o.created_at DESC LIMIT 20`
+      for (const ord of pendingOrdersRes.rows) {
+        const itemsRes = await Database.query(
+          `SELECT sku, product_name, quantity FROM order_items WHERE order_id = $1`,
+          [ord.id]
         );
-
-        for (const ord of ordersRes.rows) {
-          const itemsRes = await Database.query(
-            `SELECT sku, product_name, quantity FROM order_items WHERE order_id = $1`,
-            [ord.id]
+        if (itemsRes.rows.length > 0) {
+          const pickListId = crypto.randomUUID();
+          await Database.query(
+            `INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
+             VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
+             ON CONFLICT DO NOTHING`,
+            [pickListId, ord.id, ord.order_number, ord.customer_id || 'cust_default']
           );
-          if (itemsRes.rows.length > 0) {
-            const pickListId = crypto.randomUUID();
-            await Database.query(
-              `INSERT INTO pick_lists (id, order_id, order_number, customer_id, zone, status)
-               VALUES ($1, $2, $3, $4, 'Zone A-01-R1', 'GENERATED')
-               ON CONFLICT DO NOTHING`,
-              [pickListId, ord.id, ord.order_number, ord.customer_id]
-            );
 
-            for (const it of itemsRes.rows) {
-              await Database.query(
-                `INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, status)
-                 VALUES ($1, $2, $3, $4, $5, 'PENDING')
-                 ON CONFLICT DO NOTHING`,
-                [crypto.randomUUID(), pickListId, it.sku, it.product_name, Math.round(parseFloat(it.quantity) || 1)]
-              );
-            }
+          for (const it of itemsRes.rows) {
+            await Database.query(
+              `INSERT INTO pick_items (id, pick_list_id, sku, product_name, quantity_requested, status)
+               VALUES ($1, $2, $3, $4, $5, 'PENDING')
+               ON CONFLICT DO NOTHING`,
+              [crypto.randomUUID(), pickListId, it.sku, it.product_name, Math.round(parseFloat(it.quantity) || 1)]
+            );
           }
         }
       }
