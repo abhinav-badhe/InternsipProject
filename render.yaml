@@ -96,7 +96,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/identity-service/dist/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -113,7 +112,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/catalog-service/dist/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -128,7 +126,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/pricing-service/dist/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -143,7 +140,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/inventory-service/dist/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -158,7 +154,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/order-service/dist/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -181,7 +176,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/payment-service/dist/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -204,7 +198,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/fulfillment-service/dist/src/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -221,7 +214,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/invoice-service/dist/src/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -236,7 +228,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/analytics-service/dist/src/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -251,7 +242,6 @@ services:
     plan: starter
     buildCommand: pnpm install && pnpm -r run build
     startCommand: node services/notification-service/dist/src/index.js
-    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
