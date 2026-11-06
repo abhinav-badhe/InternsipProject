@@ -647,7 +647,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           <p className="text-[11px] text-gray-500">
             Store Owner or Shopkeeper?{' '}
             <a
-              href="http://localhost:5174/"
+              href={((import.meta as any).env?.VITE_SELLER_HUB_URL || 'http://localhost:5174/')}
               target="_blank"
               rel="noreferrer"
               className="text-primary font-semibold hover:underline inline-flex items-center gap-0.5"
