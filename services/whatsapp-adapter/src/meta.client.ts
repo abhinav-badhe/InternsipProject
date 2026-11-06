@@ -38,6 +38,7 @@ export class WhatsAppCloudApiClient {
     this.accessToken =
       options?.accessToken ||
       process.env.WHATSAPP_ACCESS_TOKEN ||
+      process.env.WHATSAPP_API_TOKEN ||
       process.env.WHATSAPP_TOKEN ||
       process.env.META_WHATSAPP_TOKEN ||
       process.env.META_ACCESS_TOKEN;
@@ -45,6 +46,7 @@ export class WhatsAppCloudApiClient {
       options?.phoneNumberId ||
       process.env.WHATSAPP_PHONE_NUMBER_ID ||
       process.env.WHATSAPP_PHONE_ID ||
+      process.env.WHATSAPP_PHONE_NUMBER ||
       process.env.META_PHONE_NUMBER_ID;
     const version = options?.graphVersion || 'v19.0';
     this.baseUrl = `https://graph.facebook.com/${version}`;
