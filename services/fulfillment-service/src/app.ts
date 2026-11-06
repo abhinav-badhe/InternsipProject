@@ -1,6 +1,7 @@
 import { claimDelivery, DeliveryClaimError } from './delivery.claim.js';
 import express, { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
+import Redis from 'ioredis';
 import { FulfillmentService } from './fulfillment.service.js';
 import { Database } from './db.js';
 import {
@@ -253,12 +254,21 @@ export function createApp(): express.Application {
           WHERE id = $1
         `, [item.pickListId]).catch(() => {});
 
-        // Mark authoritative order as PACKED so it appears on Rider Dispatch
+        // Mark authoritative order as PACKED & READY FOR PICKUP so it appears on Rider Dispatch immediately
         await Database.query(`
           UPDATE orders 
-          SET status = 'PACKED', updated_at = NOW() 
+          SET status = 'PACKED', ready_for_pickup = TRUE, ready_for_pickup_at = NOW(), updated_at = NOW() 
           WHERE id = $1 OR order_number = $2
         `, [item.orderId, item.orderNumber]).catch(() => {});
+
+        try {
+          broadcastDeliveryEvent({
+            type: 'ORDER_READY',
+            orderId: item.orderId,
+            orderNumber: item.orderNumber,
+            timestamp: new Date().toISOString()
+          });
+        } catch {}
 
         logger.info('Order completed picking & packing via Barcode Scanner', {
           orderNumber: item.orderNumber,
@@ -463,6 +473,32 @@ export function createApp(): express.Application {
         proposedProductName,
         priceDelta: Number(priceDelta || 0),
       });
+
+      // Proactive WhatsApp notification to customer to collect substitute decision
+      try {
+        const plRes = await Database.query(`SELECT order_number FROM pick_lists WHERE id = $1`, [pickListId]);
+        const orderNumber = plRes.rows[0]?.order_number;
+        if (orderNumber) {
+          const ordRes = await Database.query(`SELECT delivery_address FROM orders WHERE order_number = $1`, [orderNumber]);
+          const addr = ordRes.rows[0]?.delivery_address || {};
+          const phone = addr.phone;
+          if (phone) {
+            const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+            fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                toPhone: phone,
+                bodyText: `⚠️ *FreshCart Item Substitution Alert for Order #${orderNumber}*\n\n` +
+                  `Item *"${originalSku}"* is currently out of stock.\n` +
+                  `Suggested Replacement: *${proposedProductName}* (${Number(priceDelta) >= 0 ? `+₹${Number(priceDelta).toFixed(2)}` : `-₹${Math.abs(Number(priceDelta)).toFixed(2)}`})\n\n` +
+                  `Would you like to accept this item or receive a refund for it?\n` +
+                  `Reply *APPROVE ${result.proposalId.slice(0, 8)}* or *REJECT ${result.proposalId.slice(0, 8)}* to decide.`,
+              }),
+            }).catch(() => {});
+          }
+        }
+      } catch {}
 
       res.status(201).json(okResponse(result, correlationId));
     } catch (err) {
@@ -836,10 +872,43 @@ export function createApp(): express.Application {
   });
 
   // ====================================================================
-  // REAL-TIME ORDER & DELIVERY SSE BROADCAST MANAGER
+  // REAL-TIME ORDER & DELIVERY SSE BROADCAST MANAGER (REDIS PUB/SUB SYNC)
+  // Architectural Flaw Fix (Flaw 3): Synchronizes rider locations and delivery events across all scaled instances
   // ====================================================================
   type SSEClient = { id: string; res: Response; riderId?: string };
   const sseClients: Map<string, SSEClient> = new Map();
+
+  const REDIS_CHANNEL = 'freshcart:delivery:events';
+  let redisPub: any = null;
+  let redisSub: any = null;
+
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl) {
+    try {
+      redisPub = new (Redis as any)(redisUrl, { maxRetriesPerRequest: 1, connectTimeout: 3000, lazyConnect: true });
+      redisSub = new (Redis as any)(redisUrl, { maxRetriesPerRequest: 1, connectTimeout: 3000, lazyConnect: true });
+
+      redisSub.subscribe(REDIS_CHANNEL, (err: any) => {
+        if (!err) logger.info('Subscribed to Redis Pub/Sub for distributed SSE broadcast');
+      });
+
+      redisSub.on('message', (_channel: string, message: string) => {
+        try {
+          const parsed = JSON.parse(message);
+          const data = `data: ${JSON.stringify(parsed)}\n\n`;
+          for (const [id, client] of sseClients) {
+            try { client.res.write(data); } catch { sseClients.delete(id); }
+          }
+        } catch {}
+      });
+
+      redisPub.on('error', () => {});
+      redisSub.on('error', () => {});
+    } catch {
+      redisPub = null;
+      redisSub = null;
+    }
+  }
 
   function broadcastDeliveryEvent(event: any) {
     const data = `data: ${JSON.stringify(event)}\n\n`;
@@ -849,6 +918,12 @@ export function createApp(): express.Application {
       } catch (err) {
         sseClients.delete(id);
       }
+    }
+    // Synchronize to other horizontal instances via Redis Pub/Sub
+    if (redisPub) {
+      try {
+        redisPub.publish(REDIS_CHANNEL, JSON.stringify(event)).catch(() => {});
+      } catch {}
     }
   }
 
@@ -1460,10 +1535,10 @@ export function createApp(): express.Application {
         FROM orders o
         LEFT JOIN order_items oi ON o.id = oi.order_id
         LEFT JOIN delivery_assignments da ON o.id = da.order_id AND da.status != 'CANCELLED'
-        WHERE o.ready_for_pickup = TRUE AND o.status = 'PACKED'
+        WHERE (o.ready_for_pickup = TRUE OR o.status = 'PACKED')
           AND (o.delivery_address->>'deliveryWindowStart' IS NULL OR (o.delivery_address->>'deliveryWindowStart')::timestamptz <= NOW())
           AND (o.delivery_address->>'deliveryWindowEnd' IS NULL OR (o.delivery_address->>'deliveryWindowEnd')::timestamptz > NOW())
-          AND o.status NOT IN ('DELIVERED', 'CANCELLED')
+          AND o.status NOT IN ('DELIVERED', 'CANCELLED', 'DISPATCHED')
           AND da.id IS NULL
         GROUP BY o.id, o.order_number, o.status, o.grand_total, o.delivery_address, o.created_at, o.ready_for_pickup, o.ready_for_pickup_at
         ORDER BY COALESCE(o.ready_for_pickup_at, o.created_at) DESC
@@ -1701,6 +1776,17 @@ export function createApp(): express.Application {
           UPDATE orders SET status = 'DISPATCHED', updated_at = NOW() WHERE id = $1
         `, [order.id]);
 
+        // Sync with order-service domain API
+        try {
+          const ordUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3004';
+          fetch(`${ordUrl}/api/v1/orders/${order.id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'DISPATCHED' }),
+            signal: AbortSignal.timeout(5000),
+          }).catch(() => {});
+        } catch {}
+
         await commit();
 
         // Dispatch WhatsApp update to customer with real Verification PIN
@@ -1763,6 +1849,17 @@ export function createApp(): express.Application {
         await client.query(`
           UPDATE orders SET status = 'DELIVERED', updated_at = NOW() WHERE id = $1
         `, [order.id]);
+
+        // Sync with order-service domain API
+        try {
+          const ordUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3004';
+          fetch(`${ordUrl}/api/v1/orders/${order.id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'DELIVERED' }),
+            signal: AbortSignal.timeout(5000),
+          }).catch(() => {});
+        } catch {}
 
         const riderKey = delivery.rider_uuid || delivery.rider_id;
         if (riderKey) {
@@ -1885,6 +1982,346 @@ export function createApp(): express.Application {
       }
 
       res.status(200).json(okResponse(result.rows[0], correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Proof of Delivery (POD) Photo & Signature Submission
+  app.post('/api/v1/fulfillment/deliveries/:orderId/pod', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { photoUrl, signature, notes } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      await Database.query(`ALTER TABLE delivery_assignments ADD COLUMN IF NOT EXISTS proof_photo_url TEXT;`).catch(() => {});
+
+      const result = await Database.query(`
+        UPDATE delivery_assignments
+        SET proof_photo_url = COALESCE($1, proof_photo_url),
+            proof_signature = COALESCE($2, proof_signature),
+            proof_notes = COALESCE($3, proof_notes),
+            updated_at = NOW()
+        WHERE order_id::text = $4 OR order_number = $4
+        RETURNING id, order_id, order_number, proof_photo_url, proof_signature, proof_notes
+      `, [photoUrl || null, signature || null, notes || null, orderId]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json(errorResponse('DELIVERY_NOT_FOUND', 'Active delivery assignment not found for order', correlationId));
+      }
+
+      res.status(200).json(okResponse({ success: true, ...result.rows[0] }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Return-to-Origin (RTO) when customer is unreachable or refuses delivery
+  app.post('/api/v1/fulfillment/deliveries/:orderId/rto', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { reason, notes } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      // 1. Mark delivery assignment as RTO_INITIATED
+      const daRes = await Database.query(`
+        UPDATE delivery_assignments
+        SET status = 'RTO_INITIATED',
+            proof_notes = COALESCE($1, proof_notes),
+            updated_at = NOW()
+        WHERE order_id::text = $2 OR order_number = $2
+        RETURNING id, order_id, order_number, rider_phone
+      `, [notes || reason || 'Customer unreachable at doorstep', orderId]);
+
+      // 2. Update orders table status to RTO
+      const ordRes = await Database.query(`
+        UPDATE orders
+        SET status = 'RTO_INITIATED',
+            cancellation_reason = $1,
+            updated_at = NOW()
+        WHERE id::text = $2 OR order_number = $2
+        RETURNING id, order_number, delivery_address, grand_total, customer_id
+      `, [`RTO: ${reason || 'Customer unreachable'}`, orderId]);
+
+      const order = ordRes.rows[0];
+
+      // 3. Proactive WhatsApp alert to customer informing of delivery attempt & RTO
+      if (order) {
+        try {
+          const addr = typeof order.delivery_address === 'string' ? JSON.parse(order.delivery_address) : (order.delivery_address || {});
+          const phone = addr.phone;
+          if (phone) {
+            const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+            fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                toPhone: phone,
+                bodyText: `⚠️ *FreshCart Delivery Attempt Failed*\n\n` +
+                  `Order: *#${order.order_number}*\n` +
+                  `Reason: ${reason || 'Doorstep unreachable / customer contact unavailable'}\n\n` +
+                  `Your items are being returned to the local dark store. If you need redelivery or support, please reply to this message directly!`,
+              }),
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+
+      res.status(200).json(
+        okResponse(
+          {
+            success: true,
+            orderId,
+            status: 'RTO_INITIATED',
+            reason: reason || 'Customer unreachable',
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Delivery & Rider Rating Feedback
+  app.post('/api/v1/fulfillment/deliveries/:orderId/feedback', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { rating, tags, reviewText } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS delivery_feedback (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          order_id UUID NOT NULL,
+          rider_id VARCHAR(64),
+          rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+          tags JSONB DEFAULT '[]'::jsonb,
+          review_text TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      const daRes = await Database.query(`SELECT rider_phone FROM delivery_assignments WHERE order_id::text = $1 OR order_number = $1 LIMIT 1`, [orderId]);
+
+      const insRes = await Database.query(`
+        INSERT INTO delivery_feedback (order_id, rider_id, rating, tags, review_text)
+        VALUES (
+          COALESCE((SELECT id FROM orders WHERE id::text = $1 OR order_number = $1 LIMIT 1), '00000000-0000-0000-0000-000000000000'::uuid),
+          $2, $3, $4, $5
+        )
+        RETURNING *
+      `, [orderId, daRes.rows[0]?.rider_phone || null, parseInt(rating, 10) || 5, JSON.stringify(tags || []), reviewText || '']);
+
+      res.status(201).json(okResponse({ success: true, feedback: insRes.rows[0] }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Record Rider Tip on Delivery Assignment
+  app.post('/api/v1/fulfillment/deliveries/:orderId/tip', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { tipAmount } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      await Database.query(`ALTER TABLE delivery_assignments ADD COLUMN IF NOT EXISTS tip_amount NUMERIC(10, 2) DEFAULT 0.00;`).catch(() => {});
+
+      await Database.query(`
+        UPDATE delivery_assignments
+        SET tip_amount = COALESCE(tip_amount, 0) + $1, updated_at = NOW()
+        WHERE order_id::text = $2 OR order_number = $2
+      `, [parseFloat(tipAmount || 0), orderId]);
+
+      res.status(200).json(okResponse({ success: true, orderId, tipAdded: parseFloat(tipAmount || 0) }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Damaged Stock Warehouse Write-Off
+  app.post('/api/v1/fulfillment/tasks/damaged-stock-writeoff', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { sku, quantity, damageReason, notes, binLocation } = req.body || {};
+
+      if (!sku || !quantity) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'sku and quantity required', correlationId));
+      }
+
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS damaged_stock_writeoffs (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          sku VARCHAR(64) NOT NULL,
+          quantity INTEGER NOT NULL,
+          damage_reason VARCHAR(64) NOT NULL,
+          bin_location VARCHAR(32),
+          notes TEXT,
+          written_off_by VARCHAR(64),
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      const insRes = await Database.query(`
+        INSERT INTO damaged_stock_writeoffs (sku, quantity, damage_reason, bin_location, notes, written_off_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `, [sku.toUpperCase(), parseInt(quantity, 10), damageReason || 'DAMAGED_IN_BIN', binLocation || 'BIN-A1', notes || '', req.headers['x-user-id'] || 'staff']);
+
+      // Deduct from inventory service
+      try {
+        const invUrl = process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003';
+        await fetch(`${invUrl}/api/v1/inventory/adjust`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+          body: JSON.stringify({ sku, delta: -parseInt(quantity, 10), reason: `Damaged write-off: ${damageReason || 'SPOILED'}` }),
+        });
+      } catch {}
+
+      res.status(201).json(okResponse({ success: true, writeOff: insRes.rows[0] }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Rider Daily Payouts & Earnings Statement
+  app.get('/api/v1/fulfillment/riders/:id/payouts', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const riderId = req.params.id;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+
+      const dropsRes = await Database.query(`
+        SELECT count(*)::int as total_drops,
+               COALESCE(SUM(tip_amount), 0) as total_tips
+        FROM delivery_assignments
+        WHERE (rider_phone = $1 OR rider_name = $1)
+          AND status = 'DELIVERED'
+          AND delivered_at::date = $2::date
+      `, [riderId, date]);
+
+      const totalDrops = dropsRes.rows[0]?.total_drops || 0;
+      const totalTips = parseFloat(dropsRes.rows[0]?.total_tips || 0);
+      const basePayPerDrop = 40.00;
+      const baseEarnings = totalDrops * basePayPerDrop;
+      const incentiveBonus = totalDrops >= 15 ? 150.00 : totalDrops >= 10 ? 75.00 : 0.00;
+      const totalPayout = baseEarnings + totalTips + incentiveBonus;
+
+      res.status(200).json(
+        okResponse(
+          {
+            riderId,
+            date,
+            totalDropsCompleted: totalDrops,
+            basePay: baseEarnings,
+            customerTips: totalTips,
+            incentiveBonus,
+            totalDailyPayout: totalPayout,
+            currency: 'INR',
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Cash on Delivery (COD) Handover Reconciliation
+  app.post('/api/v1/fulfillment/riders/:id/cod-reconcile', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const riderId = req.params.id;
+      const { cashHandedOver, storeManagerId, notes } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const amount = parseFloat(cashHandedOver);
+
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS cod_reconciliations (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          rider_id VARCHAR(64) NOT NULL,
+          store_manager_id VARCHAR(64) NOT NULL,
+          amount_reconciled NUMERIC(12, 2) NOT NULL,
+          notes TEXT,
+          reconciled_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      const insRes = await Database.query(`
+        INSERT INTO cod_reconciliations (rider_id, store_manager_id, amount_reconciled, notes)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+      `, [riderId, storeManagerId || 'store_mgr', amount || 0, notes || 'Daily shift close cash handover']);
+
+      res.status(200).json(okResponse({ success: true, reconciliation: insRes.rows[0] }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Emergency Rider Reassignment (Breakdown / Accident)
+  app.post('/api/v1/fulfillment/deliveries/:orderId/reassign', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { newRiderName, newRiderPhone, reason } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const updRes = await Database.query(`
+        UPDATE delivery_assignments
+        SET rider_name = COALESCE($1, 'Standby Rider Fleet'),
+            rider_phone = COALESCE($2, '+919999888877'),
+            proof_notes = CONCAT(proof_notes, ' [Reassigned: ', $3::text, ']'),
+            updated_at = NOW()
+        WHERE order_id::text = $4 OR order_number = $4
+        RETURNING *
+      `, [newRiderName || null, newRiderPhone || null, reason || 'Emergency vehicle breakdown', orderId]);
+
+      if (updRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('DELIVERY_NOT_FOUND', 'Active delivery not found', correlationId));
+      }
+
+      res.status(200).json(okResponse({ success: true, reallocatedAssignment: updRes.rows[0] }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Geofence Arrival Proximity Trigger
+  app.post('/api/v1/fulfillment/deliveries/:orderId/geofence-alert', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const ordRes = await Database.query(
+        `SELECT o.order_number, o.delivery_address, da.rider_name, da.delivery_otp
+         FROM orders o
+         LEFT JOIN delivery_assignments da ON o.id = da.order_id
+         WHERE o.id::text = $1 OR o.order_number = $1
+         LIMIT 1`,
+        [orderId]
+      );
+
+      const order = ordRes.rows[0];
+      if (order) {
+        const addr = typeof order.delivery_address === 'string' ? JSON.parse(order.delivery_address) : (order.delivery_address || {});
+        const phone = addr.phone;
+        if (phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: phone,
+              bodyText: `🔔 *Rider Arriving at Your Gate!*\n\n` +
+                `Our delivery partner *${order.rider_name || 'Rider'}* is 100 meters away from your doorstep!\n` +
+                `🔑 *Delivery Verification OTP:* *${order.delivery_otp || '****'}*\n\n` +
+                `Please be ready at the door for instant contactless handover.`,
+            }),
+          }).catch(() => {});
+        }
+      }
+
+      res.status(200).json(okResponse({ success: true, orderId, alerted: true }, correlationId));
     } catch (err) {
       next(err);
     }

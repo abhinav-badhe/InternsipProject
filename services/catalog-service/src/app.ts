@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { CatalogRepository } from './catalog.repository.js';
+import { catalogCache } from './catalog.cache.js';
 import { Database } from './db.js';
 import {
   createLogger,
@@ -122,22 +123,19 @@ export function createApp(): express.Application {
   };
   initReviewsAndRecipes().catch(() => {});
 
-  // Categories list
+  // Categories list with Cache-Aside optimization (Architectural Flaw 8 Fix)
   app.get('/api/v1/catalog/categories', async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const categories = await catalogRepo.getCategories();
       const correlationId = getRequestContext()?.correlationId || 'unknown';
-      res.json(okResponse(categories, correlationId));
-    } catch (err) {
-      next(err);
-    }
-  });
+      const cached = await catalogCache.get('categories');
+      if (cached) {
+        res.setHeader('X-Cache-Lookup', 'HIT');
+        return res.json(okResponse(cached, correlationId));
+      }
 
-  // Get All Active Categories
-  app.get('/api/v1/catalog/categories', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const correlationId = getRequestContext()?.correlationId || 'unknown';
       const categories = await catalogRepo.getCategories();
+      await catalogCache.set('categories', categories, 120);
+      res.setHeader('X-Cache-Lookup', 'MISS');
       res.json(okResponse(categories, correlationId));
     } catch (err) {
       next(err);
@@ -163,11 +161,18 @@ export function createApp(): express.Application {
     }
   });
 
-  // Product Search
+  // Product Search with Cache-Aside optimization (Architectural Flaw 8 Fix)
   app.get('/api/v1/catalog/products', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { query, categoryId, brandId, limit, offset } = req.query;
       const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const cacheKey = `products:${query || ''}:${categoryId || ''}:${brandId || ''}:${limit || 20}:${offset || 0}`;
+
+      const cached = await catalogCache.get(cacheKey);
+      if (cached) {
+        res.setHeader('X-Cache-Lookup', 'HIT');
+        return res.json(okResponse(cached, correlationId));
+      }
 
       const result = await catalogRepo.searchProducts({
         query: query as string,
@@ -177,6 +182,8 @@ export function createApp(): express.Application {
         offset: offset ? parseInt(offset as string, 10) : undefined,
       });
 
+      await catalogCache.set(cacheKey, result, 60);
+      res.setHeader('X-Cache-Lookup', 'MISS');
       res.json(okResponse(result, correlationId));
     } catch (err) {
       next(err);
@@ -377,8 +384,9 @@ export function createApp(): express.Application {
         variants: variantsList,
       });
 
-      // Instantly invalidate in-memory catalog cache so new product is immediately visible
+      // Instantly invalidate in-memory and Redis catalog cache so new product is immediately visible
       CatalogRepository.invalidateCache();
+      catalogCache.invalidateAll().catch(() => {});
 
       res.status(201).json(okResponse(result, correlationId));
     } catch (err: any) {
@@ -424,8 +432,9 @@ export function createApp(): express.Application {
         measurementUnit: req.body.measurementUnit || 'pack',
       });
 
-      // Instantly invalidate in-memory catalog cache so new variant is immediately visible
+      // Instantly invalidate in-memory and Redis catalog cache so new variant is immediately visible
       CatalogRepository.invalidateCache();
+      catalogCache.invalidateAll().catch(() => {});
 
       res.status(201).json(okResponse(variant, correlationId));
     } catch (err: any) {
@@ -575,6 +584,162 @@ export function createApp(): express.Application {
       });
 
       res.status(200).json(okResponse(bundles, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // =========================================================
+  // FEATURE: CUSTOMER WISHLIST & SAVED ITEMS
+  // =========================================================
+
+  // 1. Get Customer Wishlist
+  app.get('/api/v1/catalog/wishlist', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const customerId = (req.headers['x-user-id'] as string) || (req.query.customerId as string) || 'cust_demo';
+
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS customer_wishlists (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          customer_id VARCHAR(64) NOT NULL,
+          sku VARCHAR(64) NOT NULL,
+          list_name VARCHAR(64) NOT NULL DEFAULT 'Favorites',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(customer_id, sku)
+        );
+      `).catch(() => {});
+
+      const result = await Database.query(`
+        SELECT w.id, w.sku, w.list_name as "listName", w.created_at as "createdAt",
+               p.name as "productName", p.primary_category_id as "categoryId",
+               v.variant_name as "variantName", v.image_urls as "imageUrls"
+        FROM customer_wishlists w
+        LEFT JOIN product_variants v ON UPPER(w.sku) = UPPER(v.sku)
+        LEFT JOIN products p ON v.product_id = p.id
+        WHERE w.customer_id = $1
+        ORDER BY w.created_at DESC
+      `, [customerId]);
+
+      res.status(200).json(okResponse(result.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2. Add Item to Wishlist
+  app.post('/api/v1/catalog/wishlist', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const customerId = (req.headers['x-user-id'] as string) || req.body?.customerId || 'cust_demo';
+      const { sku, listName } = req.body || {};
+
+      if (!sku) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'sku is required', correlationId));
+      }
+
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS customer_wishlists (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          customer_id VARCHAR(64) NOT NULL,
+          sku VARCHAR(64) NOT NULL,
+          list_name VARCHAR(64) NOT NULL DEFAULT 'Favorites',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(customer_id, sku)
+        );
+      `).catch(() => {});
+
+      const insRes = await Database.query(`
+        INSERT INTO customer_wishlists (customer_id, sku, list_name)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (customer_id, sku) DO UPDATE SET list_name = EXCLUDED.list_name
+        RETURNING id, customer_id as "customerId", sku, list_name as "listName", created_at as "createdAt"
+      `, [customerId, String(sku).toUpperCase(), listName || 'Favorites']);
+
+      res.status(201).json(okResponse(insRes.rows[0], correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 3. Remove Item from Wishlist
+  app.delete('/api/v1/catalog/wishlist/:sku', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const customerId = (req.headers['x-user-id'] as string) || (req.query.customerId as string) || 'cust_demo';
+      const sku = String(req.params.sku);
+
+      await Database.query(
+        `DELETE FROM customer_wishlists WHERE customer_id = $1 AND UPPER(sku) = $2`,
+        [customerId, sku.toUpperCase()]
+      );
+
+      res.status(200).json(okResponse({ sku, removed: true }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // =========================================================
+  // FEATURE: BULK CATALOG CSV & BATCH IMPORT
+  // =========================================================
+  app.post('/api/v1/catalog/bulk-import', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const items = Array.isArray(req.body) ? req.body : req.body?.items || [];
+
+      if (!items || items.length === 0) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'Array of items required for bulk import', correlationId));
+      }
+
+      let importedCount = 0;
+      const errors: any[] = [];
+
+      for (const item of items) {
+        try {
+          const { name, categoryId = 'cat_grocery', brand, description, sku, variantName, unitPrice = 50, mrp = 55, unit = 'unit' } = item;
+          if (!name || !sku) continue;
+
+          // Find or create product
+          let pId: string;
+          const existProd = await Database.query(`SELECT id FROM products WHERE name = $1 LIMIT 1`, [name]);
+          if (existProd.rows.length > 0) {
+            pId = existProd.rows[0].id;
+          } else {
+            const catRes = await Database.query(`SELECT id FROM categories LIMIT 1`);
+            const catId = catRes.rows[0]?.id;
+            const pSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).slice(2, 6);
+            const newProd = await Database.query(`
+              INSERT INTO products (name, slug, primary_category_id, description, is_active)
+              VALUES ($1, $2, $3, $4, TRUE)
+              RETURNING id
+            `, [name, pSlug, catId, description || '']);
+            pId = newProd.rows[0].id;
+          }
+
+          // Insert or update variant
+          await Database.query(`
+            INSERT INTO product_variants (product_id, sku, variant_name, net_weight_value, measurement_unit, status)
+            VALUES ($1, $2, $3, 1, 'each', 'active')
+            ON CONFLICT (sku) DO UPDATE
+            SET variant_name = EXCLUDED.variant_name
+          `, [pId, String(sku).toUpperCase(), variantName || 'Standard']);
+
+          importedCount++;
+        } catch (itemErr: any) {
+          errors.push({ item, error: itemErr.message });
+        }
+      }
+
+      catalogCache.invalidateAll().catch(() => {});
+      CatalogRepository.invalidateCache();
+
+      res.status(201).json(okResponse({
+        success: true,
+        importedCount,
+        totalSubmitted: items.length,
+        errors: errors.slice(0, 10),
+      }, correlationId));
     } catch (err) {
       next(err);
     }

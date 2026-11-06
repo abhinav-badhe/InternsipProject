@@ -467,6 +467,7 @@ export async function executeRealCheckout(params: {
   deliverySlot: string;
   couponCode?: string;
   deliveryAddress?: CustomerSavedAddress;
+  paymentMethod?: 'RAZORPAY' | 'COD';
 }): Promise<any> {
   const session = await getCustomerSession();
   const fingerprint = JSON.stringify({ user: session.user.userId, ...params });
@@ -507,6 +508,7 @@ export async function executeRealCheckout(params: {
       },
       items: params.items,
       promoCode: params.couponCode,
+      paymentMethod: params.paymentMethod || 'RAZORPAY',
     }),
   });
 

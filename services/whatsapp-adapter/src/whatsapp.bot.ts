@@ -13,6 +13,7 @@ import {
 import { WhatsAppCloudApiClient } from './meta.client.js';
 import { I18nManager } from './i18n.js';
 import { createLogger } from '@grocery/observability';
+import { sessionCache } from './session.cache.js';
 import crypto from 'node:crypto';
 
 const logger = createLogger('whatsapp-adapter:bot');
@@ -2062,6 +2063,14 @@ export class WhatsAppBot {
   }
 
   public async getSession(phone: string): Promise<WhatsAppSessionState | null> {
+    // 1. Try high-performance Redis cache first
+    try {
+      const cached = await sessionCache.getSession(phone);
+      if (cached) return cached;
+    } catch (err: any) {
+      logger.warn('Error reading from sessionCache', { error: err.message });
+    }
+
     const cleanDigits = phone.replace(/[^0-9]/g, '');
     const clean10 = cleanDigits.slice(-10);
     const withPlus = `+${cleanDigits}`;
@@ -2079,7 +2088,7 @@ export class WhatsAppBot {
     if (res.rows.length === 0) return null;
     const row = res.rows[0];
     const pending = row.pending_context || {};
-    return {
+    const session: WhatsAppSessionState = {
       sessionId: row.session_id,
       phoneNumber: row.phone_number,
       customerId: row.customer_id,
@@ -2090,6 +2099,10 @@ export class WhatsAppBot {
       ...pending,
       lastMessageAt: row.last_message_at,
     };
+
+    // Warm cache for subsequent messages
+    sessionCache.saveSession(session).catch(() => {});
+    return session;
   }
 
   public async getOrCreateSession(phone: string): Promise<WhatsAppSessionState> {
@@ -2166,6 +2179,9 @@ export class WhatsAppBot {
        WHERE session_id = $4`,
       [session.stage, JSON.stringify(session.cartItems), JSON.stringify(pendingContext), session.sessionId]
     );
+
+    // Sync to Redis cache
+    sessionCache.saveSession(session).catch(() => {});
   }
 
   /**

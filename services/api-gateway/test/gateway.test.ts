@@ -228,6 +228,47 @@ describe('ApiGateway & Scenario 05 (Customer Cross-Tenant Data Isolation)', () =
     assert.equal(limitedRes.body.error.code, 'RATE_LIMIT_EXCEEDED');
     assert.ok(limitedRes.headers['x-ratelimit-reset']);
   });
+
+  it('Feature: DistributedRateLimiter enforces limits using Redis cluster/client', async () => {
+    // Mock Redis client
+    let counter = 0;
+    const mockRedis = {
+      multi() {
+        return {
+          incr(key: string) {
+            counter++;
+            return this;
+          },
+          ttl(key: string) {
+            return this;
+          },
+          async exec() {
+            return [
+              [null, counter],
+              [null, 55],
+            ];
+          },
+        };
+      },
+      async expire() {},
+    };
+
+    const redisApp = createApp({
+      jwtSecret,
+      rateLimitMaxRequests: 2,
+      redisClient: mockRedis,
+    });
+
+    const r1 = await simulateRequest(redisApp, { method: 'GET', path: '/health/live', headers: {} });
+    assert.equal(r1.status, 200);
+
+    const r2 = await simulateRequest(redisApp, { method: 'GET', path: '/health/live', headers: {} });
+    assert.equal(r2.status, 200);
+
+    const r3 = await simulateRequest(redisApp, { method: 'GET', path: '/health/live', headers: {} });
+    assert.equal(r3.status, 429);
+    assert.equal(r3.body.error.code, 'RATE_LIMIT_EXCEEDED');
+  });
 });
 
 // Helpers

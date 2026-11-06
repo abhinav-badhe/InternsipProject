@@ -33,10 +33,12 @@ export class InventoryRepository {
       for (const item of req.items) {
         skuQuantityMap.set(item.sku, (skuQuantityMap.get(item.sku) || 0) + item.quantity);
       }
-      const consolidatedItems = Array.from(skuQuantityMap.entries()).map(([sku, quantity]) => ({
-        sku,
-        quantity,
-      }));
+      // Architectural Flaw Fix (Flaw 5): Sort SKUs deterministically in alphabetical order
+      // Guarantees all concurrent transactions acquire row-level locks in the identical sequence,
+      // mathematically eliminating PostgreSQL deadlock vulnerabilities (ERROR: deadlock detected 40P01).
+      const consolidatedItems = Array.from(skuQuantityMap.entries())
+        .map(([sku, quantity]) => ({ sku, quantity }))
+        .sort((a, b) => a.sku.localeCompare(b.sku));
 
       // Lock balance rows and check availability
       const unavailableItems: Array<{ sku: string; requestedQuantity: number; availableQuantity: number }> = [];
@@ -163,9 +165,9 @@ export class InventoryRepository {
         return false; // Idempotent: already released or expired
       }
 
-      // Fetch items
+      // Fetch items and sort deterministically to prevent lock inversion on batch release
       const itemsRes = await client.query(
-        `SELECT sku, location_id, quantity FROM stock_reservation_items WHERE reservation_id = $1`,
+        `SELECT sku, location_id, quantity FROM stock_reservation_items WHERE reservation_id = $1 ORDER BY sku ASC`,
         [reservationId]
       );
 

@@ -17,6 +17,22 @@ export const httpSubscriptionClient: SubscriptionClient = {
     return json.data;
   },
   async addresses(owner, phone) {
+    try {
+      const identityUrl = process.env.IDENTITY_SERVICE_URL || 'http://localhost:3007';
+      const cleanPhone = encodeURIComponent(phone.replace(/[^0-9]/g, ''));
+      const res = await fetch(
+        `${identityUrl}/api/v1/auth/customer/addresses?customerId=${encodeURIComponent(owner)}&phone=${cleanPhone}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (res.ok) {
+        const json: any = await res.json();
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          return json.data;
+        }
+      }
+    } catch {}
+
+    // Fallback to local query if identity-service is unreachable
     return (await Database.query(`SELECT * FROM customer_addresses WHERE customer_id=$1
       OR regexp_replace(phone, '[^0-9]', '', 'g') = $2 ORDER BY is_default DESC, created_at DESC LIMIT 5`,
       [owner, phone.replace(/[^0-9]/g, '')])).rows;

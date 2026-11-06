@@ -454,6 +454,131 @@ export function createApp(): express.Application {
     }
   });
 
+  // ====================================================================
+  // FEATURE: CUSTOMER NOTIFICATION PREFERENCES & PROFILE
+  // ====================================================================
+
+  // 1. Get Notification Preferences
+  app.get('/api/v1/auth/customer/preferences', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string) || 'cust_demo';
+
+      // Ensure table exists
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS user_notification_preferences (
+          user_id VARCHAR(64) PRIMARY KEY,
+          whatsapp_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          sms_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          opted_out_marketing BOOLEAN NOT NULL DEFAULT FALSE,
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      let prefRes = await Database.query(
+        `SELECT whatsapp_enabled, email_enabled, sms_enabled, opted_out_marketing
+         FROM user_notification_preferences WHERE user_id = $1`,
+        [userId]
+      );
+
+      if (prefRes.rows.length === 0) {
+        await Database.query(
+          `INSERT INTO user_notification_preferences (user_id, whatsapp_enabled, email_enabled, sms_enabled, opted_out_marketing)
+           VALUES ($1, TRUE, TRUE, FALSE, FALSE)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId]
+        );
+        prefRes = await Database.query(
+          `SELECT whatsapp_enabled, email_enabled, sms_enabled, opted_out_marketing
+           FROM user_notification_preferences WHERE user_id = $1`,
+          [userId]
+        );
+      }
+
+      const p = prefRes.rows[0] || {};
+      res.status(200).json(
+        okResponse(
+          {
+            userId,
+            whatsappEnabled: Boolean(p.whatsapp_enabled),
+            emailEnabled: Boolean(p.email_enabled),
+            smsEnabled: Boolean(p.sms_enabled),
+            optedOutMarketing: Boolean(p.opted_out_marketing),
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2. Update Notification Preferences
+  app.patch('/api/v1/auth/customer/preferences', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const userId = (req.headers['x-user-id'] as string) || req.body?.userId || 'cust_demo';
+      const { whatsappEnabled, emailEnabled, smsEnabled, optedOutMarketing } = req.body || {};
+
+      await Database.query(
+        `INSERT INTO user_notification_preferences (user_id, whatsapp_enabled, email_enabled, sms_enabled, opted_out_marketing, updated_at)
+         VALUES ($1, COALESCE($2, TRUE), COALESCE($3, TRUE), COALESCE($4, FALSE), COALESCE($5, FALSE), NOW())
+         ON CONFLICT (user_id) DO UPDATE
+         SET whatsapp_enabled = COALESCE($2, user_notification_preferences.whatsapp_enabled),
+             email_enabled = COALESCE($3, user_notification_preferences.email_enabled),
+             sms_enabled = COALESCE($4, user_notification_preferences.sms_enabled),
+             opted_out_marketing = COALESCE($5, user_notification_preferences.opted_out_marketing),
+             updated_at = NOW()`,
+        [userId, whatsappEnabled ?? null, emailEnabled ?? null, smsEnabled ?? null, optedOutMarketing ?? null]
+      );
+
+      res.status(200).json(
+        okResponse(
+          {
+            success: true,
+            userId,
+            updatedPreferences: {
+              whatsappEnabled,
+              emailEnabled,
+              smsEnabled,
+              optedOutMarketing,
+            },
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 3. Update Customer Profile (Name, Email, Phone)
+  app.patch('/api/v1/auth/customer/profile', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const userId = (req.headers['x-user-id'] as string) || req.body?.userId;
+      const { fullName, phone } = req.body || {};
+
+      if (!userId) {
+        return res.status(401).json(errorResponse('UNAUTHORIZED', 'User ID required', correlationId));
+      }
+
+      await Database.query(
+        `UPDATE users
+         SET full_name = COALESCE($1, full_name),
+             phone = COALESCE($2, phone),
+             updated_at = NOW()
+         WHERE id::text = $3`,
+        [fullName || null, phone || null, userId]
+      );
+
+      res.status(200).json(okResponse({ success: true, userId, fullName, phone }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Global Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const correlationId = getRequestContext()?.correlationId || 'unknown';

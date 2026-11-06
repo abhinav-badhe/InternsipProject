@@ -47,7 +47,7 @@ export interface CreateOrderRequest {
     quantity: number;
   }>;
   promoCode?: string;
-  paymentMethod?: 'COD';
+  paymentMethod?: 'COD' | 'RAZORPAY' | 'WALLET' | 'ONLINE' | string;
   reservationId?: string;
 }
 

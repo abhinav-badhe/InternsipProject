@@ -32,6 +32,13 @@ export class SubscriptionProcessor {
             ? nextSubscriptionDate(sub.due_date, frequency, previousDate(clock.date))
             : sub.due_date;
           const weekend = [0, 6].includes(new Date(`${clock.date}T12:00:00Z`).getUTCDay());
+          const skippedDates: string[] = Array.isArray(sub.skipped_dates) ? sub.skipped_dates : (typeof sub.skipped_dates === 'string' ? JSON.parse(sub.skipped_dates || '[]') : []);
+          if (skippedDates.includes(clock.date)) {
+            const next = nextSubscriptionDate(clock.date, frequency);
+            await client.query('UPDATE customer_subscriptions SET next_delivery_date = $1, updated_at = NOW() WHERE id = $2', [next, sub.id]);
+            result.skippedCount++;
+            continue;
+          }
           if (dueDate > clock.date || (frequency === 'WEEKDAYS_ONLY' && weekend) || clock.minute >= slot.endMinute) {
             const next = dueDate > clock.date ? dueDate : nextSubscriptionDate(clock.date, frequency);
             await client.query('UPDATE customer_subscriptions SET next_delivery_date = $1, updated_at = NOW() WHERE id = $2', [next, sub.id]);
@@ -102,7 +109,34 @@ export function subscriptionRoutes(processor: SubscriptionProcessor, quote: (sku
     next();
   });
   router.get('/', async (req, res, next) => {
-    try { res.json(okResponse((await Database.query('SELECT * FROM customer_subscriptions WHERE customer_id = $1 ORDER BY created_at DESC', [req.headers['x-user-id']])).rows, 'subscriptions')); } catch (error) { next(error); }
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const userPhone = req.headers['x-user-phone'] as string | undefined;
+
+      let clean10 = '';
+      if (userPhone) {
+        clean10 = userPhone.replace(/[^0-9]/g, '').slice(-10);
+      } else if (userId && !userId.startsWith('phone_')) {
+        try {
+          const uRes = await Database.query('SELECT phone FROM users WHERE id::text = $1', [userId]);
+          if (uRes.rows[0]?.phone) {
+            clean10 = uRes.rows[0].phone.replace(/[^0-9]/g, '').slice(-10);
+          }
+        } catch {}
+      }
+
+      let queryText = 'SELECT * FROM customer_subscriptions WHERE customer_id = $1';
+      const queryParams: any[] = [userId];
+
+      if (clean10) {
+        queryText += ` OR customer_id = $2 OR customer_id = $3 OR customer_id = $4 OR customer_id LIKE $5 OR delivery_address->>'phone' LIKE $5`;
+        queryParams.push(`phone_${clean10}`, `phone_91${clean10}`, `phone_+91${clean10}`, `%${clean10}%`);
+      }
+
+      queryText += ' ORDER BY created_at DESC';
+      const result = await Database.query(queryText, queryParams);
+      res.json(okResponse(result.rows, 'subscriptions'));
+    } catch (error) { next(error); }
   });
   router.post('/', async (req, res, next) => {
     try {
@@ -126,6 +160,23 @@ export function subscriptionRoutes(processor: SubscriptionProcessor, quote: (sku
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$13)
         ON CONFLICT (creation_key) DO UPDATE SET creation_key = EXCLUDED.creation_key RETURNING *`,
         [number, owner, sku, item.productName || productName, item.variantName || variantName || 'Standard', quantity, item.unitPrice, frequency, slot.label, date, JSON.stringify(deliveryAddress), req.body.channel === 'WHATSAPP' ? 'WHATSAPP' : 'WEB', key]);
+
+      // Proactive WhatsApp confirmation to customer's mobile
+      try {
+        const phone = deliveryAddress.phone;
+        if (phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: phone,
+              bodyText: `🔁 *FreshCart Subscription Confirmed!*\n\nHello ${deliveryAddress.recipientName || 'Valued Customer'},\nYour morning subscription has been confirmed!\n\n🆔 *Subscription Number:* *${number}*\n📦 *Item:* ${item.productName || productName} (${item.variantName || variantName || 'Standard'}) × ${quantity}\n🗓️ *Frequency:* ${frequency}\n⏰ *Delivery Slot:* ${slot.label} IST\n💰 *Price per delivery:* ₹${Number(item.unitPrice).toFixed(2)}\n\nFirst scheduled delivery is set for *${date}*. You can manage, pause or cancel anytime from the Storefront or WhatsApp!`,
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
+
       res.status(201).json(okResponse(inserted.rows[0], 'subscriptions'));
     } catch (error) { next(error); }
   });
@@ -133,8 +184,25 @@ export function subscriptionRoutes(processor: SubscriptionProcessor, quote: (sku
     try {
       const slot = subscriptionSlot(req.body.deliverySlot);
       if (!slot) return res.status(400).json(errorResponse('INVALID_SLOT', 'Choose a supported morning window.', 'subscriptions'));
-      const result = await Database.query(`UPDATE customer_subscriptions SET delivery_slot=$1, updated_at=NOW()
-        WHERE (id::text=$2 OR subscription_number=$2) AND customer_id=$3 AND status != 'CANCELLED' RETURNING *`, [slot.label, req.params.id, req.headers['x-user-id']]);
+      
+      const userId = req.headers['x-user-id'] as string;
+      let clean10 = '';
+      if (req.headers['x-user-phone']) {
+        clean10 = String(req.headers['x-user-phone']).replace(/[^0-9]/g, '').slice(-10);
+      } else if (userId && !userId.startsWith('phone_')) {
+        try {
+          const uRes = await Database.query('SELECT phone FROM users WHERE id::text = $1', [userId]);
+          if (uRes.rows[0]?.phone) clean10 = uRes.rows[0].phone.replace(/[^0-9]/g, '').slice(-10);
+        } catch {}
+      }
+
+      const result = await Database.query(`
+        UPDATE customer_subscriptions SET delivery_slot=$1, updated_at=NOW()
+        WHERE (id::text=$2 OR subscription_number=$2) 
+          AND (customer_id=$3 OR ($4 != '' AND (customer_id LIKE $5 OR delivery_address->>'phone' LIKE $5)))
+          AND status != 'CANCELLED' 
+        RETURNING *`, 
+        [slot.label, req.params.id, userId, clean10, `%${clean10}%`]);
       if (!result.rows.length) return res.status(404).json(errorResponse('NOT_FOUND', 'Subscription not found.', 'subscriptions'));
       res.json(okResponse(result.rows[0], 'subscriptions'));
     } catch (error) { next(error); }
@@ -142,16 +210,97 @@ export function subscriptionRoutes(processor: SubscriptionProcessor, quote: (sku
   for (const [action, status] of [['pause', 'PAUSED'], ['resume', 'ACTIVE'], ['cancel', 'CANCELLED']] as const) {
     const handler: import('express').RequestHandler = async (req, res, next) => {
       try {
-        const result = await Database.query(`SELECT * FROM customer_subscriptions WHERE (id::text=$1 OR subscription_number=$1) AND customer_id=$2`, [req.params.id, req.headers['x-user-id']]);
+        const userId = req.headers['x-user-id'] as string;
+        let clean10 = '';
+        if (req.headers['x-user-phone']) {
+          clean10 = String(req.headers['x-user-phone']).replace(/[^0-9]/g, '').slice(-10);
+        } else if (userId && !userId.startsWith('phone_')) {
+          try {
+            const uRes = await Database.query('SELECT phone FROM users WHERE id::text = $1', [userId]);
+            if (uRes.rows[0]?.phone) clean10 = uRes.rows[0].phone.replace(/[^0-9]/g, '').slice(-10);
+          } catch {}
+        }
+
+        const result = await Database.query(`
+          SELECT * FROM customer_subscriptions 
+          WHERE (id::text=$1 OR subscription_number=$1) 
+            AND (customer_id=$2 OR ($3 != '' AND (customer_id LIKE $4 OR delivery_address->>'phone' LIKE $4)))`, 
+          [req.params.id, userId, clean10, `%${clean10}%`]);
         const sub = result.rows[0];
         if (!sub || (sub.status === 'CANCELLED' && action !== 'cancel')) return res.status(404).json(errorResponse('NOT_FOUND', 'Active subscription not found.', 'subscriptions'));
         const date = action === 'resume' ? nextSubscriptionDate(subscriptionClock().date, sub.frequency) : sub.next_delivery_date;
-        await Database.query('UPDATE customer_subscriptions SET status=$1, next_delivery_date=$2, updated_at=NOW() WHERE id=$3 AND customer_id=$4', [status, date, sub.id, req.headers['x-user-id']]);
+        await Database.query('UPDATE customer_subscriptions SET status=$1, next_delivery_date=$2, updated_at=NOW() WHERE id=$3', [status, date, sub.id]);
+
+        // Proactive WhatsApp notification for subscription pause / resume / cancel
+        try {
+          const addr = typeof sub.delivery_address === 'string' ? JSON.parse(sub.delivery_address) : sub.delivery_address;
+          const phone = addr?.phone;
+          if (phone) {
+            const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+            const actionText = status === 'PAUSED' ? 'PAUSED ⏸️' : status === 'ACTIVE' ? 'RESUMED ▶️' : 'CANCELLED ❌';
+            fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                toPhone: phone,
+                bodyText: `🔁 *FreshCart Subscription Update*\n\nYour subscription *${sub.subscription_number}* (${sub.product_name}) is now *${actionText}*.\n\n${status === 'ACTIVE' ? `Next scheduled delivery: *${date}*` : 'You can resume your subscription anytime from the Storefront or WhatsApp.'}`,
+              }),
+            }).catch(() => {});
+          }
+        } catch {}
+
         res.json(okResponse({ success: true, status }, 'subscriptions'));
       } catch (error) { next(error); }
     };
     router.post(`/:id/${action}`, handler);
     if (action === 'cancel') router.delete('/:id', handler);
   }
+
+  // Feature: Skip Single Scheduled Delivery Date
+  router.post('/:id/skip', async (req, res, next) => {
+    try {
+      const id = req.params.id;
+      const { skipDate } = req.body || {};
+      const targetDate = skipDate || new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+      await Database.query(`ALTER TABLE customer_subscriptions ADD COLUMN IF NOT EXISTS skipped_dates JSONB DEFAULT '[]'::jsonb;`).catch(() => {});
+
+      const existing = await Database.query(`SELECT * FROM customer_subscriptions WHERE id::text = $1 OR subscription_number = $1`, [id]);
+      if (existing.rows.length === 0) return res.status(404).json(errorResponse('NOT_FOUND', 'Subscription not found', 'subscriptions'));
+      const sub = existing.rows[0];
+
+      const currentSkips: string[] = Array.isArray(sub.skipped_dates) ? sub.skipped_dates : (typeof sub.skipped_dates === 'string' ? JSON.parse(sub.skipped_dates || '[]') : []);
+      if (!currentSkips.includes(targetDate)) {
+        currentSkips.push(targetDate);
+      }
+
+      await Database.query(
+        `UPDATE customer_subscriptions SET skipped_dates = $1, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify(currentSkips), sub.id]
+      );
+
+      // Send WhatsApp notification
+      try {
+        const addr = typeof sub.delivery_address === 'string' ? JSON.parse(sub.delivery_address) : sub.delivery_address;
+        const phone = addr?.phone;
+        if (phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: phone,
+              bodyText: `⏸️ *FreshCart Subscription Delivery Skipped*\n\nYour delivery on *${targetDate}* for subscription *${sub.subscription_number}* (${sub.product_name}) has been skipped.\n\nDeliveries will resume automatically on the next cycle with no charges!`,
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
+
+      res.json(okResponse({ success: true, subscriptionNumber: sub.subscription_number, skippedDate: targetDate, allSkippedDates: currentSkips }, 'subscriptions'));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }

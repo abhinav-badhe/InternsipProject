@@ -84,10 +84,11 @@ export class VisionOcrService {
   }
 
   /**
-   * Calls Gemini Multimodal Vision API (models/gemini-1.5-flash)
+   * Calls Gemini Multimodal Vision API (models/gemini-3.5-flash with flash-latest fallback)
    */
   private async extractWithGeminiVision(base64Image: string, mimeType: string): Promise<OcrResult | null> {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`;
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
+    let lastError: Error | null = null;
 
     const prompt = `You are an expert OCR and grocery recognition AI for FreshCart quick commerce in India.
 Analyze this photo of a handwritten grocery list or printed receipt.
@@ -118,28 +119,39 @@ Do not include conversational preamble. Just return the extracted grocery items,
       },
     };
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    for (const model of candidateModels) {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.geminiApiKey}`;
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
 
-    if (!res.ok) {
-      throw new Error(`Gemini Vision HTTP ${res.status}: ${await res.text()}`);
+        if (res.ok) {
+          const data: any = await res.json();
+          const candidateText: string =
+            data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+          if (candidateText.trim()) {
+            const items = this.parseGroceryListText(candidateText);
+            return {
+              extractedText: candidateText.trim(),
+              items,
+              source: 'gemini-vision',
+            };
+          }
+        } else {
+          const errText = await res.text();
+          lastError = new Error(`Gemini Vision (${model}) HTTP ${res.status}: ${errText}`);
+        }
+      } catch (err: any) {
+        lastError = err;
+      }
     }
 
-    const data: any = await res.json();
-    const candidateText: string =
-      data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    if (!candidateText.trim()) return null;
-
-    const items = this.parseGroceryListText(candidateText);
-    return {
-      extractedText: candidateText.trim(),
-      items,
-      source: 'gemini-vision',
-    };
+    if (lastError) throw lastError;
+    return null;
   }
 
   /**

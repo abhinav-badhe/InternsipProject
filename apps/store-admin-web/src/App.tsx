@@ -23,6 +23,7 @@ import {
   fetchModelInfo,
   updateOrderStatusInDb,
   cancelOrderInDb,
+  markOrderReadyForDelivery,
 } from './api/adminClient';
 import { AdminAuthModal } from './AdminAuthModal';
 import { RiderFleetView } from './components/RiderFleetView';
@@ -171,6 +172,10 @@ export interface OrderRecord {
   deliveryFee: number;
   createdAt: string;
   readyForPickup?: boolean;
+  isSubscription?: boolean;
+  subscriptionNumber?: string;
+  deliverySlot?: string;
+  deliveryAddress?: any;
   items: {
     sku: string;
     productName: string;
@@ -1066,6 +1071,13 @@ export const App: React.FC = () => {
                   }))
                 : [];
 
+              const isSub = !!(
+                deliveryAddr.isSubscription ||
+                o.order_number?.startsWith('SUB-') ||
+                deliveryAddr.subscriptionNumber ||
+                (o.delivery_type === 'SCHEDULED' && deliveryAddr.slot)
+              );
+
               return {
                 id: o.id,
                 orderNumber: o.order_number,
@@ -1082,6 +1094,10 @@ export const App: React.FC = () => {
                   hour: '2-digit',
                   minute: '2-digit',
                 }),
+                isSubscription: isSub,
+                subscriptionNumber: deliveryAddr.subscriptionNumber,
+                deliverySlot: deliveryAddr.slot,
+                deliveryAddress: deliveryAddr,
                 items,
               };
             });
@@ -1540,6 +1556,13 @@ export const App: React.FC = () => {
     const dbStatus = nextStatus === 'OUT_FOR_DELIVERY' ? 'DISPATCHED' : nextStatus;
     try {
       await updateOrderStatusInDb(orderId, dbStatus);
+      if (nextStatus === 'PACKED') {
+        try {
+          await markOrderReadyForDelivery(orderId);
+        } catch (deliveryErr: any) {
+          console.warn('Could not broadcast ready-for-delivery:', deliveryErr.message);
+        }
+      }
       setOrders((prev) =>
         prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o))
       );
@@ -2710,11 +2733,21 @@ export const App: React.FC = () => {
                     className="bg-surface border border-border rounded-lg p-5"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-border">
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-2.5">
                         <span className="font-bold text-sm text-gray-900">{ord.orderNumber}</span>
                         <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 uppercase tracking-wide">
                           {ord.channel}
                         </span>
+                        {ord.isSubscription && (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200 uppercase tracking-wide flex items-center gap-1">
+                            <span>🔁</span> Subscription Order
+                          </span>
+                        )}
+                        {ord.deliverySlot && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
+                            <span>⏰</span> Delivery: {ord.deliverySlot}
+                          </span>
+                        )}
                         <span className="text-gray-400 text-xs font-normal">{ord.createdAt}</span>
                       </div>
 

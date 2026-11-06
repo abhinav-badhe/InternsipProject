@@ -310,7 +310,7 @@ export function createApp(deps?: {
   app.post(['/api/v1/orders/checkout', '/api/v1/orders'], async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.body as CreateOrderRequest;
-      body.paymentMethod = 'COD';
+      body.paymentMethod = body.paymentMethod || 'RAZORPAY';
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
       // Auto-assign headers / defaults if omitted by caller
@@ -318,7 +318,9 @@ export function createApp(deps?: {
         body.customerId = (req.headers['x-user-id'] as string) || 'cust_anonymous';
       }
       if (!body.idempotencyKey) {
-        body.idempotencyKey = `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        body.idempotencyKey =
+          (req.headers['idempotency-key'] || req.headers['x-idempotency-key']) as string ||
+          `idemp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       }
       if (!body.channel) {
         body.channel = 'WEB';
@@ -565,6 +567,46 @@ export function createApp(deps?: {
         }).catch(() => {});
       }
 
+      // Proactive WhatsApp notification when order is Dispatched / Out for Delivery
+      if (status === 'DISPATCHED') {
+        try {
+          const ordDetail = await Database.query('SELECT delivery_address, grand_total, order_number FROM orders WHERE id = $1', [order.id]);
+          const addr = ordDetail.rows[0]?.delivery_address || {};
+          const phone = addr.phone;
+          if (phone) {
+            const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+            fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                toPhone: phone,
+                bodyText: `🛵 *Your FreshCart Order is Out for Delivery!*\n\nOrder *#${order.order_number}* has departed from our store and is on its way to you!\n⏱️ *Estimated Arrival:* 10–15 mins\n💰 *Total:* ₹${Number(ordDetail.rows[0]?.grand_total || 0).toFixed(2)}\n\nOur delivery partner will reach your address shortly. Reply *'Track'* anytime for updates!`
+              })
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+
+      // Proactive WhatsApp notification when order is Delivered
+      if (status === 'DELIVERED') {
+        try {
+          const ordDetail = await Database.query('SELECT delivery_address, order_number FROM orders WHERE id = $1', [order.id]);
+          const addr = ordDetail.rows[0]?.delivery_address || {};
+          const phone = addr.phone;
+          if (phone) {
+            const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+            fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                toPhone: phone,
+                bodyText: `🎉 *Your FreshCart Order #${order.order_number} has been Delivered!*\n\nWe hope you enjoy your fresh groceries! Thank you for choosing FreshCart.`
+              })
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+
       // If transitioned to CONFIRMED, generate fulfillment pick list and GST invoice
       if (status === 'CONFIRMED') {
         CheckoutSagaOrchestrator.generateFulfillmentAndInvoiceOnConfirm(order.id).catch((genErr: any) => {
@@ -618,7 +660,7 @@ export function createApp(deps?: {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
 
       const existingRes = await Database.query(
-        `SELECT id, order_number, status, reservation_id FROM orders WHERE id::text = $1 OR order_number = $1`,
+        `SELECT id, order_number, status, reservation_id, customer_id, delivery_address, grand_total FROM orders WHERE id::text = $1 OR order_number = $1`,
         [orderId]
       );
 
@@ -666,6 +708,46 @@ export function createApp(deps?: {
         }
       }
 
+      // Automatically initiate financial refund if order was paid / confirmed
+      const grandTotalNum = parseFloat(order.grand_total || '0');
+      if (grandTotalNum > 0) {
+        try {
+          const payUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
+          fetch(`${payUrl}/api/v1/payments/refunds`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+            body: JSON.stringify({
+              orderId: order.id,
+              amount: grandTotalNum,
+              reason: reason || 'Order cancelled by customer',
+              refundMethod: 'WALLET',
+              customerId: order.customer_id,
+            }),
+            signal: AbortSignal.timeout(4000),
+          }).catch(() => {});
+        } catch {}
+      }
+
+      // Proactive WhatsApp cancellation alert to customer
+      try {
+        const addr = typeof order.delivery_address === 'string' ? JSON.parse(order.delivery_address) : (order.delivery_address || {});
+        const phone = addr.phone;
+        if (phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: phone,
+              bodyText: `❌ *Your FreshCart Order #${order.order_number} has been Cancelled.*\n\n` +
+                `Reason: ${reason || 'Cancelled by user'}\n` +
+                (grandTotalNum > 0 ? `💰 *Refund:* ₹${grandTotalNum.toFixed(2)} has been credited back to your FreshCart Wallet (Instant)!\n\n` : '\n') +
+                `Need help? Reply to this message anytime to reach support.`,
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
+
       res.status(200).json(
         okResponse(
           {
@@ -673,6 +755,96 @@ export function createApp(deps?: {
             orderNumber: order.order_number,
             status: 'CANCELLED',
             reason: reason || 'Cancelled by user',
+            refundInitiated: grandTotalNum > 0,
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Customer Order Returns & Quality Complaint Initiation
+  app.post('/api/v1/orders/:orderId/returns', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { items, reason, customerNotes, images } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const existingRes = await Database.query(
+        `SELECT id, order_number, status, customer_id, delivery_address, grand_total
+         FROM orders WHERE id::text = $1 OR order_number = $1`,
+        [orderId]
+      );
+
+      if (existingRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('ORDER_NOT_FOUND', `Order ${orderId} not found`, correlationId));
+      }
+
+      const order = existingRes.rows[0];
+
+      // Ensure order_returns table exists
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS order_returns (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          order_id UUID NOT NULL,
+          order_number VARCHAR(32) NOT NULL,
+          customer_id VARCHAR(64) NOT NULL,
+          items JSONB NOT NULL,
+          reason TEXT NOT NULL,
+          customer_notes TEXT,
+          images JSONB DEFAULT '[]'::jsonb,
+          status VARCHAR(32) NOT NULL DEFAULT 'REQUESTED',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      const returnRes = await Database.query(
+        `INSERT INTO order_returns (order_id, order_number, customer_id, items, reason, customer_notes, images, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'REQUESTED')
+         RETURNING id, created_at`,
+        [
+          order.id,
+          order.order_number,
+          order.customer_id,
+          JSON.stringify(items || []),
+          reason || 'Damaged / Expired item',
+          customerNotes || '',
+          JSON.stringify(images || []),
+        ]
+      );
+
+      // Proactive WhatsApp notification acknowledging return request
+      try {
+        const addr = typeof order.delivery_address === 'string' ? JSON.parse(order.delivery_address) : (order.delivery_address || {});
+        const phone = addr.phone;
+        if (phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: phone,
+              bodyText: `📦 *FreshCart Return Request Received*\n\n` +
+                `Order: *#${order.order_number}*\n` +
+                `Return Request ID: *${returnRes.rows[0]?.id?.slice(0, 8)}*\n` +
+                `Reason: ${reason || 'Damaged / expired item'}\n\n` +
+                `Our dark-store quality team will review your request. Upon doorstep pickup, refund will be instantly credited to your wallet!`,
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
+
+      res.status(201).json(
+        okResponse(
+          {
+            returnId: returnRes.rows[0]?.id,
+            orderId: order.id,
+            orderNumber: order.order_number,
+            status: 'REQUESTED',
+            message: 'Return request submitted successfully',
           },
           correlationId
         )
@@ -721,6 +893,22 @@ export function createApp(deps?: {
       CheckoutSagaOrchestrator.generateFulfillmentAndInvoiceOnConfirm(order.id).catch((genErr: any) => {
         logger.warn('Failed to generate pick list / invoice on payment confirmation', { error: genErr.message });
       });
+
+      // Dispatch WhatsApp order payment confirmation to customer's mobile
+      try {
+        const phone = (order.delivery_address as any)?.phone;
+        if (phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: phone,
+              bodyText: `✅ *FreshCart Order Confirmed & Paid!*\n\nHello ${(order.delivery_address as any)?.recipientName || 'Valued Customer'},\nPayment of *₹${Number(order.grand_total).toFixed(2)}* received for Order *#${order.order_number}*.\n\nOur dark store staff is currently picking and packing your fresh groceries. We will notify you with live updates once the rider is on the way!`
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
 
       // Permanently lock in the reserved inventory by consuming the hold
       if (order.reservation_id) {
@@ -797,6 +985,98 @@ export function createApp(deps?: {
     }
   });
 
+  // Feature: 1-Click Past Order Reorder
+  app.post('/api/v1/orders/:orderId/reorder', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const itemsRes = await Database.query(
+        `SELECT sku, product_name, quantity, unit_price FROM order_items
+         WHERE order_id::text = $1 OR order_id = (SELECT id FROM orders WHERE order_number = $1 LIMIT 1)`,
+        [orderId]
+      );
+
+      if (itemsRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('ORDER_ITEMS_NOT_FOUND', 'Historical order items not found', correlationId));
+      }
+
+      const reorderItems = itemsRes.rows.map(r => ({
+        sku: r.sku,
+        productName: r.product_name,
+        quantity: parseInt(r.quantity, 10),
+        estimatedUnitPrice: parseFloat(r.unit_price),
+      }));
+
+      res.status(200).json(
+        okResponse(
+          {
+            originalOrderId: orderId,
+            items: reorderItems,
+            totalItems: reorderItems.length,
+            message: 'Items prepared for 1-click reorder',
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Post-Delivery Rider Tip Allocation
+  app.post('/api/v1/orders/:orderId/tip', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { orderId } = req.params;
+      const { tipAmount, paymentMethod = 'WALLET' } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const tip = parseFloat(tipAmount);
+
+      if (isNaN(tip) || tip <= 0) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'Positive tipAmount is required', correlationId));
+      }
+
+      await Database.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS rider_tip_amount NUMERIC(10, 2) DEFAULT 0.00;`).catch(() => {});
+
+      const updRes = await Database.query(
+        `UPDATE orders
+         SET rider_tip_amount = COALESCE(rider_tip_amount, 0) + $1,
+             updated_at = NOW()
+         WHERE id::text = $2 OR order_number = $2
+         RETURNING id, order_number, rider_tip_amount, customer_id`,
+        [tip, orderId]
+      );
+
+      if (updRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('ORDER_NOT_FOUND', `Order ${orderId} not found`, correlationId));
+      }
+
+      // Update rider earnings in fulfillment service
+      try {
+        const fulUrl = process.env.FULFILLMENT_SERVICE_URL || 'http://localhost:3008';
+        await fetch(`${fulUrl}/api/v1/fulfillment/deliveries/${orderId}/tip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
+          body: JSON.stringify({ tipAmount: tip }),
+        });
+      } catch {}
+
+      res.status(200).json(
+        okResponse(
+          {
+            orderId,
+            tipAdded: tip,
+            totalTip: parseFloat(updRes.rows[0].rider_tip_amount),
+            paymentMethod,
+            message: 'Rider tip recorded successfully',
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // Global Error Handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

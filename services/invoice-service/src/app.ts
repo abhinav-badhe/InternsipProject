@@ -148,6 +148,33 @@ export function createApp(): express.Application {
         items,
       });
 
+      // Proactive WhatsApp notification with official tax invoice & PDF download link
+      try {
+        let phone = req.body.customerPhone || (req.headers['x-user-phone'] as string);
+        if (!phone) {
+          const ordRes = await Database.query(`SELECT delivery_address FROM orders WHERE order_number = $1 OR id::text = $1`, [orderNumber]);
+          const addr = ordRes.rows[0]?.delivery_address || {};
+          phone = addr.phone;
+        }
+        if (phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: phone,
+              bodyText: `🧾 *FreshCart Tax Invoice & Order Receipt*\n\n` +
+                `Invoice #: *${result.invoiceNumber}*\n` +
+                `Order #: *#${orderNumber}*\n` +
+                `Grand Total: *₹${Number(result.grandTotal).toFixed(2)}*\n\n` +
+                `📄 *Download Official GST Tax Invoice PDF:*\n` +
+                `http://localhost:3000/api/v1/invoices/${result.id}/download\n\n` +
+                `Thank you for shopping with FreshCart! Reply 'Track' anytime for live rider location.`,
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
+
       res.status(201).json(okResponse(result, correlationId));
     } catch (err) {
       next(err);
@@ -334,6 +361,166 @@ export function createApp(): express.Application {
         ewayBill: inserted.rows[0],
         message: `Government NIC E-Way Bill #${ewbNum} generated successfully for B2B compliance.`,
       }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Issue GST Rule 53 Compliant Credit Note (For Cancellations, Returns & Price Adjustments)
+  app.post('/api/v1/invoices/:invoiceId/credit-note', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const invoiceId = req.params.invoiceId as string;
+      const { reason, refundAmount, items } = req.body || {};
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      // Ensure credit_notes table exists
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS credit_notes (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          credit_note_number VARCHAR(32) NOT NULL UNIQUE,
+          invoice_id UUID NOT NULL REFERENCES invoices(id),
+          invoice_number VARCHAR(32) NOT NULL,
+          order_id UUID NOT NULL,
+          order_number VARCHAR(32) NOT NULL,
+          customer_id VARCHAR(64) NOT NULL,
+          customer_name VARCHAR(128) NOT NULL,
+          taxable_reversal NUMERIC(12, 4) NOT NULL,
+          cgst_reversal NUMERIC(12, 4) NOT NULL,
+          sgst_reversal NUMERIC(12, 4) NOT NULL,
+          total_credit_amount NUMERIC(12, 4) NOT NULL,
+          reason TEXT NOT NULL,
+          items JSONB DEFAULT '[]'::jsonb,
+          issued_at TIMESTAMPTZ DEFAULT NOW(),
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      const invRes = await Database.query(
+        `SELECT id, invoice_number, order_id, order_number, customer_id, customer_name, subtotal, cgst_total, sgst_total, grand_total
+         FROM invoices
+         WHERE id::text = $1 OR invoice_number = $1
+         LIMIT 1`,
+        [invoiceId]
+      );
+
+      if (invRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('NOT_FOUND', `Invoice ${invoiceId} not found`, correlationId));
+      }
+
+      const inv = invRes.rows[0];
+      const creditTotal = parseFloat(refundAmount || inv.grand_total);
+      // Prorate GST reversal (18% effective standard grocery rate)
+      const taxable = Number((creditTotal / 1.18).toFixed(4));
+      const gstSplit = Number(((creditTotal - taxable) / 2).toFixed(4));
+
+      const cnNumber = `CN-${new Date().getUTCFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+
+      const cnResult = await Database.query(`
+        INSERT INTO credit_notes (
+          credit_note_number, invoice_id, invoice_number, order_id, order_number,
+          customer_id, customer_name, taxable_reversal, cgst_reversal, sgst_reversal,
+          total_credit_amount, reason, items
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10,
+          $11, $12, $13
+        )
+        RETURNING *
+      `, [
+        cnNumber,
+        inv.id,
+        inv.invoice_number,
+        inv.order_id,
+        inv.order_number,
+        inv.customer_id,
+        inv.customer_name,
+        taxable,
+        gstSplit,
+        gstSplit,
+        creditTotal,
+        reason || 'Order cancellation & return adjustment',
+        JSON.stringify(items || []),
+      ]);
+
+      res.status(201).json(okResponse({
+        creditNote: cnResult.rows[0],
+        message: `GST Credit Note ${cnNumber} issued successfully against Invoice #${inv.invoice_number}`,
+      }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: GSTR-1 Monthly Sales Register & Tax Compliance Report Export
+  app.get('/api/v1/invoices/reports/gstr-1', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const month = parseInt(req.query.month as string || String(new Date().getMonth() + 1), 10);
+      const year = parseInt(req.query.year as string || String(new Date().getFullYear()), 10);
+      const format = (req.query.format as string || 'json').toLowerCase();
+
+      const summaryRes = await Database.query(`
+        SELECT 
+          COUNT(*)::int as invoice_count,
+          COALESCE(SUM(subtotal), 0) as total_taxable_value,
+          COALESCE(SUM(cgst_total), 0) as total_cgst,
+          COALESCE(SUM(sgst_total), 0) as total_sgst,
+          COALESCE(SUM(delivery_fee), 0) as total_delivery_fees,
+          COALESCE(SUM(grand_total), 0) as total_gross_value
+        FROM invoices
+        WHERE EXTRACT(MONTH FROM created_at) = $1 AND EXTRACT(YEAR FROM created_at) = $2
+      `, [month, year]);
+
+      const linesRes = await Database.query(`
+        SELECT 
+          il.hsn_code,
+          il.gst_rate_percent,
+          COUNT(*)::int as total_lines,
+          SUM(il.quantity)::int as total_qty,
+          COALESCE(SUM(il.taxable_amount), 0) as taxable_amount,
+          COALESCE(SUM(il.cgst_amount), 0) as cgst_amount,
+          COALESCE(SUM(il.sgst_amount), 0) as sgst_amount
+        FROM invoice_lines il
+        JOIN invoices i ON il.invoice_id = i.id
+        WHERE EXTRACT(MONTH FROM i.created_at) = $1 AND EXTRACT(YEAR FROM i.created_at) = $2
+        GROUP BY il.hsn_code, il.gst_rate_percent
+        ORDER BY il.hsn_code ASC
+      `, [month, year]);
+
+      const summary = summaryRes.rows[0];
+      const gstrData = {
+        gstin: '29AABCF1234F1Z5',
+        legalName: 'FreshCart Quick Commerce Pvt Ltd',
+        taxPeriod: `${String(month).padStart(2, '0')}/${year}`,
+        table7_B2CSmall: {
+          invoiceCount: summary.invoice_count,
+          totalTaxableValue: parseFloat(summary.total_taxable_value),
+          totalCgst: parseFloat(summary.total_cgst),
+          totalSgst: parseFloat(summary.total_sgst),
+          totalDeliveryFees: parseFloat(summary.total_delivery_fees),
+          totalGrossValue: parseFloat(summary.total_gross_value),
+        },
+        table12_HsnSummary: linesRes.rows.map(r => ({
+          hsnCode: r.hsn_code,
+          gstRatePercent: parseFloat(r.gst_rate_percent),
+          totalQuantity: parseInt(r.total_qty, 10),
+          taxableAmount: parseFloat(r.taxable_amount),
+          cgstAmount: parseFloat(r.cgst_amount),
+          sgstAmount: parseFloat(r.sgst_amount),
+        })),
+      };
+
+      if (format === 'csv') {
+        let csv = `HSN,GST Rate %,Total Qty,Taxable Value,CGST,SGST\n`;
+        linesRes.rows.forEach(r => {
+          csv += `${r.hsn_code},${r.gst_rate_percent}%,${r.total_qty},${parseFloat(r.taxable_amount).toFixed(2)},${parseFloat(r.cgst_amount).toFixed(2)},${parseFloat(r.sgst_amount).toFixed(2)}\n`;
+        });
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="GSTR1_${year}_${month}.csv"`);
+        return res.status(200).send(csv);
+      }
+
+      res.status(200).json(okResponse(gstrData, correlationId));
     } catch (err) {
       next(err);
     }

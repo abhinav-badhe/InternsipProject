@@ -17,7 +17,7 @@ const isRemote =
 const pool = new Pool({
   connectionString,
   ssl: isRemote ? { rejectUnauthorized: false } : undefined,
-  max: 10,
+  max: parseInt(process.env.DB_POOL_MAX || '5', 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
 });

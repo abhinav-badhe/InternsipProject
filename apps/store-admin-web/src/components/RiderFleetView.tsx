@@ -357,7 +357,19 @@ export const RiderFleetView: React.FC = () => {
                     {waitingOrders.map((ord) => (
                       <tr key={ord.orderId} className="hover:bg-gray-50/60">
                         <td className="p-3.5 font-bold text-gray-900">
-                          <div>{ord.orderNumber}</div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{ord.orderNumber}</span>
+                            {(ord.orderNumber?.startsWith('SUB-') || ord.deliveryAddress?.isSubscription || ord.deliveryAddress?.subscriptionNumber) && (
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 uppercase tracking-wide">
+                                Subscription
+                              </span>
+                            )}
+                          </div>
+                          {ord.deliveryAddress?.slot && (
+                            <div className="text-[10px] font-semibold text-purple-700 mt-0.5">
+                              ⏰ {ord.deliveryAddress.slot}
+                            </div>
+                          )}
                           <span className="text-[10px] font-mono text-gray-400">ID: {ord.orderId.slice(0, 8)}</span>
                         </td>
                         <td className="p-3.5 text-gray-700">

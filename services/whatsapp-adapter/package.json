@@ -14,6 +14,7 @@
     "axios": "^1.21.0",
     "dotenv": "^18.0.9",
     "express": "^4.21.2",
+    "ioredis": "^6.0.0",
     "pg": "^8.13.3"
   },
   "devDependencies": {

@@ -1,20 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Header } from './components/Header';
 import { CategoryNav } from './components/CategoryNav';
 import { ProductCard } from './components/ProductCard';
 import { CartDrawer, CartItem } from './components/CartDrawer';
 import { AlternativesModal } from './components/AlternativesModal';
-import { OrderHistoryModal, CustomerOrder } from './components/OrderHistoryModal';
-import { AuthModal } from './components/AuthModal';
-import { WalletModal } from './components/WalletModal';
-import { ReferralModal } from './components/ReferralModal';
-import { SubscriptionModal } from './components/SubscriptionModal';
-import { PaymentGatewayModal } from './components/PaymentGatewayModal';
-import { RecipeBundlesModal } from './components/RecipeBundlesModal';
-import { AddressSelectorModal } from './components/AddressSelectorModal';
-import { DeliveryPartnerApp } from './components/DeliveryPartnerApp';
+import type { CustomerOrder } from './components/OrderHistoryModal';
 import { PRODUCTS, CATEGORIES, Product, ProductVariant, Category } from './data/catalog';
 import { ShieldCheck, Zap, RefreshCw, PhoneCall, Sparkles, Database } from 'lucide-react';
+
+// Lazy-loaded routes & heavy interactive modals (Code-Splitting for Instant Page Load)
+const DeliveryPartnerApp = lazy(() => import('./components/DeliveryPartnerApp').then((m) => ({ default: m.DeliveryPartnerApp })));
+const OrderHistoryModal = lazy(() => import('./components/OrderHistoryModal').then((m) => ({ default: m.OrderHistoryModal })));
+const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })));
+const WalletModal = lazy(() => import('./components/WalletModal').then((m) => ({ default: m.WalletModal })));
+const ReferralModal = lazy(() => import('./components/ReferralModal').then((m) => ({ default: m.ReferralModal })));
+const SubscriptionModal = lazy(() => import('./components/SubscriptionModal').then((m) => ({ default: m.SubscriptionModal })));
+const PaymentGatewayModal = lazy(() => import('./components/PaymentGatewayModal').then((m) => ({ default: m.PaymentGatewayModal })));
+const RecipeBundlesModal = lazy(() => import('./components/RecipeBundlesModal').then((m) => ({ default: m.RecipeBundlesModal })));
+const AddressSelectorModal = lazy(() => import('./components/AddressSelectorModal').then((m) => ({ default: m.AddressSelectorModal })));
 import {
   fetchLiveCategories,
   fetchLiveProducts,
@@ -44,7 +47,11 @@ export const App: React.FC = () => {
   }, []);
 
   if (currentPath.startsWith('/delivery')) {
-    return <DeliveryPartnerApp />;
+    return (
+      <Suspense fallback={<div className="flex items-center justify-center min-h-screen bg-slate-900 text-white text-sm">Loading delivery fleet app...</div>}>
+        <DeliveryPartnerApp />
+      </Suspense>
+    );
   }
 
   const [visibleProductCount, setVisibleProductCount] = useState(24);
@@ -222,7 +229,8 @@ export const App: React.FC = () => {
   const handleCheckout = async (
     deliverySlot: string,
     couponCode?: string,
-    deliveryAddress?: any
+    deliveryAddress?: any,
+    paymentMethod: 'RAZORPAY' | 'COD' = 'RAZORPAY'
   ) => {
     if (cartItems.length === 0) return;
     setIsCheckingOut(true);
@@ -238,6 +246,7 @@ export const App: React.FC = () => {
         deliverySlot,
         couponCode,
         deliveryAddress,
+        paymentMethod,
       });
 
       const newOrder: CustomerOrder = {
@@ -255,7 +264,7 @@ export const App: React.FC = () => {
       setCartItems([]);
       setIsCartOpen(false);
 
-      if (orderData.grandTotal > 0 && orderData.status !== 'CONFIRMED') {
+      if (paymentMethod === 'RAZORPAY' && orderData.grandTotal > 0) {
         setSelectedPaymentOrder(newOrder);
       } else {
         showToast(`Order #${orderData.orderNumber} placed! Pay cash on delivery.`);
@@ -651,89 +660,92 @@ export const App: React.FC = () => {
         onSelectAlternative={handleAddToCart}
       />
 
-      {/* Order History & Invoices Modal */}
-      <OrderHistoryModal
-        isOpen={isOrdersOpen}
-        onClose={() => setIsOrdersOpen(false)}
-        orders={orders}
-        walletBalance={walletBalance}
-      />
-
-      {/* Feature 21 & Feature 22: Live Payment Gateway & Split Payment Modal */}
-      {selectedPaymentOrder && (
-        <PaymentGatewayModal
-          isOpen={Boolean(selectedPaymentOrder)}
-          onClose={() => setSelectedPaymentOrder(null)}
-          orderId={selectedPaymentOrder.id}
-          orderNumber={selectedPaymentOrder.orderNumber}
-          totalAmount={selectedPaymentOrder.grandTotal}
+      {/* Lazy-Loaded Interactive Modals & Features */}
+      <Suspense fallback={null}>
+        {/* Order History & Invoices Modal */}
+        <OrderHistoryModal
+          isOpen={isOrdersOpen}
+          onClose={() => setIsOrdersOpen(false)}
+          orders={orders}
           walletBalance={walletBalance}
-          onPaymentSuccess={(paymentId) => {
-            setOrders((prev) =>
-              prev.map((o) => (o.id === selectedPaymentOrder.id ? { ...o, status: 'CONFIRMED' } : o))
-            );
-            fetchCustomerWallet().then((w) => setWalletBalance(w.balance)).catch(() => {});
-            showToast(`🎉 Payment Confirmed! Order #${selectedPaymentOrder.orderNumber} is packing at dark store.`);
+        />
+
+        {/* Feature 21 & Feature 22: Live Payment Gateway & Split Payment Modal */}
+        {selectedPaymentOrder && (
+          <PaymentGatewayModal
+            isOpen={Boolean(selectedPaymentOrder)}
+            onClose={() => setSelectedPaymentOrder(null)}
+            orderId={selectedPaymentOrder.id}
+            orderNumber={selectedPaymentOrder.orderNumber}
+            totalAmount={selectedPaymentOrder.grandTotal}
+            walletBalance={walletBalance}
+            onPaymentSuccess={(paymentId) => {
+              setOrders((prev) =>
+                prev.map((o) => (o.id === selectedPaymentOrder.id ? { ...o, status: 'CONFIRMED' } : o))
+              );
+              fetchCustomerWallet().then((w) => setWalletBalance(w.balance)).catch(() => {});
+              showToast(`🎉 Payment Confirmed! Order #${selectedPaymentOrder.orderNumber} is packing at dark store.`);
+            }}
+          />
+        )}
+
+        {/* Sign In / Register / MFA Modal */}
+        <AuthModal
+          isOpen={isAuthOpen}
+          onClose={() => setIsAuthOpen(false)}
+          onSuccess={(session) => {
+            setUserSession(session);
+            showToast(`Welcome back, ${session.user.fullName}!`);
           }}
         />
-      )}
 
-      {/* Sign In / Register / MFA Modal */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onSuccess={(session) => {
-          setUserSession(session);
-          showToast(`Welcome back, ${session.user.fullName}!`);
-        }}
-      />
+        {/* Feature 15: FreshCart Customer Wallet & Cashback Modal */}
+        <WalletModal
+          isOpen={isWalletOpen}
+          onClose={() => setIsWalletOpen(false)}
+          onBalanceUpdated={(newBal) => setWalletBalance(newBal)}
+        />
 
-      {/* Feature 15: FreshCart Customer Wallet & Cashback Modal */}
-      <WalletModal
-        isOpen={isWalletOpen}
-        onClose={() => setIsWalletOpen(false)}
-        onBalanceUpdated={(newBal) => setWalletBalance(newBal)}
-      />
+        {/* Feature 17: FreshCart Refer & Earn Modal */}
+        <ReferralModal
+          isOpen={isReferralOpen}
+          onClose={() => setIsReferralOpen(false)}
+          onRewardClaimed={() => {
+            fetchCustomerWallet().then((w) => setWalletBalance(w.balance)).catch(() => {});
+            showToast('🎉 ₹100 Welcome Gift credited to your wallet!');
+          }}
+        />
 
-      {/* Feature 17: FreshCart Refer & Earn Modal */}
-      <ReferralModal
-        isOpen={isReferralOpen}
-        onClose={() => setIsReferralOpen(false)}
-        onRewardClaimed={() => {
-          fetchCustomerWallet().then((w) => setWalletBalance(w.balance)).catch(() => {});
-          showToast('🎉 ₹100 Welcome Gift credited to your wallet!');
-        }}
-      />
+        {/* Feature 16: Daily Essentials & Milk Subscription Modal */}
+        <SubscriptionModal
+          products={products}
+          isOpen={isSubscriptionsOpen}
+          onClose={() => setIsSubscriptionsOpen(false)}
+          onSubscriptionChanged={() => {
+            showToast('Updated your morning recurring subscription.');
+          }}
+        />
 
-      {/* Feature 16: Daily Essentials & Milk Subscription Modal */}
-      <SubscriptionModal
-        products={products}
-        isOpen={isSubscriptionsOpen}
-        onClose={() => setIsSubscriptionsOpen(false)}
-        onSubscriptionChanged={() => {
-          showToast('Updated your morning recurring subscription.');
-        }}
-      />
+        {/* Feature 14: Cook & Shop Recipe Bundles Modal */}
+        <RecipeBundlesModal
+          isOpen={isRecipesOpen}
+          onClose={() => setIsRecipesOpen(false)}
+          products={products}
+          onAddIngredient={handleAddToCart}
+          onShowToast={showToast}
+        />
 
-      {/* Feature 14: Cook & Shop Recipe Bundles Modal */}
-      <RecipeBundlesModal
-        isOpen={isRecipesOpen}
-        onClose={() => setIsRecipesOpen(false)}
-        products={products}
-        onAddIngredient={handleAddToCart}
-        onShowToast={showToast}
-      />
-
-      {/* Customer Saved Delivery Addresses Management Modal */}
-      <AddressSelectorModal
-        isOpen={isAddressModalOpen}
-        onClose={() => setIsAddressModalOpen(false)}
-        selectedAddress={selectedAddress}
-        onSelectAddress={(addr) => {
-          setSelectedAddress(addr);
-          showToast(`📍 Selected ${addr.label} (${addr.street}) as delivery address`);
-        }}
-      />
+        {/* Customer Saved Delivery Addresses Management Modal */}
+        <AddressSelectorModal
+          isOpen={isAddressModalOpen}
+          onClose={() => setIsAddressModalOpen(false)}
+          selectedAddress={selectedAddress}
+          onSelectAddress={(addr) => {
+            setSelectedAddress(addr);
+            showToast(`📍 Selected ${addr.label} (${addr.street}) as delivery address`);
+          }}
+        />
+      </Suspense>
 
       {/* Toast Notification */}
       {toastMessage && (

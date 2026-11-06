@@ -483,6 +483,33 @@ export function createApp(): express.Application {
       }
 
       logger.info('Purchase order issued to supplier', { poId, poNumber: updRes.rows[0].poNumber });
+
+      // Proactive WhatsApp alert to supplier regarding newly issued PO
+      try {
+        const supRes = await Database.query(
+          `SELECT s.phone, s.email, s.contact_person
+           FROM suppliers s
+           JOIN purchase_orders po ON s.id = po.supplier_id
+           WHERE po.id = $1`,
+          [poId]
+        );
+        const sup = supRes.rows[0];
+        if (sup?.phone) {
+          const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+          fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toPhone: sup.phone,
+              bodyText: `📋 *FreshCart Purchase Order Issued!*\n\n` +
+                `PO #: *${updRes.rows[0].poNumber}*\n` +
+                `Supplier: *${updRes.rows[0].supplierName}*\n` +
+                `Dear ${sup.contact_person || 'Partner'}, a new inventory replenishment PO has been issued to your company. Please dispatch stock to Dark Store #1 accordingly.`,
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
+
       res.status(200).json(okResponse(updRes.rows[0], correlationId));
     } catch (err) {
       next(err);
@@ -546,6 +573,181 @@ export function createApp(): express.Application {
         itemsReceived: itemsRes.rows.length,
         message: `Inventory successfully replenished for PO #${po.po_number}`,
       }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ====================================================================
+  // FEATURE: PHYSICAL INVENTORY AUDIT & CYCLE COUNT RECONCILIATION
+  // ====================================================================
+  app.post('/api/v1/inventory/cycle-count', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { items, storeLocation = 'DarkStore-01', notes } = req.body || {};
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'Array of { sku, countedQuantity } required', correlationId));
+      }
+
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS cycle_count_audits (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          store_location VARCHAR(64) NOT NULL,
+          sku VARCHAR(64) NOT NULL,
+          system_quantity NUMERIC(12, 4) NOT NULL,
+          counted_quantity NUMERIC(12, 4) NOT NULL,
+          variance NUMERIC(12, 4) NOT NULL,
+          audited_by VARCHAR(64),
+          notes TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `).catch(() => {});
+
+      const results = [];
+      for (const it of items) {
+        const sku = String(it.sku).toUpperCase();
+        const counted = parseFloat(it.countedQuantity);
+        if (isNaN(counted)) continue;
+
+        // Fetch current system balance
+        const bal = await inventoryRepo.getBalanceBySku(sku);
+        const sysQty = bal ? bal.onHandQuantity : 0;
+        const variance = counted - sysQty;
+
+        // Log audit row
+        await Database.query(`
+          INSERT INTO cycle_count_audits (store_location, sku, system_quantity, counted_quantity, variance, audited_by, notes)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [storeLocation, sku, sysQty, counted, variance, req.headers['x-user-id'] || 'auditor', notes || 'Cycle Count']);
+
+        // If variance exists, adjust stock to reflect reality
+        if (variance !== 0) {
+          await inventoryRepo.adjustStock({
+            sku,
+            delta: variance,
+            reason: variance > 0 ? 'AUDIT_FOUND' : 'SHRINKAGE',
+            referenceId: `AUDIT_${Date.now()}`,
+          }).catch(() => {});
+        }
+
+        results.push({ sku, systemQuantity: sysQty, countedQuantity: counted, variance, adjusted: variance !== 0 });
+      }
+
+      res.status(200).json(okResponse({ success: true, storeLocation, auditedItems: results }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ====================================================================
+  // FEATURE: INTER-DARK-STORE STOCK TRANSFERS
+  // ====================================================================
+
+  // 1. Create Stock Transfer (Source -> Target)
+  app.post('/api/v1/inventory/transfers', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { sourceStore = 'Central-Hub', targetStore = 'DarkStore-01', items, notes } = req.body || {};
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json(errorResponse('INVALID_PARAM', 'items array required', correlationId));
+      }
+
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS stock_transfers (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          transfer_number VARCHAR(32) NOT NULL UNIQUE,
+          source_store VARCHAR(64) NOT NULL,
+          target_store VARCHAR(64) NOT NULL,
+          items JSONB NOT NULL,
+          status VARCHAR(32) NOT NULL DEFAULT 'IN_TRANSIT',
+          notes TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          received_at TIMESTAMPTZ
+        );
+      `).catch(() => {});
+
+      const transferNumber = `TRF-${Date.now().toString().slice(-6)}`;
+
+      // Deduct from source store inventory
+      for (const it of items) {
+        await inventoryRepo.adjustStock({
+          sku: String(it.sku).toUpperCase(),
+          delta: -Math.abs(parseFloat(it.quantity)),
+          reason: 'TRANSFER_OUT',
+          referenceId: transferNumber,
+        }).catch(() => {});
+      }
+
+      const insRes = await Database.query(`
+        INSERT INTO stock_transfers (transfer_number, source_store, target_store, items, status, notes)
+        VALUES ($1, $2, $3, $4, 'IN_TRANSIT', $5)
+        RETURNING *
+      `, [transferNumber, sourceStore, targetStore, JSON.stringify(items), notes || 'Inter-store inventory transfer']);
+
+      res.status(201).json(okResponse({ success: true, transfer: insRes.rows[0] }, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2. List Stock Transfers
+  app.get('/api/v1/inventory/transfers', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      await Database.query(`
+        CREATE TABLE IF NOT EXISTS stock_transfers (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          transfer_number VARCHAR(32) NOT NULL UNIQUE,
+          source_store VARCHAR(64) NOT NULL,
+          target_store VARCHAR(64) NOT NULL,
+          items JSONB NOT NULL,
+          status VARCHAR(32) NOT NULL DEFAULT 'IN_TRANSIT',
+          notes TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          received_at TIMESTAMPTZ
+        );
+      `).catch(() => {});
+
+      const listRes = await Database.query(`SELECT * FROM stock_transfers ORDER BY created_at DESC LIMIT 50`);
+      res.status(200).json(okResponse(listRes.rows, correlationId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 3. Receive Stock Transfer at Destination
+  app.post('/api/v1/inventory/transfers/:id/receive', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const transferId = req.params.id;
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+
+      const trfRes = await Database.query(`SELECT * FROM stock_transfers WHERE id::text = $1 OR transfer_number = $1`, [transferId]);
+      if (trfRes.rows.length === 0) {
+        return res.status(404).json(errorResponse('NOT_FOUND', 'Stock transfer not found', correlationId));
+      }
+
+      const trf = trfRes.rows[0];
+      if (trf.status === 'RECEIVED') {
+        return res.status(400).json(errorResponse('ALREADY_RECEIVED', 'Transfer already marked received', correlationId));
+      }
+
+      const items = Array.isArray(trf.items) ? trf.items : JSON.parse(trf.items || '[]');
+      for (const it of items) {
+        await inventoryRepo.adjustStock({
+          sku: String(it.sku).toUpperCase(),
+          delta: Math.abs(parseFloat(it.quantity)),
+          reason: 'TRANSFER_IN',
+          referenceId: trf.transfer_number,
+        }).catch(() => {});
+      }
+
+      await Database.query(`
+        UPDATE stock_transfers SET status = 'RECEIVED', received_at = NOW() WHERE id = $1
+      `, [trf.id]);
+
+      res.status(200).json(okResponse({ success: true, transferNumber: trf.transfer_number, status: 'RECEIVED' }, correlationId));
     } catch (err) {
       next(err);
     }

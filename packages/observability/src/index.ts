@@ -103,3 +103,5 @@ export class Logger {
 export function createLogger(serviceName: string): Logger {
   return new Logger(serviceName);
 }
+
+export * from './circuit-breaker.js';

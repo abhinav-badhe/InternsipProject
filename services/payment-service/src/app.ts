@@ -27,7 +27,8 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
   const orderClient: OrderClient = deps?.orderClient || {
     getOrderStatus: async (orderId) => {
       const res = await fetch(
-        `${process.env.ORDER_SERVICE_URL || 'http://localhost:3004'}/api/v1/orders/${orderId}`
+        `${process.env.ORDER_SERVICE_URL || 'http://localhost:3004'}/api/v1/orders/${orderId}`,
+        { signal: AbortSignal.timeout(5000) }
       );
       const json: any = await res.json();
       return json.data?.status || 'CANCELLED';
@@ -39,6 +40,7 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ paymentId }),
+          signal: AbortSignal.timeout(5000),
         }
       );
       return res.ok;
@@ -46,6 +48,29 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
   };
 
   const processor = new PaymentProcessor(orderClient);
+
+  const dispatchWhatsApp = async (phone: string | undefined, message: string) => {
+    if (!phone) return;
+    try {
+      const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
+      await fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toPhone: phone, bodyText: message }),
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch {}
+  };
+
+  const resolveCustomerPhone = async (customerId: string, req: Request): Promise<string | undefined> => {
+    if (req.headers['x-user-phone']) return req.headers['x-user-phone'] as string;
+    if (req.body?.customerPhone) return req.body.customerPhone;
+    try {
+      const res = await Database.query('SELECT phone FROM users WHERE id::text = $1', [customerId]);
+      if (res.rows[0]?.phone) return res.rows[0].phone;
+    } catch {}
+    return undefined;
+  };
 
   // Correlation ID middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -256,6 +281,16 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
         ]
       );
 
+      // Proactive WhatsApp notification on wallet credit
+      resolveCustomerPhone(customerId, req).then((phone) => {
+        if (phone) {
+          dispatchWhatsApp(
+            phone,
+            `💳 *FreshCart Wallet Credited!*\n\nAmount Added: *₹${amount.toFixed(2)}*\nMethod: ${paymentMethod}\n💰 *New Wallet Balance:* *₹${newBalance.toFixed(2)}*\n\nYour wallet funds are ready for instant checkout with 0 gateway delays!`
+          );
+        }
+      });
+
       res.status(200).json(
         okResponse(
           {
@@ -389,6 +424,16 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
         ]
       );
 
+      // Proactive WhatsApp notification on cashback received
+      resolveCustomerPhone(customerId, req).then((phone) => {
+        if (phone) {
+          dispatchWhatsApp(
+            phone,
+            `🎁 *FreshCart Cashback Reward Credited!*\n\nCashback: *₹${cashbackAmount.toFixed(2)}*\nOrder: *#${orderId}*\n💰 *New Wallet Balance:* *₹${newBalance.toFixed(2)}*\n\nThank you for shopping with FreshCart!`
+          );
+        }
+      });
+
       res.status(200).json(
         okResponse(
           {
@@ -397,6 +442,160 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
             cashbackAmount,
             newBalance,
             transactionId: txRes.rows[0]?.id,
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Wallet Ledger / Statement History
+  app.get('/api/v1/payments/wallet/ledger', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const customerId = (req.headers['x-user-id'] as string) || (req.query.customerId as string) || 'cust_demo';
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string || '20', 10)));
+      const offset = Math.max(0, parseInt(req.query.offset as string || '0', 10));
+
+      const wallet = await getOrCreateWallet(customerId);
+      const rowsRes = await Database.query(
+        `SELECT id, type, amount, balance_after, reference_id, description, created_at
+         FROM wallet_transactions
+         WHERE wallet_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [wallet.id, limit, offset]
+      );
+
+      const countRes = await Database.query(
+        `SELECT COUNT(*) as total FROM wallet_transactions WHERE wallet_id = $1`,
+        [wallet.id]
+      );
+
+      res.status(200).json(
+        okResponse(
+          {
+            customerId,
+            balance: parseFloat(wallet.balance),
+            totalTransactions: parseInt(countRes.rows[0]?.total || '0', 10),
+            transactions: rowsRes.rows.map((tx) => ({
+              id: tx.id,
+              type: tx.type,
+              amount: parseFloat(tx.amount),
+              balanceAfter: parseFloat(tx.balance_after),
+              referenceId: tx.reference_id,
+              description: tx.description,
+              createdAt: tx.created_at,
+            })),
+          },
+          correlationId
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Feature: Financial Refunds & Reversals (For Cancellations, Returns & Rejected Substitutes)
+  app.post('/api/v1/payments/refunds', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const correlationId = getRequestContext()?.correlationId || 'unknown';
+      const { orderId, amount, reason, refundMethod = 'WALLET', customerPhone } = req.body;
+      const refundAmount = parseFloat(amount);
+
+      if (!orderId || isNaN(refundAmount) || refundAmount <= 0) {
+        return res
+          .status(400)
+          .json(errorResponse('INVALID_PARAM', 'orderId and positive amount are required', correlationId));
+      }
+
+      // 1. Locate original payment attempt or create dummy reference for cash/wallet orders
+      const attemptRes = await Database.query(
+        `SELECT id, provider_payment_id, amount, status FROM payment_attempts WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [orderId]
+      );
+      const paymentAttempt = attemptRes.rows[0];
+
+      let paymentAttemptId: string;
+      if (paymentAttempt) {
+        paymentAttemptId = paymentAttempt.id;
+      } else {
+        // Create an ad-hoc completed payment attempt to attach the refund foreign key
+        const newAttempt = await Database.query(
+          `INSERT INTO payment_attempts (order_id, provider_session_id, amount, status)
+           VALUES ($1, $2, $3, 'PAID')
+           RETURNING id`,
+          [orderId, `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, refundAmount]
+        );
+        paymentAttemptId = newAttempt.rows[0].id;
+      }
+
+      // 2. Record in payment_refunds
+      const refundRecord = await Database.query(
+        `INSERT INTO payment_refunds (payment_attempt_id, order_id, refund_amount, status, reason)
+         VALUES ($1, $2, $3, 'SUCCEEDED', $4)
+         RETURNING id, created_at`,
+        [paymentAttemptId, orderId, refundAmount, reason || 'Order cancellation / adjustment']
+      );
+
+      // 3. If refundMethod is WALLET (default & instant), credit the customer wallet
+      let walletTxId: string | undefined;
+      let newWalletBalance: number | undefined;
+
+      const customerId = (req.headers['x-user-id'] as string) || req.body.customerId || 'cust_demo';
+      if (refundMethod.toUpperCase() === 'WALLET') {
+        const wallet = await getOrCreateWallet(customerId);
+        newWalletBalance = parseFloat(wallet.balance) + refundAmount;
+
+        await Database.query(
+          `UPDATE customer_wallets SET balance = $1, updated_at = NOW() WHERE id = $2`,
+          [newWalletBalance, wallet.id]
+        );
+
+        const wTx = await Database.query(
+          `INSERT INTO wallet_transactions (wallet_id, customer_id, type, amount, balance_after, reference_id, description)
+           VALUES ($1, $2, 'REFUND', $3, $4, $5, $6)
+           RETURNING id`,
+          [
+            wallet.id,
+            customerId,
+            refundAmount,
+            newWalletBalance,
+            orderId,
+            `Refund for Order #${orderId} (${reason || 'Cancelled'})`,
+          ]
+        );
+        walletTxId = wTx.rows[0]?.id;
+      }
+
+      // 4. Send Proactive WhatsApp Refund Notification
+      const targetPhone = customerPhone || (await resolveCustomerPhone(customerId, req));
+      if (targetPhone) {
+        dispatchWhatsApp(
+          targetPhone,
+          `💰 *FreshCart Refund Processed!*\n\n` +
+          `Order: *#${orderId}*\n` +
+          `Refund Amount: *₹${refundAmount.toFixed(2)}*\n` +
+          `Refund Method: *${refundMethod.toUpperCase() === 'WALLET' ? 'FreshCart Wallet (Instant)' : 'Original Payment Source'}*\n` +
+          (newWalletBalance !== undefined ? `💰 *New Wallet Balance:* *₹${newWalletBalance.toFixed(2)}*\n` : '') +
+          `Reason: ${reason || 'Customer cancellation / return'}\n\n` +
+          `Thank you for trusting FreshCart!`
+        );
+      }
+
+      res.status(200).json(
+        okResponse(
+          {
+            success: true,
+            refundId: refundRecord.rows[0]?.id,
+            orderId,
+            refundAmount,
+            refundMethod: refundMethod.toUpperCase(),
+            newWalletBalance,
+            walletTransactionId: walletTxId,
+            status: 'SUCCEEDED',
           },
           correlationId
         )
@@ -539,7 +738,10 @@ export function createApp(deps?: { orderClient?: OrderClient }): express.Applica
   app.post('/api/v1/payments/gateway/verify', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const correlationId = getRequestContext()?.correlationId || 'unknown';
-      const { orderId, razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
+      const orderId = req.body.orderId;
+      const razorpayOrderId = req.body.razorpayOrderId || req.body.razorpay_order_id;
+      const razorpayPaymentId = req.body.razorpayPaymentId || req.body.razorpay_payment_id;
+      const razorpaySignature = req.body.razorpaySignature || req.body.razorpay_signature;
 
       if (!orderId || !razorpayOrderId || !razorpayPaymentId) {
         return res

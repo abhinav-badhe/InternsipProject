@@ -4,6 +4,7 @@ import { WhatsAppCloudApiClient } from './meta.client.js';
 import { SignatureVerifier } from './signature.verifier.js';
 import { AudioTranscriptionService } from './transcription.service.js';
 import { VisionOcrService } from './ocr.service.js';
+import { sessionCache } from './session.cache.js';
 import { Database } from './db.js';
 import {
   createLogger,
@@ -600,6 +601,7 @@ export function createApp(deps?: {
 
     try {
       await Database.query(`DELETE FROM whatsapp_sessions WHERE phone_number = $1`, [phone]);
+      await sessionCache.deleteSession(phone);
       return res.status(200).json(okResponse({ reset: true, phone }, correlationId));
     } catch (err: any) {
       return res.status(500).json(errorResponse('DB_ERROR', err.message, correlationId));
@@ -621,6 +623,104 @@ export function createApp(deps?: {
     } catch (err: any) {
       logger.error('Failed to dispatch back-in-stock notifications', { sku, error: err.message });
       return res.status(500).json(errorResponse('RESTOCK_NOTIFY_ERROR', err.message, correlationId));
+    }
+  });
+
+  // Feature: Live Human Support Escalation & Agent Handoff
+  app.post('/api/v1/whatsapp/human-handoff', async (req: Request, res: Response) => {
+    const correlationId = getRequestContext()?.correlationId || 'unknown';
+    const rawPhone = req.body.phone || req.body.fromPhone || req.body.phoneNumber;
+    const reason = req.body.reason || 'Customer requested human agent';
+    const agentId = req.body.agentId || 'support_agent_01';
+
+    if (!rawPhone) {
+      return res.status(400).json(errorResponse('VALIDATION_ERROR', 'phone is required', correlationId));
+    }
+
+    const cleanPhone = String(rawPhone).startsWith('+') ? String(rawPhone) : `+${String(rawPhone).replace(/[^0-9]/g, '')}`;
+
+    try {
+      const session = await bot.getOrCreateSession(cleanPhone);
+      session.stage = 'HUMAN_AGENT_PAUSED' as any;
+      (session as any).humanAgentAssigned = agentId;
+      (session as any).handoffReason = reason;
+      await (bot as any).saveSession(session);
+
+      const noticeText = `🧑‍💼 *FreshCart Customer Support Handoff*\n\nYou are now connected with a live human support specialist (${agentId}).\n\nOur team is reviewing your conversation and will assist you shortly. Reply *'BOT'* anytime to resume automated AI shopping.`;
+      await metaClient.sendTextMessage(cleanPhone, noticeText);
+
+      return res.status(200).json(
+        okResponse(
+          {
+            phone: cleanPhone,
+            status: 'HANDOFF_ACTIVE',
+            assignedAgent: agentId,
+            reason,
+            message: 'Session paused for human agent',
+          },
+          correlationId
+        )
+      );
+    } catch (err: any) {
+      return res.status(500).json(errorResponse('HANDOFF_ERROR', err.message, correlationId));
+    }
+  });
+
+  // Feature: Resume AI Assistant from Human Handoff
+  app.post('/api/v1/whatsapp/human-resume', async (req: Request, res: Response) => {
+    const correlationId = getRequestContext()?.correlationId || 'unknown';
+    const rawPhone = req.body.phone || req.body.fromPhone;
+
+    if (!rawPhone) {
+      return res.status(400).json(errorResponse('VALIDATION_ERROR', 'phone is required', correlationId));
+    }
+
+    const cleanPhone = String(rawPhone).startsWith('+') ? String(rawPhone) : `+${String(rawPhone).replace(/[^0-9]/g, '')}`;
+
+    try {
+      const session = await bot.getOrCreateSession(cleanPhone);
+      session.stage = 'IDLE';
+      (session as any).humanAgentAssigned = undefined;
+      await (bot as any).saveSession(session);
+
+      const resumeText = `🤖 *FreshCart AI Shopping Assistant Resumed!*\n\nHow can I help you today? You can send a grocery list, voice note, photo, or type 'Menu'.`;
+      await metaClient.sendTextMessage(cleanPhone, resumeText);
+
+      return res.status(200).json(okResponse({ phone: cleanPhone, status: 'AI_RESUMED' }, correlationId));
+    } catch (err: any) {
+      return res.status(500).json(errorResponse('RESUME_ERROR', err.message, correlationId));
+    }
+  });
+
+  // Feature: Abandoned Cart WhatsApp Recovery Nudge
+  app.post('/api/v1/whatsapp/abandoned-cart-notify', async (req: Request, res: Response) => {
+    const correlationId = getRequestContext()?.correlationId || 'unknown';
+    const { customerPhone, items, checkoutUrl, discountCode = 'EXTRA5' } = req.body || {};
+
+    if (!customerPhone) {
+      return res.status(400).json(errorResponse('VALIDATION_ERROR', 'customerPhone is required', correlationId));
+    }
+
+    const cleanPhone = String(customerPhone).startsWith('+') ? String(customerPhone) : `+${String(customerPhone).replace(/[^0-9]/g, '')}`;
+    const itemsList = Array.isArray(items) ? items : [];
+
+    let msg = `🛒 *You left items in your FreshCart basket!*\n\n`;
+    if (itemsList.length > 0) {
+      msg += `Items waiting for you:\n`;
+      itemsList.forEach((it: any) => {
+        msg += `• ${it.productName || it.name || it.sku} (${it.quantity || 1}x)\n`;
+      });
+      msg += `\n`;
+    }
+    msg += `Complete your order in the next 30 minutes and use code *${discountCode}* for an instant discount!\n\n`;
+    msg += `👉 *Complete Checkout Online:*\n${checkoutUrl || 'http://localhost:5173'}\n\n`;
+    msg += `Or reply *'Order'* to checkout directly right here!`;
+
+    try {
+      const dispatchResult = await metaClient.sendTextMessage(cleanPhone, msg);
+      return res.status(200).json(okResponse({ success: true, phone: cleanPhone, dispatchResult }, correlationId));
+    } catch (err: any) {
+      return res.status(500).json(errorResponse('DISPATCH_ERROR', err.message, correlationId));
     }
   });
 

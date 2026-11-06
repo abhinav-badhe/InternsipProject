@@ -12,6 +12,7 @@
     "@grocery/contracts": "workspace:*",
     "@grocery/observability": "workspace:*",
     "express": "^4.21.2",
+    "ioredis": "^6.0.0",
     "pg": "^8.13.3"
   },
   "devDependencies": {

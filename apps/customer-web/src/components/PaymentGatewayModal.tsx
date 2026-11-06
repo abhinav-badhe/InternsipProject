@@ -40,7 +40,7 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
   walletBalance,
   onPaymentSuccess,
 }) => {
-  const [activeTab, setActiveTab] = useState<'UPI_QR' | 'RAZORPAY' | 'SPLIT'>('UPI_QR');
+  const [activeTab, setActiveTab] = useState<'UPI_QR' | 'RAZORPAY' | 'SPLIT'>('RAZORPAY');
   const [gatewayData, setGatewayData] = useState<GatewayOrderDetails | null>(null);
   const [splitData, setSplitData] = useState<SplitPaymentInitiateResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);

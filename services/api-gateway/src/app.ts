@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { AuthMiddleware } from './auth.middleware.js';
-import { InMemoryRateLimiter } from './rate-limiter.js';
+import { DistributedRateLimiter, InMemoryRateLimiter } from './rate-limiter.js';
+import { IdempotencyMiddleware } from './idempotency.middleware.js';
 import {
   createLogger,
   generateCorrelationId,
@@ -24,6 +25,8 @@ export interface GatewayServicesConfig {
   analyticsServiceUrl?: string;
   notificationServiceUrl?: string;
   jwtSecret?: string;
+  redisUrl?: string;
+  redisClient?: any;
   rateLimitMaxRequests?: number;
   rateLimitWindowMs?: number;
   dispatcher?: (
@@ -43,7 +46,7 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   app.use((_req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Correlation-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Correlation-Id, Idempotency-Key, X-Idempotency-Key');
     if (_req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
@@ -58,10 +61,12 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   });
 
   const authMiddleware = new AuthMiddleware(config?.jwtSecret);
-  const rateLimiter = new InMemoryRateLimiter(
-    config?.rateLimitWindowMs || 60000,
-    config?.rateLimitMaxRequests || 100
-  );
+  const rateLimiter = new DistributedRateLimiter({
+    windowMs: config?.rateLimitWindowMs || 60000,
+    maxRequests: config?.rateLimitMaxRequests || 100,
+    redisUrl: config?.redisUrl,
+    redisClient: config?.redisClient,
+  });
 
   const urls = {
     identity: config?.identityServiceUrl || process.env.IDENTITY_SERVICE_URL || 'http://localhost:3007',
@@ -99,6 +104,7 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
       headers['x-user-id'] = req.user.userId;
       headers['x-user-role'] = req.user.role;
       if (req.user.email) headers['x-user-email'] = req.user.email;
+      if (req.user.phone) headers['x-user-phone'] = req.user.phone;
     }
 
     // Preserve Meta WhatsApp Cloud API cryptographic webhook signature
@@ -115,6 +121,14 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     }
     if (req.headers['x-webhook-signature']) {
       headers['x-webhook-signature'] = req.headers['x-webhook-signature'] as string;
+    }
+
+    // Preserve Idempotency Keys across service boundaries
+    if (req.headers['idempotency-key']) {
+      headers['idempotency-key'] = req.headers['idempotency-key'] as string;
+    }
+    if (req.headers['x-idempotency-key']) {
+      headers['x-idempotency-key'] = req.headers['x-idempotency-key'] as string;
     }
 
     try {
@@ -150,6 +164,8 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
         };
         return pump();
       } else if (contentType.includes('application/json')) {
+        const cacheLookup = response.headers.get('x-cache-lookup');
+        if (cacheLookup) res.setHeader('X-Cache-Lookup', cacheLookup);
         const responseBody = await response.json();
         return res.status(response.status).json(responseBody);
       } else {
@@ -192,7 +208,15 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   // 2. Global Rate Limiter
   app.use(rateLimiter.middleware);
 
-  // 3. Health Checks
+  // 3. Distributed Idempotency Middleware (Architectural Flaw 4 Fix)
+  // Protects all mutating requests against duplicate order placements and double charges
+  const idempotencyMiddleware = new IdempotencyMiddleware({
+    redisUrl: config?.redisUrl,
+    customRedis: config?.redisClient,
+  });
+  app.use(idempotencyMiddleware.middleware);
+
+  // 4. Health Checks
   app.get('/health/live', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'live', timestamp: new Date().toISOString() });
   });
@@ -255,6 +279,21 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
 
   // Feature 14: Customer Product Reviews Submission
   app.post('/api/v1/catalog/products/:productId/reviews', (req: Request, res: Response) => {
+    forwardRequest(urls.catalog, req, res);
+  });
+
+  // Customer Wishlist Routes (Allow Customer access)
+  app.all('/api/v1/catalog/wishlist*', (req: Request, res: Response) => {
+    if (req.headers.authorization) {
+      return authMiddleware.authenticate(req, res, () => {
+        forwardRequest(urls.catalog, req, res);
+      });
+    }
+    forwardRequest(urls.catalog, req, res);
+  });
+
+  // Bulk Catalog Import Route
+  app.post('/api/v1/catalog/bulk-import', (req: Request, res: Response) => {
     forwardRequest(urls.catalog, req, res);
   });
 

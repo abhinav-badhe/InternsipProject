@@ -18,6 +18,7 @@ import {
   Wallet,
   Sparkles,
   Package,
+  CreditCard,
 } from 'lucide-react';
 import { Product, ProductVariant } from '../data/catalog';
 import {
@@ -35,7 +36,9 @@ import {
   ProductRecommendation,
 } from '../api/client';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
-import { AddressSelectorModal } from './AddressSelectorModal';
+const AddressSelectorModal = React.lazy(() =>
+  import('./AddressSelectorModal').then((m) => ({ default: m.AddressSelectorModal }))
+);
 
 export interface CartItem {
   variant: ProductVariant;
@@ -52,7 +55,8 @@ interface CartDrawerProps {
   onCheckout: (
     deliverySlot: string,
     couponCode?: string,
-    deliveryAddress?: CustomerSavedAddress
+    deliveryAddress?: CustomerSavedAddress,
+    paymentMethod?: 'RAZORPAY' | 'COD'
   ) => Promise<void>;
   isCheckingOut: boolean;
   onAddToCart?: (variant: ProductVariant, product: Product) => void;
@@ -69,6 +73,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onAddToCart,
 }) => {
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'RAZORPAY' | 'COD'>('RAZORPAY');
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [slotTypeTab, setSlotTypeTab] = useState<'EXPRESS' | 'SCHEDULED'>('EXPRESS');
@@ -571,7 +576,48 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           {/* Footer Bill & Checkout CTA */}
           {items.length > 0 && (
             <div className="shrink-0 border-t border-border bg-surface-muted p-4 space-y-3">
-              {/* Feature 15: FreshCart Wallet Pay Option */}
+              {/* Payment Method Selector (Razorpay Online vs COD) */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                  <span>Payment Method</span>
+                  <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                    {paymentMethod === 'RAZORPAY' ? '⚡ Instant Razorpay / UPI' : 'Pay on Delivery'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('RAZORPAY')}
+                    className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center gap-2 ${
+                      paymentMethod === 'RAZORPAY'
+                        ? 'border-emerald-600 bg-emerald-50/80 ring-1 ring-emerald-600 text-emerald-950 font-bold'
+                        : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs leading-tight">Pay Online</div>
+                      <div className="text-[10px] text-slate-500 font-normal truncate">Razorpay, UPI, Card</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('COD')}
+                    className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center gap-2 ${
+                      paymentMethod === 'COD'
+                        ? 'border-emerald-600 bg-emerald-50/80 ring-1 ring-emerald-600 text-emerald-950 font-bold'
+                        : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <Truck className="w-4 h-4 text-slate-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs leading-tight">Cash on Delivery</div>
+                      <div className="text-[10px] text-slate-500 font-normal truncate">Pay at Doorstep</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               {/* Bill Details */}
               <div className="space-y-1.5 text-xs text-slate-600">
                 <div className="flex justify-between">
@@ -626,26 +672,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   onCheckout(
                     activeSlot.title,
                     appliedCoupon || undefined,
-                    selectedAddress || undefined
+                    selectedAddress || undefined,
+                    paymentMethod
                   )
                 }
                 disabled={isCheckingOut}
-                className="w-full py-2.5 rounded-lg bg-primary hover:bg-primary-hover disabled:opacity-60 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-2.5 rounded-lg bg-primary hover:bg-primary-hover disabled:opacity-60 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>
-                  {isCheckingOut ? 'Reserving Stock...' : `Place order · Pay on delivery`}
+                  {isCheckingOut
+                    ? 'Reserving Stock...'
+                    : paymentMethod === 'RAZORPAY'
+                    ? `Pay ₹${grandTotal.toFixed(2)} via Razorpay`
+                    : `Place Order · Cash on Delivery`}
                 </span>
               </button>
             </div>
           )}
       {/* Address Selector & Management Modal */}
-      <AddressSelectorModal
-        isOpen={isAddressModalOpen}
-        onClose={() => setIsAddressModalOpen(false)}
-        selectedAddress={selectedAddress}
-        onSelectAddress={(addr) => setSelectedAddress(addr)}
-      />
+      <React.Suspense fallback={null}>
+        <AddressSelectorModal
+          isOpen={isAddressModalOpen}
+          onClose={() => setIsAddressModalOpen(false)}
+          selectedAddress={selectedAddress}
+          onSelectAddress={(addr) => setSelectedAddress(addr)}
+        />
+      </React.Suspense>
       </SheetContent>
     </Sheet>
   );

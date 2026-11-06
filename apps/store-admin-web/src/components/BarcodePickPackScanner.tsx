@@ -218,6 +218,7 @@ export const BarcodePickPackScanner: React.FC<BarcodePickPackScannerProps> = ({
 
         if (res.data.isOrderComplete && res.data.bagSealCode) {
           setCompletedBagCode(res.data.bagSealCode);
+          setIsReadyForDelivery(true);
           if (onOrderCompleted) {
             onOrderCompleted(selectedOrderNumber, res.data.bagSealCode);
           }
