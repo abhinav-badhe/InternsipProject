@@ -76,6 +76,8 @@ services:
         sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
       - key: CATALOG_SERVICE_URL
         value: http://catalog-service:3001
       - key: PRICING_SERVICE_URL

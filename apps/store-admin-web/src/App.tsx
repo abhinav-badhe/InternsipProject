@@ -1,4 +1,16 @@
 import React, { useState, useEffect } from 'react';
+
+// Automatically route relative API calls to the Render API Gateway when VITE_API_BASE_URL is configured on Vercel
+const API_BASE = ((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+if (API_BASE && typeof window !== 'undefined') {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    if (typeof input === 'string' && input.startsWith('/api/')) {
+      return nativeFetch(`${API_BASE}${input}`, init);
+    }
+    return nativeFetch(input, init);
+  };
+}
 import {
   getAdminSession,
   getStoredAdminSession,
