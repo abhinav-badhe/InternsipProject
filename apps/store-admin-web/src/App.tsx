@@ -1861,7 +1861,7 @@ export const App: React.FC = () => {
           </a>
 
           <a
-            href="http://localhost:5173"
+            href={((import.meta as any).env?.VITE_STOREFRONT_URL || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? 'https://internsip-project.vercel.app' : 'http://localhost:5173'))}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary hover:bg-primary-hover text-white font-medium text-xs transition-colors "

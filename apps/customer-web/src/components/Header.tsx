@@ -109,7 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button onClick={onOpenRecipes} className={secondaryAction}><ChefHat aria-hidden="true" className="size-4" />Recipes</button>
           <button onClick={onOpenReferral} className={secondaryAction}><Gift aria-hidden="true" className="size-4" />Refer a friend</button>
           <a href="/delivery/login" className={secondaryAction}><Bike aria-hidden="true" className="size-4" />Delivery partner</a>
-          <a href={((import.meta as any).env?.VITE_SELLER_HUB_URL || 'http://localhost:5174')} target="_blank" rel="noopener noreferrer" className={`${secondaryAction} lg:ml-auto`}><Store aria-hidden="true" className="size-4" />Seller hub</a>
+          <a href={((import.meta as any).env?.VITE_SELLER_HUB_URL || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? 'https://internsip-project-det6.vercel.app' : 'http://localhost:5174'))} target="_blank" rel="noopener noreferrer" className={`${secondaryAction} lg:ml-auto`}><Store aria-hidden="true" className="size-4" />Seller hub</a>
           </ScrollRail>
         </div>
       </nav>
