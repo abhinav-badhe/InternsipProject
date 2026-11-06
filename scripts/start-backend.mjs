@@ -50,7 +50,7 @@ const services = [
   { name: 'analytics-service', dir: 'services/analytics-service', port: 3010, db: 'analytics_db' },
   { name: 'notification-service', dir: 'services/notification-service', port: 3011, db: 'notification_db' },
   { name: 'outbox-worker', dir: 'workers/event-workers', script: 'dist/src/worker.runner.js' },
-  { name: 'api-gateway', dir: 'services/api-gateway', port: 3000 },
+  { name: 'api-gateway', dir: 'services/api-gateway', port: Number(process.env.PORT) || 3000 },
 ];
 
 const sharedEnv = {

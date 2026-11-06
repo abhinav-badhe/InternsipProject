@@ -1,276 +1,35 @@
 # Render Infrastructure-as-Code (IaC) Blueprint
-# Deploys the Omnichannel Grocery Microservices Platform
-# Strict separation: 1 Public API Gateway, 1 Public Webhook Service, 10 Private Microservices, 1 Background Worker, and 1 Managed Redis
+# Deploys the Omnichannel Grocery Platform on Render 100% Free Tier (No Credit Card Required)
+# Runs the full backend microservices mesh & API gateway inside a single free container
 
 services:
-  # ============================================================================
-  # 1. PUBLIC INGRESS & API GATEWAY
-  # ============================================================================
   - type: web
-    name: api-gateway
+    name: grocery-backend
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/api-gateway/dist/src/index.js
-    healthCheckPath: /health/live
+    startCommand: node scripts/start-backend.mjs
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 3000
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: grocery-redis
-          property: connectionString
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: IDENTITY_SERVICE_URL
-        value: http://identity-service:3007
-      - key: CATALOG_SERVICE_URL
-        value: http://catalog-service:3001
-      - key: PRICING_SERVICE_URL
-        value: http://pricing-service:3002
-      - key: INVENTORY_SERVICE_URL
-        value: http://inventory-service:3003
-      - key: ORDER_SERVICE_URL
-        value: http://order-service:3004
-      - key: WHATSAPP_ADAPTER_URL
-        value: http://whatsapp-adapter:3005
-      - key: PAYMENT_SERVICE_URL
-        value: http://payment-service:3006
-      - key: FULFILLMENT_SERVICE_URL
-        value: http://fulfillment-service:3008
-      - key: INVOICE_SERVICE_URL
-        value: http://invoice-service:3009
-      - key: ANALYTICS_SERVICE_URL
-        value: http://analytics-service:3010
-      - key: NOTIFICATION_SERVICE_URL
-        value: http://notification-service:3011
-
-  # ============================================================================
-  # 2. PUBLIC WHATSAPP WEBHOOK ADAPTER (Receives inbound webhooks from Meta)
-  # ============================================================================
-  - type: web
-    name: whatsapp-adapter
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/whatsapp-adapter/dist/index.js
-    healthCheckPath: /health/live
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3005
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: grocery-redis
-          property: connectionString
-      - key: WHATSAPP_VERIFY_TOKEN
-        sync: false
-      - key: WHATSAPP_API_TOKEN
-        sync: false
-      - key: WHATSAPP_APP_SECRET
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: CATALOG_SERVICE_URL
-        value: http://catalog-service:3001
-      - key: PRICING_SERVICE_URL
-        value: http://pricing-service:3002
-      - key: ORDER_SERVICE_URL
-        value: http://order-service:3004
-      - key: IDENTITY_SERVICE_URL
-        value: http://identity-service:3007
-
-  # ============================================================================
-  # 3. INTERNAL PRIVATE MICROSERVICES (No public IPs; isolated VPC networking)
-  # ============================================================================
-  - type: pserv
-    name: identity-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/identity-service/dist/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3007
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-
-  - type: pserv
-    name: catalog-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/catalog-service/dist/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3001
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-
-  - type: pserv
-    name: pricing-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/pricing-service/dist/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3002
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-
-  - type: pserv
-    name: inventory-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/inventory-service/dist/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3003
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-
-  - type: pserv
-    name: order-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/order-service/dist/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3004
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-      - key: PRICING_SERVICE_URL
-        value: http://pricing-service:3002
-      - key: INVENTORY_SERVICE_URL
-        value: http://inventory-service:3003
-      - key: PAYMENT_SERVICE_URL
-        value: http://payment-service:3006
-      - key: NOTIFICATION_SERVICE_URL
-        value: http://notification-service:3011
-
-  - type: pserv
-    name: payment-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/payment-service/dist/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3006
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-      - key: ORDER_SERVICE_URL
-        value: http://order-service:3004
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET
         sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
-
-  - type: pserv
-    name: fulfillment-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/fulfillment-service/dist/src/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3008
-      - key: SUPABASE_DATABASE_URL
+      - key: GEMINI_API_KEY
         sync: false
-      - key: ORDER_SERVICE_URL
-        value: http://order-service:3004
-
-  - type: pserv
-    name: invoice-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/invoice-service/dist/src/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3009
-      - key: SUPABASE_DATABASE_URL
+      - key: WHATSAPP_API_TOKEN
         sync: false
-
-  - type: pserv
-    name: analytics-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/analytics-service/dist/src/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3010
-      - key: SUPABASE_DATABASE_URL
+      - key: WHATSAPP_APP_SECRET
         sync: false
-
-  - type: pserv
-    name: notification-service
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node services/notification-service/dist/src/index.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3011
-      - key: SUPABASE_DATABASE_URL
+      - key: WHATSAPP_VERIFY_TOKEN
         sync: false
-
-  # ============================================================================
-  # 4. ASYNCHRONOUS EVENT & OUTBOX WORKER
-  # ============================================================================
-  - type: worker
-    name: event-workers
-    runtime: node
-    plan: starter
-    buildCommand: pnpm install && pnpm -r run build
-    startCommand: node workers/event-workers/dist/src/worker.runner.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-
-  # ============================================================================
-  # 5. MANAGED REDIS (Distributed Rate Limiting & Ephemeral Sessions)
-  # ============================================================================
-  - type: redis
-    name: grocery-redis
-    plan: free
-    ipAllowList: [] # Strict internal private access only
-    maxmemoryPolicy: allkeys-lru
-
