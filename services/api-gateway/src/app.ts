@@ -46,7 +46,7 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   app.use((_req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Correlation-Id, Idempotency-Key, X-Idempotency-Key');
+    res.setHeader('Access-Control-Allow-Headers', '*');
     if (_req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
