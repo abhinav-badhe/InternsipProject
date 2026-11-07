@@ -188,7 +188,9 @@ export class AuthService {
         mfaRequired: true,
         mfaTicket: ticket,
         destination: dest,
-        demoOtp: otpCode, // Provided for instant testing/evaluation in developer environments
+        ...(process.env.NODE_ENV !== 'production' && process.env.EXPOSE_DEMO_OTP === 'true'
+          ? { demoOtp: otpCode }
+          : {}),
       };
     }
 
@@ -265,7 +267,7 @@ export class AuthService {
     phone: string;
     email?: string;
     fullName?: string;
-  }): Promise<{ ticket: string; destination: string; demoOtp: string }> {
+  }): Promise<{ ticket: string; destination: string; demoOtp?: string }> {
     let cleanPhone = params.phone.replace(/[\s\-\(\)]/g, '').trim();
     if (!cleanPhone.startsWith('+')) {
       if (cleanPhone.length === 10) {
@@ -341,7 +343,9 @@ export class AuthService {
     return {
       ticket,
       destination: cleanPhone,
-      demoOtp: otpCode,
+      ...(process.env.NODE_ENV !== 'production' && process.env.EXPOSE_DEMO_OTP === 'true'
+        ? { demoOtp: otpCode }
+        : {}),
     };
   }
 

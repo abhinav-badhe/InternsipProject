@@ -168,4 +168,34 @@ describe('IdentityService - Auth & JWT', () => {
     assert.equal(validAttempt.user.fullName, 'Anita Roy');
     assert.ok(validAttempt.token);
   });
+
+  it('SEC-02 Fix: does not leak demoOtp in API response when in production mode', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    const originalExpose = process.env.EXPOSE_DEMO_OTP;
+    try {
+      process.env.NODE_ENV = 'production';
+      delete process.env.EXPOSE_DEMO_OTP;
+
+      Database.query = async (text: string, params?: any[]): Promise<any> => {
+        if (text.includes('SELECT id, full_name, role, email, phone FROM users')) {
+          return {
+            rowCount: 1,
+            rows: [{ id: 'user-uuid-1', full_name: 'Anita Roy', role: 'CUSTOMER', email: 'anita@example.com', phone: '+919876543210' }],
+          };
+        }
+        if (text.includes('INSERT INTO mfa_challenges')) {
+          return { rowCount: 1, rows: [] };
+        }
+        return { rowCount: 0, rows: [] };
+      };
+
+      const result = await authService.requestCustomerPhoneOtp({ phone: '+919876543210' });
+      assert.ok(result.ticket);
+      assert.equal(result.destination, '+919876543210');
+      assert.equal(result.demoOtp, undefined, 'demoOtp must NOT be leaked in production response');
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+      if (originalExpose) process.env.EXPOSE_DEMO_OTP = originalExpose;
+    }
+  });
 });

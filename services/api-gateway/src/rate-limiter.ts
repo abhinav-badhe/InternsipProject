@@ -104,10 +104,12 @@ export class DistributedRateLimiter {
       this.isRedisAvailable = true;
     } else if (redisUrl) {
       try {
+        const isTls = redisUrl.startsWith('rediss://');
         const client = new (Redis as any)(redisUrl, {
           maxRetriesPerRequest: 1,
-          connectTimeout: 3000,
+          connectTimeout: 5000,
           lazyConnect: true,
+          tls: isTls ? { rejectUnauthorized: false } : undefined,
           retryStrategy: (times: number) => {
             if (times > 3) return null;
             return Math.min(times * 100, 1000);
@@ -137,8 +139,25 @@ export class DistributedRateLimiter {
     }
   }
 
+  public getStorageMode(): 'DISTRIBUTED_REDIS' | 'IN_MEMORY' {
+    return this.isRedisAvailable && this.redis ? 'DISTRIBUTED_REDIS' : 'IN_MEMORY';
+  }
+
   public middleware = async (req: Request, res: Response, next: NextFunction) => {
     if (!this.isRedisAvailable || !this.redis) {
+      if (process.env.REQUIRE_DISTRIBUTED_CACHE === 'true') {
+        const correlationId = getRequestContext()?.correlationId || 'unknown';
+        logger.error('Rate limiter rejecting request: REQUIRE_DISTRIBUTED_CACHE is active but Redis is unavailable');
+        return res
+          .status(503)
+          .json(
+            errorResponse(
+              'DISTRIBUTED_CACHE_UNAVAILABLE',
+              'Distributed rate limiter is required but Redis is currently unreachable.',
+              correlationId
+            )
+          );
+      }
       return this.memoryFallback.middleware(req, res, next);
     }
 
@@ -186,6 +205,17 @@ export class DistributedRateLimiter {
       next();
     } catch (err: any) {
       logger.warn('Redis execution error during rate check, falling back to memory', { error: err.message });
+      if (process.env.REQUIRE_DISTRIBUTED_CACHE === 'true') {
+        return res
+          .status(503)
+          .json(
+            errorResponse(
+              'DISTRIBUTED_CACHE_ERROR',
+              'Distributed rate limit operation failed on Redis cluster.',
+              correlationId
+            )
+          );
+      }
       return this.memoryFallback.middleware(req, res, next);
     }
   };

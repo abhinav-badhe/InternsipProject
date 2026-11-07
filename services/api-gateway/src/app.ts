@@ -51,21 +51,76 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
     next();
   });
 
-  // Health check endpoint for container orchestrators (Render / Kubernetes / Docker)
-  app.get('/health', (_req, res) => {
-    res.status(200).json({
-      status: 'healthy',
-      environment: process.env.NODE_ENV || 'production',
-      timestamp: new Date().toISOString()
-    });
-  });
-
   const authMiddleware = new AuthMiddleware(config?.jwtSecret);
   const rateLimiter = new DistributedRateLimiter({
     windowMs: config?.rateLimitWindowMs || 60000,
     maxRequests: config?.rateLimitMaxRequests || 100,
     redisUrl: config?.redisUrl,
     redisClient: config?.redisClient,
+  });
+  const idempotencyMiddleware = new IdempotencyMiddleware({
+    redisUrl: config?.redisUrl,
+    customRedis: config?.redisClient,
+  });
+
+  const isDistributed =
+    rateLimiter.getStorageMode() === 'DISTRIBUTED_REDIS' &&
+    idempotencyMiddleware.getStorageMode() === 'DISTRIBUTED_REDIS';
+
+  if (!isDistributed) {
+    logger.warn(
+      'ARC-01 Notice: API Gateway running in IN_MEMORY state storage mode. Safe for single-instance free-tier (Render free). For multi-instance horizontal scaling, provide REDIS_URL to avoid split-brain state.'
+    );
+  } else {
+    logger.info('ARC-01 Notice: API Gateway running with DISTRIBUTED_REDIS caching & rate limiting (multi-instance safe).');
+  }
+
+  // Health check endpoints for container orchestrators (Render / Kubernetes / Docker)
+  app.get('/health', (_req, res) => {
+    const rateLimiterMode = rateLimiter.getStorageMode();
+    const idempotencyMode = idempotencyMiddleware.getStorageMode();
+    const distributed = rateLimiterMode === 'DISTRIBUTED_REDIS' && idempotencyMode === 'DISTRIBUTED_REDIS';
+    res.status(200).json({
+      status: 'healthy',
+      environment: process.env.NODE_ENV || 'production',
+      stateStorage: {
+        rateLimiter: rateLimiterMode,
+        idempotency: idempotencyMode,
+        mode: distributed ? 'DISTRIBUTED_REDIS' : 'IN_MEMORY',
+        multiInstanceSafe: distributed,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get('/health/ready', (_req: Request, res: Response) => {
+    const rateLimiterMode = rateLimiter.getStorageMode();
+    const idempotencyMode = idempotencyMiddleware.getStorageMode();
+    const distributed = rateLimiterMode === 'DISTRIBUTED_REDIS' && idempotencyMode === 'DISTRIBUTED_REDIS';
+
+    if (process.env.REQUIRE_DISTRIBUTED_CACHE === 'true' && !distributed) {
+      return res.status(503).json({
+        status: 'not_ready',
+        error: 'Distributed cache required (REQUIRE_DISTRIBUTED_CACHE=true) but Redis is disconnected or unavailable',
+        stateStorage: {
+          rateLimiter: rateLimiterMode,
+          idempotency: idempotencyMode,
+          distributed: false,
+          multiInstanceSafe: false,
+        },
+      });
+    }
+
+    res.status(200).json({
+      status: 'ready',
+      gateway: 'operational',
+      stateStorage: {
+        rateLimiter: rateLimiterMode,
+        idempotency: idempotencyMode,
+        distributed,
+        multiInstanceSafe: distributed,
+      },
+    });
   });
 
   const urls = {
@@ -208,24 +263,16 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
   // 2. Global Rate Limiter
   app.use(rateLimiter.middleware);
 
-  // 3. Distributed Idempotency Middleware (Architectural Flaw 4 Fix)
+  // 3. Distributed Idempotency Middleware (Architectural Flaw 4 & ARC-01 Fix)
   // Protects all mutating requests against duplicate order placements and double charges
-  const idempotencyMiddleware = new IdempotencyMiddleware({
-    redisUrl: config?.redisUrl,
-    customRedis: config?.redisClient,
-  });
   app.use(idempotencyMiddleware.middleware);
 
-  // 4. Health Checks
+  // 4. Liveness endpoint (covered by rate limiter)
   app.get('/health/live', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'live', timestamp: new Date().toISOString() });
   });
 
-  app.get('/health/ready', (_req: Request, res: Response) => {
-    res.status(200).json({ status: 'ready', gateway: 'operational' });
-  });
-
-  // 4. Public Authentication Routes -> identity-service
+  // 5. Public Authentication Routes -> identity-service
   app.use('/api/v1/auth*', (req: Request, res: Response) => {
     forwardRequest(urls.identity, req, res);
   });

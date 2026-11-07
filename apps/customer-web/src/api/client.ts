@@ -108,7 +108,7 @@ export async function sendCustomerPhoneOtp(params: {
   phone: string;
   email?: string;
   fullName?: string;
-}): Promise<{ ticket: string; destination: string; demoOtp: string }> {
+}): Promise<{ ticket: string; destination: string; demoOtp?: string }> {
   const res = await fetch('/api/v1/auth/customer/send-otp', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -112,7 +112,7 @@ This dashboard provides a live high-level view of platform readiness. Update sta
 - [ ] **4.2 API Gateway / BFF (`services/api-gateway`)**
   - [ ] Reverse proxy routing to internal Render private services.
   - [ ] JWT validation and user context forwarding via standard internal headers (`X-User-Id`, `X-User-Role`).
-  - [ ] Distributed rate limiting via Redis (by IP and authenticated user).
+  - [x] Distributed rate limiting via Redis (by IP and authenticated user, with single-instance fallback).
   - [ ] Request correlation ID injection (`X-Correlation-Id`).
   - [ ] Fail-closed error handling: Strip stack traces and internal secrets from responses.
 

@@ -45,3 +45,68 @@ it('prototype delivery: winner only, ordered pickup steps, correct OTP and cash,
     Database.query = originalQuery; Database.getClient = originalClient;
   }
 });
+
+it('SEC-04 Fix: strictly validates rider password hash/assigned PIN and rejects universal 1234 bypass', async () => {
+  const originalQuery = Database.query;
+  const crypto = await import('node:crypto');
+  const salt = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+  const customHash = crypto.scryptSync('SecurePin99', salt, 32).toString('hex');
+
+  const riderWithCustomPin = {
+    id: 'rider-custom-1',
+    full_name: 'Pooja Nair',
+    phone: '+91 99999 88888',
+    email: 'pooja@freshcart.in',
+    status: 'ONLINE',
+    password_hash: `${salt}:${customHash}`,
+    pin_code: '7777',
+    rating: 4.9,
+    total_orders_completed: 10,
+    earnings_today: 500,
+  };
+
+  Database.query = (async (sql: string, params?: any[]) => {
+    if (sql.includes('FROM delivery_riders')) {
+      if (params?.[0] === '+91 99999 88888' || params?.[0] === '99999 88888' || params?.[1] === '9999988888') {
+        return { rows: [{ ...riderWithCustomPin }], rowCount: 1 } as any;
+      }
+    }
+    if (sql.includes('UPDATE delivery_riders SET status')) {
+      return { rows: [], rowCount: 1 } as any;
+    }
+    return { rows: [], rowCount: 0 } as any;
+  }) as any;
+
+  const server = createApp().listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address() as import('node:net').AddressInfo;
+
+  try {
+    // 1. Attempting login with bypass 1234 on a rider with a custom pin must be REJECTED
+    const resBypass = await fetch(`http://127.0.0.1:${address.port}/api/v1/fulfillment/delivery-partners/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneOrEmail: '+91 99999 88888', password: '1234', pinCode: '1234' }),
+    });
+    assert.equal(resBypass.status, 401, 'Universal bypass code 1234 must be rejected');
+
+    // 2. Logging in with their actual assigned PIN (7777) must SUCCEED
+    const resValid = await fetch(`http://127.0.0.1:${address.port}/api/v1/fulfillment/delivery-partners/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneOrEmail: '+91 99999 88888', password: '7777', pinCode: '7777' }),
+    });
+    assert.equal(resValid.status, 200, 'Actual assigned PIN must be accepted');
+
+    // 3. Logging in with their actual scrypt password (SecurePin99) must SUCCEED
+    const resPass = await fetch(`http://127.0.0.1:${address.port}/api/v1/fulfillment/delivery-partners/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneOrEmail: '+91 99999 88888', password: 'SecurePin99' }),
+    });
+    assert.equal(resPass.status, 200, 'Salted scrypt password must be accepted');
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    Database.query = originalQuery;
+  }
+});

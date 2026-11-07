@@ -14,28 +14,55 @@ interface CachedIdempotencyResponse {
 
 export class IdempotencyMiddleware {
   private redis: any = null;
+  private isRedisAvailable = false;
   private readonly inMemoryCache = new Map<string, CachedIdempotencyResponse | 'IN_PROGRESS'>();
   private readonly ttlSeconds: number;
+
+  public getStorageMode(): 'DISTRIBUTED_REDIS' | 'IN_MEMORY' {
+    return this.redis && this.isRedisAvailable ? 'DISTRIBUTED_REDIS' : 'IN_MEMORY';
+  }
 
   constructor(options?: { redisUrl?: string; customRedis?: any; ttlSeconds?: number }) {
     this.ttlSeconds = options?.ttlSeconds || 86400; // 24 hours retention
 
     if (options?.customRedis) {
       this.redis = options.customRedis;
+      this.isRedisAvailable = true;
     } else {
       const url = options?.redisUrl || process.env.REDIS_URL;
       if (url) {
         try {
-          this.redis = new (Redis as any)(url, {
+          const isTls = url.startsWith('rediss://');
+          const client = new (Redis as any)(url, {
             maxRetriesPerRequest: 1,
-            connectTimeout: 3000,
+            connectTimeout: 5000,
             lazyConnect: true,
+            tls: isTls ? { rejectUnauthorized: false } : undefined,
+            retryStrategy: (times: number) => {
+              if (times > 3) return null;
+              return Math.min(times * 100, 1000);
+            },
           });
-          this.redis.on('error', (err: any) => {
+
+          client.on('connect', () => {
+            this.isRedisAvailable = true;
+            logger.info('Connected to Redis for distributed idempotency cache');
+          });
+
+          client.on('error', (err: any) => {
+            this.isRedisAvailable = false;
             logger.warn('Redis idempotency connection warning, using in-memory store', { error: err.message });
           });
+
+          client.connect().catch((err: any) => {
+            this.isRedisAvailable = false;
+            logger.warn('Could not establish initial Redis idempotency connection, using in-memory fallback', { error: err.message });
+          });
+
+          this.redis = client;
         } catch {
           this.redis = null;
+          this.isRedisAvailable = false;
         }
       }
     }
@@ -75,6 +102,18 @@ export class IdempotencyMiddleware {
     const correlationId = getRequestContext()?.correlationId || 'unknown';
 
     try {
+      // If distributed cache is strictly required (e.g. multi-instance clusters), block mutations to prevent split-brain duplicates
+      if (process.env.REQUIRE_DISTRIBUTED_CACHE === 'true' && (!this.redis || !this.isRedisAvailable)) {
+        logger.error('Idempotency rejecting mutating request: REQUIRE_DISTRIBUTED_CACHE is active but Redis is unavailable');
+        return res.status(503).json(
+          errorResponse(
+            'DISTRIBUTED_IDEMPOTENCY_UNAVAILABLE',
+            'Distributed idempotency protection is required but Redis is unreachable. Mutating operation blocked to prevent split-brain duplicates.',
+            correlationId
+          )
+        );
+      }
+
       // 1. Check existing record
       let cached: any = null;
       if (this.redis) {

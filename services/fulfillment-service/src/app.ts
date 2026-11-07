@@ -861,12 +861,17 @@ export function createApp(): express.Application {
     ALTER TABLE delivery_assignments ADD COLUMN IF NOT EXISTS delivery_otp VARCHAR(8);
     ALTER TABLE delivery_assignments ADD COLUMN IF NOT EXISTS rider_uuid UUID;
 
-    -- Seed initial riders if none exist
-    INSERT INTO delivery_riders (id, full_name, phone, email, status, vehicle_type, vehicle_number, driving_license, dark_store_name, pin_code, rating, total_orders_completed, earnings_today)
+    -- Seed initial riders with cryptographic salted password hash
+    INSERT INTO delivery_riders (id, full_name, phone, email, password_hash, status, vehicle_type, vehicle_number, driving_license, dark_store_name, pin_code, rating, total_orders_completed, earnings_today)
     VALUES 
-      ('a0000000-0000-0000-0000-000000000001', 'Rahul Sharma', '+91 98765 00112', 'rahul.rider@freshcart.in', 'ONLINE', 'EV_2W', 'KA-05-EQ-4412', 'DL-04-2022-88192', 'Dark Store #04 - HSR Sector 2', '1234', 4.90, 8, 760.00),
-      ('a0000000-0000-0000-0000-000000000002', 'Vikram Singh', '+91 98765 00113', 'vikram.rider@freshcart.in', 'ONLINE', 'MOTORCYCLE', 'KA-01-AB-1299', 'DL-01-2021-44710', 'Dark Store #04 - HSR Sector 2', '1234', 4.85, 5, 450.00)
+      ('a0000000-0000-0000-0000-000000000001', 'Rahul Sharma', '+91 98765 00112', 'rahul.rider@freshcart.in', 'a1b2c3d4e5f60718293a4b5c6d7e8f90:881feecad21371989a4e9385a5f4d1bd851f9a05fe562b738b9e2b59b6b85862', 'ONLINE', 'EV_2W', 'KA-05-EQ-4412', 'DL-04-2022-88192', 'Dark Store #04 - HSR Sector 2', '1234', 4.90, 8, 760.00),
+      ('a0000000-0000-0000-0000-000000000002', 'Vikram Singh', '+91 98765 00113', 'vikram.rider@freshcart.in', 'a1b2c3d4e5f60718293a4b5c6d7e8f90:881feecad21371989a4e9385a5f4d1bd851f9a05fe562b738b9e2b59b6b85862', 'ONLINE', 'MOTORCYCLE', 'KA-01-AB-1299', 'DL-01-2021-44710', 'Dark Store #04 - HSR Sector 2', '1234', 4.85, 5, 450.00)
     ON CONFLICT (phone) DO NOTHING;
+
+    -- Ensure any existing riders have cryptographic password hash populated
+    UPDATE delivery_riders 
+    SET password_hash = 'a1b2c3d4e5f60718293a4b5c6d7e8f90:881feecad21371989a4e9385a5f4d1bd851f9a05fe562b738b9e2b59b6b85862'
+    WHERE password_hash IS NULL AND pin_code = '1234';
   `).catch((err: any) => {
     logger.warn('delivery_riders and assignments init notice', { error: err.message });
   });
@@ -1130,25 +1135,21 @@ export function createApp(): express.Application {
         return res.status(403).json(errorResponse('ACCOUNT_SUSPENDED', 'Your delivery partner account has been suspended. Please contact store management.', correlationId));
       }
 
-      // Password / PIN verification
+      // Password / PIN verification strictly against salted hash or assigned PIN
       let passwordValid = false;
-      if (password && partner.password_hash) {
+      const testInput = String(password || pinCode || '').trim();
+
+      if (testInput && partner.password_hash) {
         const [salt, storedHash] = partner.password_hash.split(':');
         if (salt && storedHash) {
-          const testHash = crypto.scryptSync(password, salt, 32).toString('hex');
+          const testHash = crypto.scryptSync(testInput, salt, 32).toString('hex');
           if (testHash === storedHash) passwordValid = true;
         }
       }
-      if (!passwordValid && (pinCode || password)) {
-        const testPin = String(pinCode || password).trim();
-        if (testPin === String(partner.pin_code) || testPin === '1234') {
+      if (!passwordValid && testInput && partner.pin_code) {
+        if (testInput === String(partner.pin_code).trim()) {
           passwordValid = true;
         }
-      }
-
-      // Fallback for demo seed riders with default pin
-      if (!passwordValid && !partner.password_hash && (!password || password === '1234' || pinCode === '1234')) {
-        passwordValid = true;
       }
 
       if (!passwordValid) {
@@ -1303,7 +1304,23 @@ export function createApp(): express.Application {
       }
 
       const rider = result.rows[0];
-      if (pinCode && rider.pin_code && rider.pin_code !== pinCode && pinCode !== '1234') {
+      const testPin = String(pinCode || '').trim();
+      let pinValid = false;
+
+      if (testPin && rider.password_hash) {
+        const [salt, storedHash] = rider.password_hash.split(':');
+        if (salt && storedHash) {
+          const testHash = crypto.scryptSync(testPin, salt, 32).toString('hex');
+          if (testHash === storedHash) pinValid = true;
+        }
+      }
+      if (!pinValid && testPin && rider.pin_code) {
+        if (testPin === String(rider.pin_code).trim()) {
+          pinValid = true;
+        }
+      }
+
+      if (!pinValid) {
         return res.status(401).json(errorResponse('INVALID_PIN', 'Invalid 4-digit security PIN', correlationId));
       }
 

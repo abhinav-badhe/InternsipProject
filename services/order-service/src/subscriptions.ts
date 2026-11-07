@@ -7,16 +7,37 @@ import {
 import { Database } from './db.js';
 import crypto from 'node:crypto';
 
+/**
+ * Derives a deterministic signed 32-bit integer from a namespace string for PostgreSQL advisory locks:
+ * pg_try_advisory_lock(int4, int4) / pg_advisory_unlock(int4, int4)
+ * This avoids hardcoded magic numbers (such as 744021) and eliminates lock ID collision risks
+ * across multi-tenant, shared databases, microservices, or scheduled background jobs.
+ */
+export function hashNamespaceTo32BitInt(name: string): number {
+  return crypto.createHash('sha256').update(name).digest().readInt32BE(0);
+}
+
+export const SUBSCRIPTION_LOCK_NAMESPACE = process.env.ADVISORY_LOCK_NAMESPACE || 'freshcart:order-service';
+export const SUBSCRIPTION_LOCK_RESOURCE = 'morning-subscription-processor';
+
+export function getSubscriptionAdvisoryLockKeys(): [number, number] {
+  return [
+    hashNamespaceTo32BitInt(SUBSCRIPTION_LOCK_NAMESPACE),
+    hashNamespaceTo32BitInt(SUBSCRIPTION_LOCK_RESOURCE),
+  ];
+}
+
 export class SubscriptionProcessor {
   constructor(private readonly checkout: (request: CreateOrderRequest) => Promise<OrderResponse>) {}
 
   async run(now = new Date()) {
     const client = await Database.getClient();
     let locked = false;
+    const [lockNamespace, lockResource] = getSubscriptionAdvisoryLockKeys();
     const result = { processedCount: 0, skippedCount: 0, createdOrders: [] as any[], errors: [] as any[] };
     try {
-      // A session lock covers all service replicas and manual/automatic triggers.
-      locked = (await client.query('SELECT pg_try_advisory_lock(744021) AS locked')).rows[0]?.locked === true;
+      // A session lock covers all service replicas and manual/automatic triggers, namespaced to prevent collisions.
+      locked = (await client.query('SELECT pg_try_advisory_lock($1, $2) AS locked', [lockNamespace, lockResource])).rows[0]?.locked === true;
       if (!locked) return { ...result, busy: true };
       const clock = subscriptionClock(now);
       const due = await client.query(`SELECT *, next_delivery_date::text AS due_date
@@ -81,7 +102,7 @@ export class SubscriptionProcessor {
       }
       return result;
     } finally {
-      if (locked) await client.query('SELECT pg_advisory_unlock(744021)').catch(() => {});
+      if (locked) await client.query('SELECT pg_advisory_unlock($1, $2)', [lockNamespace, lockResource]).catch(() => {});
       client.release();
     }
   }

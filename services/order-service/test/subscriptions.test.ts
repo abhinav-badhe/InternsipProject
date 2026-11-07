@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { nextSubscriptionDate, subscriptionClock } from '@grocery/contracts';
-import { SubscriptionProcessor } from '../src/subscriptions.js';
+import {
+  SubscriptionProcessor,
+  hashNamespaceTo32BitInt,
+  getSubscriptionAdvisoryLockKeys,
+} from '../src/subscriptions.js';
 import { Database } from '../src/db.js';
 
 describe('Morning subscription automation', () => {
@@ -64,5 +68,58 @@ describe('Morning subscription automation', () => {
       const failed = await processor.run(new Date('2026-11-06T01:00:00Z'));
       assert.equal(failed.errors.length, 1); assert.equal(updates, 0);
     } finally { Database.getClient = original; }
+  });
+
+  it('DAT-03 Fix: derives namespaced 32-bit keys and invokes pg_try_advisory_lock($1, $2) to prevent collisions', async () => {
+    // 1. Verify hash generates valid signed 32-bit integer within PostgreSQL int4 bounds
+    const key1 = hashNamespaceTo32BitInt('freshcart:order-service');
+    const key2 = hashNamespaceTo32BitInt('morning-subscription-processor');
+    assert.ok(Number.isInteger(key1));
+    assert.ok(Number.isInteger(key2));
+    assert.ok(key1 >= -2147483648 && key1 <= 2147483647, 'key1 must fit within signed 32-bit int');
+    assert.ok(key2 >= -2147483648 && key2 <= 2147483647, 'key2 must fit within signed 32-bit int');
+    assert.notEqual(key1, key2, 'Distinct namespaces must produce distinct keys');
+
+    // 2. Different application namespaces must never collide
+    const tenantAKey = hashNamespaceTo32BitInt('tenant-a:order-service');
+    const tenantBKey = hashNamespaceTo32BitInt('tenant-b:order-service');
+    assert.notEqual(tenantAKey, tenantBKey);
+
+    // 3. SubscriptionProcessor must pass namespaced arguments to pg_try_advisory_lock and pg_advisory_unlock
+    const original = Database.getClient;
+    const lockCalls: { sql: string; params?: any[] }[] = [];
+    const unlockCalls: { sql: string; params?: any[] }[] = [];
+
+    Database.getClient = async () => ({
+      release() {},
+      async query(sql: string, params?: any[]) {
+        if (sql.includes('pg_try_advisory_lock')) {
+          lockCalls.push({ sql, params });
+          return { rows: [{ locked: true }] };
+        }
+        if (sql.includes('pg_advisory_unlock')) {
+          unlockCalls.push({ sql, params });
+          return { rows: [] };
+        }
+        if (sql.includes('SELECT *, next_delivery_date')) return { rows: [] };
+        return { rows: [] };
+      },
+    } as any);
+
+    try {
+      const processor = new SubscriptionProcessor(async () => ({} as any));
+      await processor.run(new Date('2026-11-06T01:00:00Z'));
+
+      assert.equal(lockCalls.length, 1);
+      assert.match(lockCalls[0].sql, /pg_try_advisory_lock\(\$1, \$2\)/);
+      const [expectedK1, expectedK2] = getSubscriptionAdvisoryLockKeys();
+      assert.deepEqual(lockCalls[0].params, [expectedK1, expectedK2]);
+
+      assert.equal(unlockCalls.length, 1);
+      assert.match(unlockCalls[0].sql, /pg_advisory_unlock\(\$1, \$2\)/);
+      assert.deepEqual(unlockCalls[0].params, [expectedK1, expectedK2]);
+    } finally {
+      Database.getClient = original;
+    }
   });
 });

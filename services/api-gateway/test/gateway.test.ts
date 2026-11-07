@@ -269,6 +269,63 @@ describe('ApiGateway & Scenario 05 (Customer Cross-Tenant Data Isolation)', () =
     assert.equal(r3.status, 429);
     assert.equal(r3.body.error.code, 'RATE_LIMIT_EXCEEDED');
   });
+
+  it('ARC-01 Fix: Exposes IN_MEMORY mode in health check for single-instance free-tier transparency', async () => {
+    const memoryApp = createApp({ jwtSecret });
+    const resHealth = await simulateRequest(memoryApp, { method: 'GET', path: '/health' });
+    assert.equal(resHealth.status, 200);
+    assert.equal(resHealth.body.stateStorage.mode, 'IN_MEMORY');
+    assert.equal(resHealth.body.stateStorage.multiInstanceSafe, false);
+
+    const resReady = await simulateRequest(memoryApp, { method: 'GET', path: '/health/ready' });
+    assert.equal(resReady.status, 200);
+    assert.equal(resReady.body.stateStorage.distributed, false);
+  });
+
+  it('ARC-01 Fix: Exposes DISTRIBUTED_REDIS mode when Redis client is attached', async () => {
+    const mockRedis: any = {
+      multi() {
+        return {
+          incr() { return this; },
+          ttl() { return this; },
+          async exec() { return [[null, 1], [null, 60]]; },
+        };
+      },
+      async expire() {},
+      async get() { return null; },
+      async set() {},
+      async del() {},
+    };
+
+    const redisApp = createApp({ jwtSecret, redisClient: mockRedis });
+    const resReady = await simulateRequest(redisApp, { method: 'GET', path: '/health/ready' });
+    assert.equal(resReady.status, 200);
+    assert.equal(resReady.body.stateStorage.distributed, true);
+    assert.equal(resReady.body.stateStorage.multiInstanceSafe, true);
+  });
+
+  it('ARC-01 Fix: Fails closed when REQUIRE_DISTRIBUTED_CACHE=true and Redis is missing', async () => {
+    process.env.REQUIRE_DISTRIBUTED_CACHE = 'true';
+    try {
+      const memoryApp = createApp({ jwtSecret });
+      const resReady = await simulateRequest(memoryApp, { method: 'GET', path: '/health/ready' });
+      assert.equal(resReady.status, 503);
+      assert.equal(resReady.body.status, 'not_ready');
+
+      // Mutating POST request with idempotency key must fail closed instead of risking split-brain duplicate execution
+      const resPost = await simulateRequest(memoryApp, {
+        method: 'POST',
+        path: '/api/v1/orders/checkout',
+        headers: { 'idempotency-key': 'test-idem-key-1' },
+      });
+      assert.equal(resPost.status, 503);
+      assert.ok(
+        ['DISTRIBUTED_CACHE_UNAVAILABLE', 'DISTRIBUTED_IDEMPOTENCY_UNAVAILABLE'].includes(resPost.body.error.code)
+      );
+    } finally {
+      delete process.env.REQUIRE_DISTRIBUTED_CACHE;
+    }
+  });
 });
 
 // Helpers
