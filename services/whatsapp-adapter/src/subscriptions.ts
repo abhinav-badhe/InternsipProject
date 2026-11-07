@@ -1,6 +1,14 @@
 import { SUBSCRIPTION_FREQUENCIES, SUBSCRIPTION_SLOTS, type WhatsAppSessionState, type WhatsAppInboundMessage, type WhatsAppOutboundMessage } from '@grocery/contracts';
 import { Database } from './db.js';
 
+export const POPULAR_SUBSCRIPTION_ITEMS = [
+  { sku: 'AMUL-TZ-500ML', productName: 'Amul Taaza Milk 500ml', variantName: '500 ml', unitPrice: 27, quantity: 1 },
+  { sku: 'AMUL-MILK-1L', productName: 'Amul Taaza Milk 1L', variantName: '1 L', unitPrice: 74, quantity: 1 },
+  { sku: 'AMUL-BTR-100G', productName: 'Amul Salted Butter 100g', variantName: '100 g', unitPrice: 58, quantity: 1 },
+  { sku: 'AMUL-BTR-500G', productName: 'Amul Salted Butter 500g', variantName: '500 g', unitPrice: 275, quantity: 1 },
+  { sku: 'AASH-ATTA-5KG', productName: 'Aashirvaad Chakki Atta 5kg', variantName: '5 kg', unitPrice: 245, quantity: 1 },
+];
+
 export interface SubscriptionClient {
   request(owner: string, path: string, method?: string, body?: any): Promise<any>;
   addresses(owner: string, phone: string): Promise<any[]>;
@@ -64,12 +72,80 @@ export async function subscriptionReply(session: WhatsAppSessionState, message: 
       const subscriptions = await client.request(owner, '');
       if (!subscriptions.some((sub: any) => sub.subscription_number === id && sub.status !== 'CANCELLED')) return reply('Subscription not found. Reply SUBSCRIPTIONS to see yours.');
       draft = session.pendingSubscription = { step: 'SLOT', subscriptionId: id, key: message.messageId };
-    } else if (['subscribe', 'subscription', 'daily delivery'].includes(lower)) {
-      if (session.cartItems.length !== 1) return reply('Add one product and pack size to your cart, then reply SUBSCRIBE. You can set up milk, bread, and other essentials separately.');
-      draft = session.pendingSubscription = { step: 'FREQUENCY', item: { ...session.cartItems[0] }, key: message.messageId };
-      return reply('How often should we deliver? Payment is cash on delivery. Reply CANCEL SETUP to stop.', SUBSCRIPTION_FREQUENCIES.map((frequency) => ({ id: `sub_freq_${frequency}`, title: frequency.toLowerCase().replaceAll('_', ' ') })));
+    } else if (['subscribe', 'subscription', 'daily delivery', 'sub'].includes(lower) || lower.startsWith('subscribe ') || lower.startsWith('subscription ')) {
+      if (session.cartItems.length === 1) {
+        draft = session.pendingSubscription = { step: 'FREQUENCY', item: { ...session.cartItems[0] }, key: message.messageId };
+        return reply('How often should we deliver? Payment is cash on delivery. Reply CANCEL SETUP to stop.', SUBSCRIPTION_FREQUENCIES.map((frequency) => ({ id: `sub_freq_${frequency}`, title: frequency.toLowerCase().replaceAll('_', ' ') })));
+      }
+
+      const param = text.replace(/^(subscribe|subscription)\s+/i, '').trim().toLowerCase();
+      let directMatch: typeof POPULAR_SUBSCRIPTION_ITEMS[number] | undefined;
+      if (param) {
+        const num = parseInt(param, 10);
+        if (!isNaN(num) && num >= 1 && num <= POPULAR_SUBSCRIPTION_ITEMS.length) {
+          directMatch = POPULAR_SUBSCRIPTION_ITEMS[num - 1];
+        } else {
+          directMatch = POPULAR_SUBSCRIPTION_ITEMS.find((it) =>
+            it.sku.toLowerCase() === param ||
+            it.productName.toLowerCase().includes(param) ||
+            param.includes(it.productName.toLowerCase()) ||
+            (param.includes('milk') && (it.sku.includes('MILK') || it.sku.includes('TZ'))) ||
+            (param.includes('butter') && it.sku.includes('BTR')) ||
+            (param.includes('atta') && it.sku.includes('ATTA'))
+          );
+        }
+      }
+
+      if (directMatch) {
+        draft = session.pendingSubscription = { step: 'FREQUENCY', item: { ...directMatch }, key: message.messageId };
+        return reply(
+          `Selected *${directMatch.productName}* (${directMatch.variantName}) - ₹${directMatch.unitPrice}.\n\nHow often should we deliver? Payment is cash on delivery. Reply CANCEL SETUP to stop.`,
+          SUBSCRIPTION_FREQUENCIES.map((frequency) => ({ id: `sub_freq_${frequency}`, title: frequency.toLowerCase().replaceAll('_', ' ') }))
+        );
+      }
+
+      draft = session.pendingSubscription = { step: 'ITEM', key: message.messageId };
+      const itemsListText = POPULAR_SUBSCRIPTION_ITEMS.map((item, idx) => `${idx + 1}️⃣ *${item.productName}* (${item.variantName}) - ₹${item.unitPrice}`).join('\n');
+      return reply(
+        `🥛 *Daily Essentials Subscriptions*\n\nChoose an essential item to subscribe to for morning delivery:\n\n${itemsListText}\n\n_Reply with a number (1-${POPULAR_SUBSCRIPTION_ITEMS.length}), item name, or tap an option below._\n_Reply CANCEL SETUP to stop._`,
+        POPULAR_SUBSCRIPTION_ITEMS.map((item, idx) => ({ id: `sub_item_${item.sku}`, title: `${idx + 1}. ${item.productName.slice(0, 20)}` }))
+      );
     }
     if (!draft) return null;
+    if (draft.step === 'ITEM') {
+      const cleanChoice = text.replace(/^sub_item_/i, '').trim();
+      let matchedItem = POPULAR_SUBSCRIPTION_ITEMS.find((it) => it.sku.toLowerCase() === cleanChoice.toLowerCase());
+      if (!matchedItem && /^\d+$/.test(text)) {
+        const num = parseInt(text, 10);
+        if (num >= 1 && num <= POPULAR_SUBSCRIPTION_ITEMS.length) {
+          matchedItem = POPULAR_SUBSCRIPTION_ITEMS[num - 1];
+        }
+      }
+      if (!matchedItem) {
+        matchedItem = POPULAR_SUBSCRIPTION_ITEMS.find((it) =>
+          it.productName.toLowerCase().includes(lower) ||
+          lower.includes(it.productName.toLowerCase()) ||
+          (lower.includes('milk') && (it.sku.includes('MILK') || it.sku.includes('TZ'))) ||
+          (lower.includes('butter') && it.sku.includes('BTR')) ||
+          (lower.includes('atta') && it.sku.includes('ATTA'))
+        );
+      }
+
+      if (!matchedItem) {
+        const itemsListText = POPULAR_SUBSCRIPTION_ITEMS.map((item, idx) => `${idx + 1}️⃣ *${item.productName}* (${item.variantName}) - ₹${item.unitPrice}`).join('\n');
+        return reply(
+          `Please select a daily essential from the list:\n\n${itemsListText}\n\n_Reply with a number (1-${POPULAR_SUBSCRIPTION_ITEMS.length}) or tap an option below._\n_Reply CANCEL SETUP to stop._`,
+          POPULAR_SUBSCRIPTION_ITEMS.map((item, idx) => ({ id: `sub_item_${item.sku}`, title: `${idx + 1}. ${item.productName.slice(0, 20)}` }))
+        );
+      }
+
+      draft.item = { ...matchedItem };
+      draft.step = 'FREQUENCY';
+      return reply(
+        `Selected *${matchedItem.productName}* (${matchedItem.variantName}) - ₹${matchedItem.unitPrice}.\n\nHow often should we deliver? Payment is cash on delivery. Reply CANCEL SETUP to stop.`,
+        SUBSCRIPTION_FREQUENCIES.map((frequency) => ({ id: `sub_freq_${frequency}`, title: frequency.toLowerCase().replaceAll('_', ' ') }))
+      );
+    }
     if (draft.step === 'FREQUENCY') {
       const frequency = text.replace(/^sub_freq_/i, '').toUpperCase().replaceAll(' ', '_');
       if (!SUBSCRIPTION_FREQUENCIES.includes(frequency as any)) return reply('Choose daily, alternate days, weekdays only, or weekly.');
