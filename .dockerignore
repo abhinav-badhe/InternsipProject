@@ -1,0 +1,39 @@
+# Dependencies & package caches
+node_modules
+.pnpm-store
+.npm
+
+# Build outputs & caches
+dist
+dist-ssr
+*.tsbuildinfo
+.turbo
+coverage
+
+# Environment & local credentials
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Git and OS metadata
+.git
+.github
+.gitignore
+.gemini
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+task-*.log
+
+# Frontends (built separately or run in Vite)
+apps/customer-web/dist
+apps/store-admin-web/dist
+

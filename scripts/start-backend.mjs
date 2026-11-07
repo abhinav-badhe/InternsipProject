@@ -95,7 +95,8 @@ function startService(svc) {
 
   if (SUPABASE_DATABASE_URL) {
     env.DATABASE_URL = SUPABASE_DATABASE_URL;
-    env.DB_SSL = 'true';
+    const isCloudDb = SUPABASE_DATABASE_URL.includes('supabase.com') || process.env.DB_SSL === 'true';
+    env.DB_SSL = isCloudDb ? 'true' : (process.env.DB_SSL || 'false');
   } else if (svc.db) {
     env.DATABASE_URL = `postgresql://${DB_USER}@${DB_HOST}:${DB_PORT}/${svc.db}`;
   }

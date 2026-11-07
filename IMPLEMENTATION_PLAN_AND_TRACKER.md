@@ -93,9 +93,10 @@ This dashboard provides a live high-level view of platform readiness. Update sta
   - [x] Enforce `NUMERIC(12, 4)` or equivalent decimal precision for money (never floating-point).
   - [x] UTC timestamps on all records (`timestamptz`).
   - [x] Explicit currency and unit definitions (`g`, `kg`, `ml`, `l`, `each`).
-- [ ] **3.3 Local Infrastructure via Docker Compose**
-  - [ ] Compose definition for PostgreSQL (separate logical databases with isolated credentials), RabbitMQ with management UI, and Redis.
-  - [x] Seed script for synthetic local test catalog and test store users (`seed_sample_catalog.sql`).
+- [x] **3.3 Local Infrastructure via Docker Compose**
+  - [x] Production multi-stage `Dockerfile` (optimized for pnpm workspace monorepo & Node 20 Alpine).
+  - [x] Compose definition (`docker-compose.yml`) orchestrating PostgreSQL 16, Redis 7, and unified Backend microservices cluster with healthchecks and network mesh.
+  - [x] Automated database initialization script (`database/init-local-db.sh`) executing service migrations.
 
 ---
 

@@ -1,0 +1,119 @@
+# ==============================================================================
+# Omnichannel Grocery Platform — Multi-Container Docker Compose Stack
+# Architecture Reference: 12 Domain Microservices + PostgreSQL + Redis
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Authoritative PostgreSQL Database (Local Replica of Production Supabase)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: grocery-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init-local-db.sh:/docker-entrypoint-initdb.d/00_init_local_db.sh:ro
+      - ./database:/docker-entrypoint-initdb.d/database:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - grocery-mesh
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis Cache & Distributed Lock Manager (Rate Limiting & Idempotency)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: grocery-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - grocery-mesh
+
+  # ----------------------------------------------------------------------------
+  # 3. Unified Backend Microservices Cluster (12 Microservices + API Gateway)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grocery-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      LOG_LEVEL: info
+      
+      # Database connection (Points to local postgres container by default; override in .env for Supabase)
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/postgres}
+      SUPABASE_DATABASE_URL: ${SUPABASE_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/postgres}
+      DB_SSL: ${DB_SSL:-false}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+
+      # Redis distributed cache
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+
+      # Security & JWT Tokens
+      JWT_SECRET: ${JWT_SECRET:-grocery-super-secret-jwt-key-for-development-32chars}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-internal-grocery-mesh-secret-key-prod-999}
+
+      # Meta WhatsApp Cloud API credentials
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-freshcart_meta_webhook_verify_token_2026}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+
+      # Payment Gateway (Razorpay) credentials
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-RAZORPAY}
+      PAYMENT_API_KEY: ${PAYMENT_API_KEY:-}
+      PAYMENT_API_SECRET: ${PAYMENT_API_SECRET:-}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
+    networks:
+      - grocery-mesh
+
+# ------------------------------------------------------------------------------
+# Persistent Docker Volumes
+# ------------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    name: grocery_postgres_data
+  redis_data:
+    name: grocery_redis_data
+
+# ------------------------------------------------------------------------------
+# Internal Container Network Mesh
+# ------------------------------------------------------------------------------
+networks:
+  grocery-mesh:
+    name: grocery_mesh_network
+    driver: bridge
+
