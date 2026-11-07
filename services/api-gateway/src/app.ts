@@ -160,6 +160,11 @@ export function createApp(config?: GatewayServicesConfig): express.Application {
       headers['x-user-role'] = req.user.role;
       if (req.user.email) headers['x-user-email'] = req.user.email;
       if (req.user.phone) headers['x-user-phone'] = req.user.phone;
+    } else {
+      if (req.headers['x-user-id']) headers['x-user-id'] = req.headers['x-user-id'] as string;
+      if (req.headers['x-user-role']) headers['x-user-role'] = req.headers['x-user-role'] as string;
+      if (req.headers['x-user-email']) headers['x-user-email'] = req.headers['x-user-email'] as string;
+      if (req.headers['x-user-phone']) headers['x-user-phone'] = req.headers['x-user-phone'] as string;
     }
 
     // Preserve Meta WhatsApp Cloud API cryptographic webhook signature

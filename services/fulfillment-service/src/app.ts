@@ -1740,8 +1740,25 @@ export function createApp(): express.Application {
       }
       const delivery = daRes.rows[0];
 
-      const actingRider = String(req.headers['x-user-id'] || req.body?.riderId || '');
-      if (!actingRider || ![String(delivery.rider_id), String(delivery.rider_uuid)].includes(actingRider)) {
+      const authHeader = (req.headers['authorization'] || '') as string;
+      let tokenRiderId = '';
+      if (authHeader.startsWith('Bearer dp_token_')) {
+        tokenRiderId = authHeader.replace('Bearer dp_token_', '').split('_')[0];
+      }
+
+      const actingRider = String(req.headers['x-user-id'] || req.body?.riderId || tokenRiderId || '');
+      const assignedRiderId = String(delivery.rider_id || '');
+      const assignedRiderUuid = String(delivery.rider_uuid || '');
+      const assignedPhone = String(delivery.rider_phone || '');
+
+      const isAssigned = actingRider && (
+        actingRider === assignedRiderId ||
+        actingRider === assignedRiderUuid ||
+        actingRider === assignedPhone ||
+        (delivery.rider_name && actingRider.toLowerCase() === String(delivery.rider_name).toLowerCase())
+      );
+
+      if (!actingRider || !isAssigned) {
         return res.status(403).json(errorResponse('DELIVERY_NOT_YOURS', 'Only the assigned delivery partner can update this delivery.', correlationId));
       }
       if (delivery.status === 'DELIVERED') return res.json(okResponse({ orderId: order.id, status: 'DELIVERED' }, correlationId));

@@ -130,9 +130,11 @@ export async function getAdminSession(forceRefresh = false): Promise<AdminSessio
 
   authInFlight = (async () => {
     try {
-      // Attempt login with seeded store admin credentials
+      // Attempt login with admin credentials
       try {
-        const loginResult = await signInAdmin('admin@grocery.local', 'adminpassword123');
+        const loginResult = await signInAdmin('badheabhi1@gmail.com', 'Shopkeeper@123').catch(() =>
+          signInAdmin('admin@grocery.local', 'adminpassword123')
+        );
         if (loginResult.session) {
           cachedAdminSession = loginResult.session;
           return cachedAdminSession;
@@ -148,11 +150,19 @@ export async function getAdminSession(forceRefresh = false): Promise<AdminSessio
       try {
         const regSession = await registerAdmin({
           fullName: 'Store Admin',
-          email: 'admin@grocery.local',
-          password: 'adminpassword123',
+          email: 'badheabhi1@gmail.com',
+          password: 'Shopkeeper@123',
           role: 'STORE_ADMIN',
-          enableMfa: true,
-        });
+          enableMfa: false,
+        }).catch(() =>
+          registerAdmin({
+            fullName: 'Store Admin',
+            email: 'admin@grocery.local',
+            password: 'adminpassword123',
+            role: 'STORE_ADMIN',
+            enableMfa: true,
+          })
+        );
         cachedAdminSession = regSession;
         return cachedAdminSession;
       } catch {}

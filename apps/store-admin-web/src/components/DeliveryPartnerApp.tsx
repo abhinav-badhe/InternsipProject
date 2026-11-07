@@ -543,10 +543,21 @@ export const DeliveryPartnerApp: React.FC<{ initialRoute?: string }> = ({ initia
   const handleUpdateDeliveryStep = async (task: ActiveDeliveryTask, nextStatus: 'REACHED_STORE' | 'PICKED_UP' | 'IN_TRANSIT') => {
     setIsLoading(true);
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-user-id': partner?.id || '',
+      };
+      if (partner?.token) {
+        headers['Authorization'] = `Bearer ${partner.token}`;
+      }
+
       const res = await fetch(`${API_BASE}/deliveries/${task.orderId}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': partner?.id || '' },
-        body: JSON.stringify({ status: nextStatus }),
+        headers,
+        body: JSON.stringify({
+          status: nextStatus,
+          riderId: partner?.id,
+        }),
       });
       const json = await res.json();
       if (json.success) {
@@ -580,9 +591,17 @@ export const DeliveryPartnerApp: React.FC<{ initialRoute?: string }> = ({ initia
     setIsSubmittingOtp(true);
     setOtpError(null);
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-user-id': partner?.id || '',
+      };
+      if (partner?.token) {
+        headers['Authorization'] = `Bearer ${partner.token}`;
+      }
+
       const res = await fetch(`${API_BASE}/deliveries/${otpModalTask.orderId}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           riderId: partner?.id,
           cashCollected: true,

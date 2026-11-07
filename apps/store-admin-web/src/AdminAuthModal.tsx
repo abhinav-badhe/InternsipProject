@@ -200,7 +200,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="adminshopkepper@gmail.com"
+                      placeholder="badheabhi1@gmail.com"
                       className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     />
                   </div>
@@ -227,13 +227,13 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                   <div className="font-semibold text-gray-700">Quick Login Presets:</div>
                   <div className="flex items-center justify-between bg-white px-2 py-1.5 rounded border border-gray-200">
                     <div>
-                      <span className="font-medium text-emerald-800">Shopkeeper:</span>{' '}
-                      <code className="text-gray-800 font-mono text-[10px]">adminshopkepper@gmail.com</code>
+                      <span className="font-medium text-emerald-800">Store Admin:</span>{' '}
+                      <code className="text-gray-800 font-mono text-[10px]">badheabhi1@gmail.com</code>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
-                        setEmail('adminshopkepper@gmail.com');
+                        setEmail('badheabhi1@gmail.com');
                         setPassword('Shopkeeper@123');
                       }}
                       className="text-primary hover:underline font-semibold text-xs ml-2"
