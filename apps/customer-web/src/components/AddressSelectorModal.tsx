@@ -11,6 +11,8 @@ import {
   Compass,
   Crosshair,
   ExternalLink,
+  Search,
+  Loader2,
 } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -59,6 +61,76 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+
+  // MAP-02: Places Autocomplete State (100% Free OpenStreetMap Geocoding, Zero Credit Card)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+    if (!query || query.trim().length < 3) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            query.trim()
+          )}&addressdetails=1&countrycodes=in&limit=5`
+        );
+        if (res.ok) {
+          const list = await res.json();
+          setSearchResults(Array.isArray(list) ? list : []);
+          setShowDropdown(true);
+        }
+      } catch (err) {
+        console.warn('Place search notice:', err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 350);
+  };
+
+  const handleSelectPlace = (place: any) => {
+    const pLat = parseFloat(place.lat);
+    const pLng = parseFloat(place.lon);
+    if (isNaN(pLat) || isNaN(pLng)) return;
+
+    setLat(pLat);
+    setLng(pLng);
+
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([pLat, pLng], 17);
+    }
+    if (markerRef.current) {
+      markerRef.current.setLatLng([pLat, pLng]);
+      markerRef.current.openPopup();
+    }
+
+    const addr = place.address || {};
+    const building = place.name || addr.building || addr.amenity || '';
+    const road = addr.road || addr.street || '';
+    const suburb = addr.suburb || addr.neighbourhood || addr.city_district || addr.locality || '';
+    const pin = addr.postcode || '';
+    const cityName = addr.city || addr.town || addr.village || addr.state_district || 'Bengaluru';
+
+    const streetValue = [building, road, suburb].filter(Boolean).join(', ') || place.display_name.split(',')[0];
+    setStreet(streetValue);
+    if (pin) setPincode(pin);
+    if (cityName) setCity(cityName);
+    if (building && !landmark) setLandmark(`Near ${building}`);
+
+    setShowDropdown(false);
+    setSearchQuery('');
+  };
 
   // Locality quick-pick presets in Bengaluru
   const presets = [
@@ -141,9 +213,11 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
     });
     mapInstanceRef.current = map;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
+    // MAP-01 Fix: High-DPI CartoDB Voyager tiles with crisp road labels and building footprints (100% Free, Zero API Keys)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap contributors, © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 20,
     }).addTo(map);
 
     const marker = L.marker([lat, lng], {
@@ -502,6 +576,66 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
                     <Crosshair className={`w-3 h-3 ${isLocating ? 'animate-spin' : ''}`} />
                     <span>{isLocating ? 'Detecting GPS...' : 'Use Current Location'}</span>
                   </button>
+                </div>
+
+                {/* MAP-02: Instant Places Autocomplete Search Box */}
+                <div className="relative z-20">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      {isSearching ? (
+                        <Loader2 className="w-3.5 h-3.5 text-[#007a55] animate-spin" />
+                      ) : (
+                        <Search className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => handleSearchChange(e.target.value)}
+                      onFocus={() => {
+                        if (searchResults.length > 0) setShowDropdown(true);
+                      }}
+                      placeholder="Search building, apartment, society, or locality..."
+                      className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#007a55]/20 focus:border-[#007a55] transition-all shadow-xs"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSearchResults([]);
+                          setShowDropdown(false);
+                        }}
+                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Floating Autocomplete Dropdown */}
+                  {showDropdown && searchResults.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-52 overflow-y-auto divide-y divide-slate-100">
+                      {searchResults.map((item, idx) => (
+                        <button
+                          key={item.place_id || idx}
+                          type="button"
+                          onClick={() => handleSelectPlace(item)}
+                          className="w-full text-left p-2.5 hover:bg-emerald-50/70 transition-colors flex items-start gap-2.5 cursor-pointer"
+                        >
+                          <MapPin className="w-3.5 h-3.5 text-[#007a55] shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-slate-800 truncate">
+                              {item.name || item.display_name.split(',')[0]}
+                            </div>
+                            <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                              {item.display_name}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Map Div */}
