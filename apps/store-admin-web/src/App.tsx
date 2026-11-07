@@ -1850,17 +1850,6 @@ export const App: React.FC = () => {
           )}
 
           <a
-            href="/delivery/login"
-            target="_blank"
-            rel="noreferrer"
-            className="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-primary font-semibold text-xs transition-colors "
-            title="Open Dedicated Delivery Partner Portal"
-          >
-            <Bike className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Delivery Partner Portal</span>
-          </a>
-
-          <a
             href={((import.meta as any).env?.VITE_STOREFRONT_URL || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? 'https://internsip-project.vercel.app' : 'http://localhost:5173'))}
             target="_blank"
             rel="noreferrer"

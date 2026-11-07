@@ -1867,12 +1867,12 @@ export const DeliveryPartnerApp: React.FC<{ initialRoute?: string }> = ({ initia
                   onChange={(e) => setOtpInput(e.target.value.replace(/\D/g,''))}
                   className="w-full text-center tracking-[1em] text-2xl font-bold bg-surface-muted border-2 border-border focus:border-success/25 rounded-lg py-3 text-foreground focus-visible:outline-primary"
                 />
-                <p className="text-sm font-semibold text-foreground">Collect ₹{Number(otpModalTask.grandTotal).toFixed(2)} in cash before confirming delivery.</p>
-                {otpModalTask.deliveryOtp && (
-                  <div className="text-xs text-muted-foreground text-center mt-1">
-                    Demo Helper PIN: <span className="text-muted-foreground font-mono font-bold">{otpModalTask.deliveryOtp}</span>
-                  </div>
-                )}
+                <p className="text-sm font-semibold text-foreground text-center mt-2">
+                  Collect ₹{Number(otpModalTask.grandTotal).toFixed(2)} in cash before confirming delivery.
+                </p>
+                <p className="text-xs text-muted-foreground text-center mt-1">
+                  Ask the customer for the 4-digit PIN sent to their WhatsApp or Live Tracking screen.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3 pt-2">
