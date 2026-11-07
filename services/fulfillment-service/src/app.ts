@@ -1825,8 +1825,17 @@ export function createApp(): express.Application {
 
         // Dispatch WhatsApp update to customer with real Verification PIN
         try {
-          const phone = (order.delivery_address as any)?.phone;
-          if (phone) {
+          let addr: any = order.delivery_address;
+          if (typeof addr === 'string') {
+            try { addr = JSON.parse(addr); } catch { addr = {}; }
+          }
+          const rawPhone = addr?.phone || addr?.phoneNumber || (order as any)?.customer_phone;
+          if (rawPhone) {
+            let phoneDigits = String(rawPhone).replace(/[^0-9]/g, '');
+            if (phoneDigits.length === 10) {
+              phoneDigits = `91${phoneDigits}`;
+            }
+            const phone = `+${phoneDigits}`;
             const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
             fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
               method: 'POST',
@@ -1835,9 +1844,13 @@ export function createApp(): express.Application {
                 toPhone: phone,
                 bodyText: `🛵 *Your FreshCart Order is Out for Delivery!*\n\nOrder *${order.order_number}* has been picked up from our Dark Store and is on its way to you!\n⏱️ *Estimated Delivery:* 8–12 minutes.\n\n🔑 *Delivery Verification PIN:* *${activeOtp}*\n(Please share this 4-digit PIN with your delivery partner at your doorstep)\n\nReply *'Track'* anytime for live location updates!`
               })
-            }).catch(() => {});
+            }).catch((err) => {
+              logger.warn('Failed to dispatch WhatsApp OTP notification', { error: err.message });
+            });
           }
-        } catch {}
+        } catch (err: any) {
+          logger.warn('Error formatting WhatsApp dispatch', { error: err.message });
+        }
 
         broadcastDeliveryEvent({
           type: 'DELIVERY_STATUS_CHANGED',
@@ -2338,8 +2351,13 @@ export function createApp(): express.Application {
       const order = ordRes.rows[0];
       if (order) {
         const addr = typeof order.delivery_address === 'string' ? JSON.parse(order.delivery_address) : (order.delivery_address || {});
-        const phone = addr.phone;
-        if (phone) {
+        const rawPhone = addr.phone || addr.phoneNumber;
+        if (rawPhone) {
+          let phoneDigits = String(rawPhone).replace(/[^0-9]/g, '');
+          if (phoneDigits.length === 10) {
+            phoneDigits = `91${phoneDigits}`;
+          }
+          const phone = `+${phoneDigits}`;
           const waUrl = process.env.WHATSAPP_ADAPTER_URL || 'http://localhost:3005';
           fetch(`${waUrl}/api/v1/whatsapp/dispatch`, {
             method: 'POST',

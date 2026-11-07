@@ -353,7 +353,11 @@ export class WhatsAppCloudApiClient {
   }
 
   private formatPhone(phone: string): string {
-    return phone.replace(/[^0-9]/g, '');
+    let digits = phone.replace(/[^0-9]/g, '');
+    if (digits.length === 10) {
+      digits = `91${digits}`;
+    }
+    return digits;
   }
 
   /**

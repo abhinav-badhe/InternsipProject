@@ -522,7 +522,11 @@ export function createApp(deps?: {
       return res.status(400).json(errorResponse('VALIDATION_ERROR', 'Missing toPhone / phone', correlationId));
     }
 
-    const cleanPhone = String(rawPhone).startsWith('+') ? String(rawPhone) : `+${String(rawPhone).replace(/[^0-9]/g, '')}`;
+    let digits = String(rawPhone).replace(/[^0-9]/g, '');
+    if (digits.length === 10) {
+      digits = `91${digits}`;
+    }
+    const cleanPhone = `+${digits}`;
 
     try {
       let dispatchResult;
@@ -637,7 +641,11 @@ export function createApp(deps?: {
       return res.status(400).json(errorResponse('VALIDATION_ERROR', 'phone is required', correlationId));
     }
 
-    const cleanPhone = String(rawPhone).startsWith('+') ? String(rawPhone) : `+${String(rawPhone).replace(/[^0-9]/g, '')}`;
+    let digits = String(rawPhone).replace(/[^0-9]/g, '');
+    if (digits.length === 10) {
+      digits = `91${digits}`;
+    }
+    const cleanPhone = `+${digits}`;
 
     try {
       const session = await bot.getOrCreateSession(cleanPhone);
@@ -675,7 +683,11 @@ export function createApp(deps?: {
       return res.status(400).json(errorResponse('VALIDATION_ERROR', 'phone is required', correlationId));
     }
 
-    const cleanPhone = String(rawPhone).startsWith('+') ? String(rawPhone) : `+${String(rawPhone).replace(/[^0-9]/g, '')}`;
+    let digits = String(rawPhone).replace(/[^0-9]/g, '');
+    if (digits.length === 10) {
+      digits = `91${digits}`;
+    }
+    const cleanPhone = `+${digits}`;
 
     try {
       const session = await bot.getOrCreateSession(cleanPhone);
