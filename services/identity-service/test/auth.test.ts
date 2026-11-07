@@ -124,4 +124,48 @@ describe('IdentityService - Auth & JWT', () => {
     const failedLogin = await authService.login('anita@example.com', 'WrongPassword!');
     assert.equal(failedLogin, null);
   });
+
+  it('SEC-01 Fix: strictly verifies actual OTP code and rejects universal backdoor 123456', async () => {
+    // Mock database for MFA verification
+    Database.query = async (text: string, params?: any[]): Promise<any> => {
+      if (text.includes('FROM mfa_challenges')) {
+        if (params?.[0] === 'valid-mfa-ticket') {
+          return {
+            rowCount: 1,
+            rows: [
+              {
+                id: 'chal-uuid-1',
+                user_id: 'user-uuid-1',
+                otp_code: '782914', // Real dynamic OTP
+                expires_at: new Date(Date.now() + 600000),
+                verified: false,
+                full_name: 'Anita Roy',
+                email: 'anita@example.com',
+                phone: '+919876543210',
+                role: 'CUSTOMER',
+              },
+            ],
+          };
+        }
+      }
+      if (text.includes('UPDATE mfa_challenges SET verified = TRUE')) {
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    };
+
+    // 1. Backdoor 123456 must be strictly rejected
+    const backdoorAttempt = await authService.verifyMfa('valid-mfa-ticket', '123456');
+    assert.equal(backdoorAttempt, null, 'Universal backdoor code 123456 must be rejected');
+
+    // 2. Random wrong OTP must be rejected
+    const wrongAttempt = await authService.verifyMfa('valid-mfa-ticket', '999999');
+    assert.equal(wrongAttempt, null, 'Wrong OTP must be rejected');
+
+    // 3. Exact valid OTP (782914) must succeed
+    const validAttempt = await authService.verifyMfa('valid-mfa-ticket', '782914');
+    assert.ok(validAttempt, 'Exact OTP code must be accepted');
+    assert.equal(validAttempt.user.fullName, 'Anita Roy');
+    assert.ok(validAttempt.token);
+  });
 });

@@ -226,9 +226,9 @@ export class AuthService {
 
     const challenge = res.rows[0];
 
-    // Verify OTP code (also allow universal dev code '123456')
+    // Verify OTP code strictly against challenge in database
     const cleanCode = otpCode.trim();
-    if (cleanCode !== challenge.otp_code && cleanCode !== '123456') {
+    if (cleanCode !== challenge.otp_code) {
       logger.warn('MFA verification failed: Incorrect OTP code', { ticket, entered: cleanCode });
       return null;
     }
@@ -375,7 +375,7 @@ export class AuthService {
 
     const actualOtp = challengeRes.rows[0]?.otp_code;
     const cleanCode = otpCode.trim();
-    if (cleanCode !== actualOtp && cleanCode !== '123456') {
+    if (cleanCode !== actualOtp) {
       throw new Error('Incorrect OTP code. Please enter the 6-digit code sent to your phone.');
     }
 
